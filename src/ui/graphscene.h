@@ -59,6 +59,7 @@ class GraphScene : public QGraphicsScene {
     void writePositions();  // sim positions -> item positions (+ edge refresh)
     void stepPhysicsTick(); // one animated step
     void refreshEdges();
+    void updateSceneBounds(); // generous sceneRect so panning works in all directions
     bool isCollapsed(const core::FsNode *node) const;
 
     struct Edge {
@@ -80,6 +81,7 @@ class GraphScene : public QGraphicsScene {
     std::vector<std::pair<int, int>> m_simEdges;
     double m_repulsion = 1.0;
     double m_attraction = 1.0;
+    double m_alpha = 1.0;         // cooling factor; decays so the sim settles, reheated on demand
     int m_draggedIndex = -1;      // node currently held by the user (pinned), or -1
     bool m_suppressEdges = false; // batch guard: refresh edges once, not per move
     bool m_physicsOn = false;

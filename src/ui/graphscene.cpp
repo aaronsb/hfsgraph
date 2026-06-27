@@ -19,11 +19,18 @@
 namespace ui {
 
 namespace {
-constexpr double kIdeal = 330.0;  // ideal edge length / node separation
-constexpr int kIterations = 300;  // build-time convergence passes
-constexpr double kAlpha = 0.04;   // force -> velocity scale
-constexpr double kDamp = 0.62;    // velocity retained each step (d3 velocityDecay≈0.6)
-constexpr double kMaxStep = 60.0; // per-step movement cap (px)
+// d3-style spring-electrical model. Inverse-square charge (repulsion) + Hooke
+// springs toward a rest length (attraction), integrated with velocity damping and
+// an alpha that cools so the system actually settles (no limit cycle).
+constexpr double kL0 = 300.0;         // spring rest length (ideal edge length)
+constexpr double kCharge = 30000.0;   // repulsion strength (inverse-square)
+constexpr double kSpring = 0.35;      // spring stiffness (Hooke)
+constexpr double kDamp = 0.60;        // velocity retained per step (d3 velocityDecay 0.4)
+constexpr double kAlphaDecay = 0.985; // cooling per step
+constexpr double kReheat = 0.7;       // alpha restored on interaction
+constexpr double kMinDist = 8.0;      // clamp so charge doesn't blow up at d→0
+constexpr double kMaxStep = 80.0;     // safety cap (should be unused once settled)
+constexpr int kIterations = 320;      // build-time convergence passes
 } // namespace
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
@@ -71,7 +78,7 @@ void GraphScene::seedSim() {
 
     constexpr double golden = 2.39996322972865332;
     for (int i = 0; i < n; ++i) {
-        const double r = kIdeal * 0.55 * std::sqrt(static_cast<double>(i));
+        const double r = kL0 * 0.6 * std::sqrt(static_cast<double>(i));
         const double a = i * golden;
         m_simPos[i] = QPointF(r * std::cos(a), r * std::sin(a));
         // Mass = total objects in the dir: files + child dirs (drives repulsion).
@@ -86,56 +93,59 @@ void GraphScene::seedSim() {
         if (it != idx.end())
             m_simEdges.emplace_back(i, it->second);
     }
+    m_alpha = 1.0; // full energy for the initial convergence
 }
 
-// One Fruchterman-Reingold pass over the sim state. All-pairs repulsion (scaled by
-// sqrt of file-count mass so heavy dirs claim more room), edge springs, capped by
-// temperature, which then cools. Returns the largest single-node displacement.
+// One spring-electrical pass (d3-style). Inverse-square charge repels every pair
+// (weighted by file-count mass); Hooke springs pull each edge toward a rest length
+// kL0 (so far children aren't yanked in like rigid rods). Forces are scaled by the
+// cooling alpha, added to velocity, which is then damped — so it settles instead of
+// limit-cycling at a step cap. The pinned (dragged) node is never moved by the sim.
 double GraphScene::simIterate() {
     const int n = static_cast<int>(m_simPos.size());
     if (n == 0)
         return 0.0;
-    std::vector<QPointF> disp(n, QPointF(0, 0));
+    std::vector<QPointF> force(n, QPointF(0, 0));
 
+    const double minD2 = kMinDist * kMinDist;
     for (int i = 0; i < n; ++i) {
         for (int j = i + 1; j < n; ++j) {
             double dx = m_simPos[i].x() - m_simPos[j].x();
             double dy = m_simPos[i].y() - m_simPos[j].y();
             double d2 = dx * dx + dy * dy;
-            if (d2 < 1.0) { // coincident — nudge apart deterministically
-                dx = (i - j);
-                dy = 0.37;
-                d2 = dx * dx + dy * dy;
+            if (d2 < minD2) {
+                if (d2 < 1e-6) { // coincident — deterministic nudge
+                    dx = (i - j);
+                    dy = 0.37;
+                    d2 = dx * dx + dy * dy;
+                }
+                d2 = std::max(d2, minD2);
             }
             const double d = std::sqrt(d2);
-            const double f =
-                m_repulsion * (kIdeal * kIdeal / d) * std::sqrt(m_simMass[i] * m_simMass[j]);
-            const QPointF u(dx / d * f, dy / d * f);
-            disp[i] += u;
-            disp[j] -= u;
+            const double mag = m_repulsion * kCharge * m_simMass[i] * m_simMass[j] / d2;
+            const QPointF u(dx / d * mag, dy / d * mag);
+            force[i] += u;
+            force[j] -= u;
         }
     }
     for (const auto &e : m_simEdges) {
         double dx = m_simPos[e.first].x() - m_simPos[e.second].x();
         double dy = m_simPos[e.first].y() - m_simPos[e.second].y();
         const double d = std::sqrt(std::max(dx * dx + dy * dy, 1.0));
-        const double f = m_attraction * (d * d) / kIdeal;
-        const QPointF u(dx / d * f, dy / d * f);
-        disp[e.first] -= u;
-        disp[e.second] += u;
+        const double mag = m_attraction * kSpring * (d - kL0); // Hooke toward rest length
+        const QPointF u(dx / d * mag, dy / d * mag);
+        force[e.first] -= u;
+        force[e.second] += u;
     }
 
-    // Integrate with a damped velocity (d3 velocityDecay style): forces add to
-    // velocity, velocity is retained at kDamp each step (friction), position += v.
-    // This converts ringing/overshoot into smooth settling. The pinned (dragged)
-    // node is never moved by the sim — the user owns its position.
     double maxStep = 0.0;
     for (int i = 0; i < n; ++i) {
         if (i == m_draggedIndex) {
             m_simVel[i] = QPointF(0, 0);
             continue;
         }
-        QPointF v(m_simVel[i].x() + disp[i].x() * kAlpha, m_simVel[i].y() + disp[i].y() * kAlpha);
+        QPointF v(m_simVel[i].x() + force[i].x() * m_alpha,
+                  m_simVel[i].y() + force[i].y() * m_alpha);
         v *= kDamp;
         double vl = std::sqrt(v.x() * v.x() + v.y() * v.y());
         if (vl > kMaxStep) {
@@ -146,6 +156,7 @@ double GraphScene::simIterate() {
         m_simPos[i] += v;
         maxStep = std::max(maxStep, vl);
     }
+    m_alpha *= kAlphaDecay; // cool toward rest
     return maxStep;
 }
 
@@ -232,16 +243,16 @@ void GraphScene::rebuild() {
         // Contrasty + cosmetic pen: cosmetic keeps a constant device width so edges
         // stay visible when zoomed out instead of fading to a sub-pixel hairline.
         QColor ec = qApp ? qApp->palette().color(QPalette::Text) : QColor(210, 210, 210);
-        ec.setAlpha(160);
-        QPen epen(ec, 2.0);
-        epen.setCosmetic(true);
+        ec.setAlpha(90); // visible but not glaring
+        QPen epen(ec, 1.4);
+        epen.setCosmetic(true); // constant device width so it doesn't vanish when zoomed out
         edge->setPen(epen);
         addItem(edge);
         m_edges.push_back({pit->second, item, edge});
     }
 
     refreshEdges();
-    setSceneRect(itemsBoundingRect().adjusted(-300, -300, 300, 300));
+    updateSceneBounds();
 
     if (m_physicsOn)
         setPhysicsRunning(true); // reheat & keep animating across rebuilds
@@ -250,6 +261,7 @@ void GraphScene::rebuild() {
 void GraphScene::setPhysicsRunning(bool on) {
     m_physicsOn = on;
     if (on) {
+        m_alpha = std::max(m_alpha, kReheat); // give it energy to move, then it cools to rest
         if (!m_timer) {
             m_timer = new QTimer(this);
             connect(m_timer, &QTimer::timeout, this, [this] { stepPhysicsTick(); });
@@ -262,10 +274,12 @@ void GraphScene::setPhysicsRunning(bool on) {
 
 void GraphScene::setRepulsion(double k) {
     m_repulsion = k;
+    m_alpha = std::max(m_alpha, kReheat); // re-settle under the new force
 }
 
 void GraphScene::setAttraction(double k) {
     m_attraction = k;
+    m_alpha = std::max(m_alpha, kReheat);
 }
 
 void GraphScene::setDragged(const core::FsNode *node) {
@@ -289,6 +303,7 @@ void GraphScene::clearDragged() {
         }
     }
     m_draggedIndex = -1;
+    m_alpha = std::max(m_alpha, kReheat); // let neighbors re-settle around the dropped node
 }
 
 void GraphScene::setAllShaded(bool shaded) {
@@ -297,7 +312,7 @@ void GraphScene::setAllShaded(bool shaded) {
         item->setShaded(shaded);
     m_suppressEdges = false;
     refreshEdges();
-    setSceneRect(itemsBoundingRect().adjusted(-300, -300, 300, 300));
+    updateSceneBounds();
 }
 
 void GraphScene::setAllViewMode(int mode) {
@@ -311,7 +326,7 @@ void GraphScene::fitAllToContent() {
         item->fitToContent();
     m_suppressEdges = false;
     refreshEdges();
-    setSceneRect(itemsBoundingRect().adjusted(-300, -300, 300, 300));
+    updateSceneBounds();
 }
 
 void GraphScene::refreshEdges() {
@@ -329,6 +344,14 @@ void GraphScene::onNodeMoved() {
     if (m_suppressEdges)
         return;
     refreshEdges();
+}
+
+void GraphScene::updateSceneBounds() {
+    // Pad the content rect by at least its own size (min 2000px) on every side so
+    // ScrollHandDrag can pan freely in all directions and well beyond the graph.
+    const QRectF b = itemsBoundingRect();
+    const qreal m = std::max({2000.0, b.width(), b.height()});
+    setSceneRect(b.adjusted(-m, -m, m, m));
 }
 
 } // namespace ui

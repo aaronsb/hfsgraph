@@ -16,6 +16,13 @@ CanvasView::CanvasView(QWidget *parent) : QGraphicsView(parent) {
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    // Repaint the whole viewport each frame. The default MinimalViewportUpdate
+    // derives dirty regions from item boundingRects, but our nodes paint a drop
+    // shadow well outside their boundingRect — so an animating (moving) node left a
+    // stale "ghost" of the prior frame's shadow, reading as a second superimposed
+    // node at the timer rate. Full updates clear it. (A mouse drag already forced
+    // full repaints, which is why holding a node hid the artifact.)
+    setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
 }
 
 void CanvasView::wheelEvent(QWheelEvent *event) {
