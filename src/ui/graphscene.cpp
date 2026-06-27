@@ -3,6 +3,9 @@
 #include "core/fsnode.h"
 #include "nodeitem.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <QApplication>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsPathItem>
@@ -13,8 +16,8 @@
 namespace ui {
 
 namespace {
-constexpr qreal kXStep = 240.0; // horizontal spacing between leaf columns
-constexpr qreal kYStep = 210.0; // vertical spacing between depth levels
+constexpr qreal kTwoPi = 2.0 * 3.14159265358979323846;
+constexpr qreal kNodeR = 190.0; // base disk radius reserved for a single node
 } // namespace
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
@@ -37,27 +40,51 @@ void GraphScene::toggleCollapse(const core::FsNode *node) {
     rebuild();
 }
 
-qreal GraphScene::layout(const core::FsNode *node, int depth, qreal &cursor,
-                         std::unordered_map<const core::FsNode *, QPointF> &pos) {
-    qreal x;
+// Balloon layout pass 1: size each subtree's bounding disk. A leaf reserves
+// kNodeR; an internal node sizes a ring big enough to seat its children's disks
+// around it, then its own disk is that ring plus the largest child disk.
+qreal GraphScene::computeRadius(const core::FsNode *node,
+                                std::unordered_map<const core::FsNode *, qreal> &ringR,
+                                std::unordered_map<const core::FsNode *, qreal> &subR) const {
     if (isCollapsed(node) || node->children.empty()) {
-        x = cursor * kXStep;
-        cursor += 1.0;
-    } else {
-        qreal first = 0, last = 0;
-        bool firstSet = false;
-        for (const auto &child : node->children) {
-            const qreal cx = layout(child.get(), depth + 1, cursor, pos);
-            if (!firstSet) {
-                first = cx;
-                firstSet = true;
-            }
-            last = cx;
-        }
-        x = (first + last) / 2.0;
+        subR[node] = kNodeR;
+        return kNodeR;
     }
-    pos[node] = QPointF(x, depth * kYStep);
-    return x;
+    qreal sum = 0.0, maxChild = 0.0;
+    for (const auto &child : node->children) {
+        const qreal cr = computeRadius(child.get(), ringR, subR);
+        sum += 2.0 * cr;
+        maxChild = std::max(maxChild, cr);
+    }
+    const qreal R = std::max(sum / kTwoPi, kNodeR + maxChild);
+    ringR[node] = R;
+    const qreal sr = R + maxChild;
+    subR[node] = sr;
+    return sr;
+}
+
+// Balloon layout pass 2: place each child around its parent's ring, giving each
+// an angular slice proportional to its subtree disk so siblings cluster locally
+// and fill 2D space (no hollow global ring).
+void GraphScene::placeBalloon(const core::FsNode *node, QPointF center, qreal baseAngle,
+                              const std::unordered_map<const core::FsNode *, qreal> &ringR,
+                              const std::unordered_map<const core::FsNode *, qreal> &subR,
+                              std::unordered_map<const core::FsNode *, QPointF> &pos) const {
+    pos[node] = center;
+    if (isCollapsed(node) || node->children.empty())
+        return;
+    const qreal R = ringR.at(node);
+    qreal total = 0.0;
+    for (const auto &child : node->children)
+        total += 2.0 * subR.at(child.get());
+    qreal a = baseAngle;
+    for (const auto &child : node->children) {
+        const qreal frac = (2.0 * subR.at(child.get())) / total;
+        const qreal mid = a + frac * kTwoPi / 2.0;
+        const QPointF c = center + QPointF(R * std::cos(mid), R * std::sin(mid));
+        placeBalloon(child.get(), c, mid + kTwoPi / 2.0, ringR, subR, pos);
+        a += frac * kTwoPi;
+    }
 }
 
 void GraphScene::rebuild() {
@@ -67,16 +94,17 @@ void GraphScene::rebuild() {
     if (!m_root)
         return;
 
+    std::unordered_map<const core::FsNode *, qreal> ringR, subR;
+    computeRadius(m_root, ringR, subR);
     std::unordered_map<const core::FsNode *, QPointF> pos;
-    qreal cursor = 0.0;
-    layout(m_root, 0, cursor, pos);
+    placeBalloon(m_root, QPointF(0, 0), 0.0, ringR, subR, pos);
 
     for (const auto &[node, p] : pos) {
         const bool hasChildren = !node->children.empty();
         auto *item = new NodeItem(
             node, hasChildren, isCollapsed(node),
             [this](const core::FsNode *n) { toggleCollapse(n); }, this);
-        item->setPos(p.x() - NodeItem::Width / 2.0, p.y());
+        item->setPos(p.x() - item->nodeWidth() / 2.0, p.y() - item->nodeHeight() / 2.0);
         item->setZValue(1.0);
 
         auto *shadow = new QGraphicsDropShadowEffect();
@@ -109,14 +137,11 @@ void GraphScene::rebuild() {
 
 void GraphScene::refreshEdges() {
     for (const Edge &e : m_edges) {
-        const qreal sx = e.from->x() + NodeItem::Width / 2.0;
-        const qreal sy = e.from->y() + e.from->nodeHeight();
-        const qreal ex = e.to->x() + NodeItem::Width / 2.0;
-        const qreal ey = e.to->y();
-        const qreal midY = (sy + ey) / 2.0;
-
-        QPainterPath path(QPointF(sx, sy));
-        path.cubicTo(QPointF(sx, midY), QPointF(ex, midY), QPointF(ex, ey));
+        const QPointF s =
+            e.from->pos() + QPointF(e.from->nodeWidth() / 2.0, e.from->nodeHeight() / 2.0);
+        const QPointF t = e.to->pos() + QPointF(e.to->nodeWidth() / 2.0, e.to->nodeHeight() / 2.0);
+        QPainterPath path(s);
+        path.lineTo(t);
         e.item->setPath(path);
     }
 }

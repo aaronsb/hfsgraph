@@ -29,6 +29,7 @@ std::unique_ptr<FsNode> scanDir(const QFileInfo &dirInfo, int depth, int maxDept
             }
         } else {
             node->fileCount++;
+            node->sizeBytes += entry.size();
             node->files.push_back(entry.fileName());
         }
     }

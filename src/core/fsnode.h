@@ -18,7 +18,8 @@ struct FsNode {
     QString name;                                  // basename (display)
     std::vector<std::unique_ptr<FsNode>> children; // subdirectories
     QStringList files;                             // regular-file names, this dir
-    int fileCount = 0;                             // total regular files (for "+N more")
+    int fileCount = 0;                             // total regular files
+    qint64 sizeBytes = 0;                          // sum of this dir's regular-file sizes
     bool truncatedDepth = false;                   // children exist on disk but scan stopped
     FsNode *parent = nullptr;
 

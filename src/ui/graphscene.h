@@ -34,8 +34,15 @@ class GraphScene : public QGraphicsScene {
 
   private:
     void rebuild();
-    qreal layout(const core::FsNode *node, int depth, qreal &cursor,
-                 std::unordered_map<const core::FsNode *, QPointF> &pos);
+    // Balloon layout: each subtree is a local disk centered on its parent. Pass 1
+    // sizes every subtree disk; pass 2 places nodes around their parent's ring.
+    qreal computeRadius(const core::FsNode *node,
+                        std::unordered_map<const core::FsNode *, qreal> &ringR,
+                        std::unordered_map<const core::FsNode *, qreal> &subR) const;
+    void placeBalloon(const core::FsNode *node, QPointF center, qreal baseAngle,
+                      const std::unordered_map<const core::FsNode *, qreal> &ringR,
+                      const std::unordered_map<const core::FsNode *, qreal> &subR,
+                      std::unordered_map<const core::FsNode *, QPointF> &pos) const;
     void refreshEdges();
     bool isCollapsed(const core::FsNode *node) const;
 
