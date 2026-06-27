@@ -54,12 +54,11 @@ and physics flows around them. Closer to constrained/quantized layout than naive
   colors so groups/state read clearly against any background.
 - **Not everything is a circle.** Directory nodes are rectangular containers showing a file
   listing; shape carries meaning (container vs. leaf, group, state).
-- **Reuse standard widgets** for non-canvas UI (lists, dialogs, toolbars) rather than
+- **Reuse native Qt/KF6 widgets** for non-canvas UI (lists, dialogs, toolbars) rather than
   reinventing them, and **minimize chrome/clutter** — the canvas is the interface.
-- **System theme bridge:** the canvas palette can **inherit the desktop/KDE color scheme**
-  (read from the system, e.g. `kdeglobals`) as its default, with full override to the
-  app's own canvas themes. Honors desktop theming without depending on a Qt-native widget
-  stack (see ADR-400 for the look-and-feel tradeoff this implies).
+- **Native theming with canvas override:** as a Qt6/KF6 app (ADR-400) the chrome inherits
+  the KDE color scheme and widget style automatically; the canvas takes that palette as its
+  default and layers its own themes (dark/light/twilight) on top.
 
 ## Consequences
 
@@ -76,9 +75,10 @@ and physics flows around them. Closer to constrained/quantized layout than naive
 
 - The collapse morph (edges ↔ nesting) plus snap-to-physics plus drop-shadow/float
   rendering is non-trivial custom drawing; more work than a stock node-editor widget.
-- Inheriting the KDE/system color scheme is a best-effort palette bridge, not true native
-  theming; a deep KDE look-and-feel would require the toolkit tradeoff in ADR-400.
-- Immediate-mode rendering (ADR-400) requires culling/LOD to keep 6k nodes smooth.
+- Custom canvas drawing sits on top of `QGraphicsView` (ADR-400); the morph, backgrounds,
+  and drop-shadow/float styling are bespoke `QGraphicsItem` work, not stock widgets.
+- Keeping 6k nodes smooth relies on `QGraphicsView`'s BSP indexing plus explicit
+  level-of-detail (simplified item painting when zoomed out).
 
 ### Neutral
 

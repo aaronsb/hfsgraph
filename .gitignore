@@ -1,7 +1,10 @@
-# Rust
+# CMake / C++ build
+/build
+compile_commands.json
+CMakeUserPresets.json
+
+# Stray Rust artifacts (pre-Qt scaffold)
 /target
-**/*.rs.bk
-*.pdb
 
 # Python bytecode from vendored docs/adr tooling
 __pycache__/

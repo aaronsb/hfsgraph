@@ -144,9 +144,9 @@ plan/apply, driving real `mv`s, layered on top of Baloo's existing tags.*
 > ⚠ **Tooling caveat (no-webview constraint):** the survey surfaced the best-known graph
 > libraries — d3-hierarchy, Cytoscape.js, Sigma.js, ELK, litegraph — but these are all
 > **web/JS** and can't be used without an embedded browser, which is a hard non-goal.
-> Treat them as **algorithm and UX references only**. The native equivalents for a Qt/Rust
-> build are **Graphviz** (`twopi`/`sfdp`/`dot`), **OGDF**/**igraph** (C/C++), or
-> **layout-rs**/**fdg** (Rust); treemap/sunburst are hand-rolled regardless.
+> Treat them as **algorithm and UX references only**. For the Qt6/KF6 build (ADR-400) the
+> canvas is `QGraphicsView` and layout comes from **Graphviz** (`twopi`/`sfdp`/`dot`) or
+> **OGDF**/**igraph** (C/C++); treemap/sunburst are hand-rolled regardless.
 
 ## The core loop
 
@@ -466,11 +466,11 @@ ADR-300):
   so group/state reads against any background.
 - **Not everything is a circle:** directory nodes are rectangular containers showing a file
   listing; shape carries meaning (container/leaf, group, state).
-- **Reuse standard widgets** (egui's) for non-canvas chrome — lists, dialogs, toolbars —
-  and minimize clutter; the canvas is the interface.
-- **System theme bridge:** inherit the desktop/KDE color scheme (read from `kdeglobals`) as
-  the default palette, fully overridable by the app's own canvas themes. A best-effort
-  bridge, not native Qt theming — see the stack tradeoff in ADR-400.
+- **Reuse native Qt/KF6 widgets** for non-canvas chrome — lists, dialogs, toolbars — and
+  minimize clutter; the canvas is the interface.
+- **Native theming with canvas override:** as a Qt6/KF6 app (ADR-400) the chrome inherits
+  the KDE color scheme and style automatically; the canvas takes that palette as its default
+  and layers its own themes (dark/light/twilight) on top.
 
 ## First pass (MVP): a read-only graph viewer
 
@@ -514,8 +514,9 @@ layers are additive — and none of them can corrupt anything until they're buil
    the moving set. Need a policy per case.
 2. **Subvolume boundaries.** A btrfs snapshot is itself a subvolume; moves across
    subvolume lines are copy+delete. How aggressively do we warn vs. just handle?
-3. **Stack/runtime.** Not chosen yet. Native xattr + btrfs + a graph canvas points at a
-   desktop app (Tauri/Electron + d3, or a Rust/Go core + web front). Open.
+3. **Stack/runtime.** *Resolved (ADR-400):* standalone Qt6 + KDE Frameworks 6 (C++),
+   `QGraphicsView` canvas, no embedded webview. Native KDE theming; `KF6::Solid`/`Baloo` +
+   `libbtrfsutil` + `<sys/xattr.h>` for the engine.
 
 ## Worked example: `~/Projects` (the real mess)
 

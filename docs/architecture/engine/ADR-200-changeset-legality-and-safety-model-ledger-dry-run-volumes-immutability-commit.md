@@ -76,7 +76,12 @@ paths. Any mid-commit divergence aborts; the snapshot is the fallback.
 
 - Requires a sidecar state graph (see ADR-100) and a virtual-tree model for dry-run.
 - The engine is deliberately separable from the UI (a pure module over the model), enabling
-  exhaustive testing and a possible future reuse as a CLI/library.
+  exhaustive testing and a possible future reuse as a CLI/library — and (per ADR-400) it is
+  C++, so its correctness rests on isolation + tests + the snapshot net rather than language
+  guarantees.
+- OS facilities come from the Qt6/KF6 stack (ADR-400): `<sys/xattr.h>` for identity,
+  `libbtrfsutil` for snapshots/reflink, `statx(2)` + `/proc/self/mountinfo` (or `KF6::Solid`)
+  for fingerprints and volume typing, `QUuid` for the identity token.
 
 ## Alternatives Considered
 

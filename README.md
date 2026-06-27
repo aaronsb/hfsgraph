@@ -22,15 +22,19 @@ workflow over `mv` (nothing touches disk until you Apply).
 
 ## Stack
 
-Standalone **Rust + egui** desktop app — no embedded webview, no client/server, launches
-and exits. See [ADR-400](docs/architecture/platform/) for the rationale (and the theming
-tradeoff vs. Qt/KDE).
+Standalone **Qt6 + KDE Frameworks 6** desktop app (C++) — no embedded webview, no
+client/server, launches and exits. Native KDE theming and controls; `QGraphicsView` canvas;
+`KF6::Solid` for mount/device detection, `KF6::Baloo` + `user.xdg.tags` for tag interop,
+`libbtrfsutil` for snapshots. See [ADR-400](docs/architecture/platform/) for the rationale.
 
 ## Quick start
 
+Requires Qt6, KDE Frameworks 6, extra-cmake-modules, and a C++20 compiler.
+
 ```sh
 make help     # list tasks
-make build    # compile
+make build    # configure + compile (CMake)
+make run      # launch
 make check    # lint + test + ADR lint
 make adr CMD="list --group"
 ```

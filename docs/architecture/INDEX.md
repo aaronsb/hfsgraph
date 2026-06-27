@@ -42,4 +42,4 @@ _Tech stack & toolkit, build/packaging, OS facilities, xattr/Baloo interop_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-400](./platform/ADR-400-technology-stack-standalone-rust-egui-no-embedded-webview.md) | Technology stack: standalone Rust + egui, no embedded webview | Draft |
+| [ADR-400](./platform/ADR-400-technology-stack-standalone-qt6-kde-frameworks-no-embedded-webview.md) | Technology stack: standalone Qt6 + KDE Frameworks, no embedded webview | Draft |

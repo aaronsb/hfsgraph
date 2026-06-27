@@ -1,0 +1,9 @@
+# C++ style for hfsgraph. Qt/KDE-flavored: 4-space indent, 100-col, attached braces.
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+PointerAlignment: Right
+AllowShortFunctionsOnASingleLine: Inline
+SortIncludes: false

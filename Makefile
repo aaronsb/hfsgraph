@@ -3,8 +3,10 @@
 
 .DEFAULT_GOAL := help
 CMD ?=
+BUILD_DIR ?= build
+SOURCES := $(shell find src -name '*.cpp' -o -name '*.h' 2>/dev/null)
 
-.PHONY: help build run test lint format check clean adr docs docs-lint index
+.PHONY: help configure build run test lint format check clean adr docs docs-lint index
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -12,27 +14,30 @@ help: ## Show this help
 
 ## --- Build / run -----------------------------------------------------------
 
-build: ## Compile (debug)
-	cargo build
+configure: ## Configure the CMake build tree
+	cmake -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug
 
-run: ## Run the app
-	cargo run
+build: configure ## Compile
+	cmake --build $(BUILD_DIR)
 
-test: ## Run the test suite
-	cargo test
+run: build ## Run the app
+	$(BUILD_DIR)/hfsgraph
+
+test: build ## Run the test suite (ctest)
+	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 ## --- Quality ---------------------------------------------------------------
 
-lint: ## Run clippy (deny warnings)
-	cargo clippy --all-targets -- -D warnings
+lint: ## Check formatting (clang-format dry-run)
+	@clang-format --dry-run --Werror $(SOURCES) && echo "format OK"
 
-format: ## Auto-format with rustfmt
-	cargo fmt
+format: ## Auto-format C++ with clang-format
+	clang-format -i $(SOURCES)
 
 check: lint test docs-lint ## Run all quality gates (lint + test + docs lint)
 
 clean: ## Remove build artifacts
-	cargo clean
+	rm -rf $(BUILD_DIR)
 
 ## --- Docs / ADRs -----------------------------------------------------------
 
