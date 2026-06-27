@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
                      QStringLiteral("0.0.0"),
                      QStringLiteral("Re-wire a directory hierarchy to match its "
                                     "semantic structure"),
-                     KAboutLicense::MIT);
+                     KAboutLicense::GPL_V3);
     KAboutData::setApplicationData(about);
 
     const QStringList args = app.arguments();

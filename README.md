@@ -38,3 +38,15 @@ make run      # launch
 make check    # lint + test + ADR lint
 make adr CMD="list --group"
 ```
+
+## Status
+
+Early. A working **read-only graph viewer**: directories as cards on a force-directed
+canvas (physics toggle, repel/attract controls, box collision), window-shade nodes with a
+file browser (icon grid ↔ detail), and bulk controls. The *re-wiring* engine (propose →
+verify → commit over `mv`) is the next phase — see `.claude/TODO.md` and `CONCEPT.md`.
+
+## License
+
+GPL-3.0-or-later — see [`LICENSE`](LICENSE). Chosen to align with the KDE ecosystem this
+app is built on (Qt6 / KDE Frameworks).
