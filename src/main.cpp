@@ -1,16 +1,18 @@
 // hfsgraph — a canvas tool for re-wiring a directory hierarchy to match its
 // semantic structure.
 //
-// This is a placeholder entry point. The first real milestone is a read-only
-// graph viewer (see CONCEPT.md "First pass (MVP)" and ADR-300): directories as
-// nodes, containment as edges, with the collapse/expand containment morph,
-// rendered on a QGraphicsView canvas.
+// POC milestone (read-only viewer): directories as nodes, containment as edges,
+// rendered on a QGraphicsView canvas with a collapse/expand containment toggle.
+// See CONCEPT.md "First pass (MVP)" and ADR-300/ADR-400.
 //
-// Architecture decisions live in docs/architecture/ (run `make adr CMD=list`).
+// Usage: hfsgraph [PATH] [DEPTH]
+//   PATH   directory to graph (default: ~/Projects if present, else $HOME)
+//   DEPTH  scan depth (default: 2)
+
+#include "ui/mainwindow.h"
 
 #include <QApplication>
-#include <QLabel>
-#include <QMainWindow>
+#include <QDir>
 
 #include <KAboutData>
 
@@ -24,13 +26,22 @@ int main(int argc, char *argv[]) {
                      KAboutLicense::MIT);
     KAboutData::setApplicationData(about);
 
-    QMainWindow window;
-    window.setWindowTitle(QStringLiteral("hfsgraph — scaffold"));
-    window.setCentralWidget(
-        new QLabel(QStringLiteral("hfsgraph scaffold. The read-only graph viewer POC is the next "
-                                  "milestone\n(see CONCEPT.md and docs/architecture/).")));
-    window.resize(640, 400);
-    window.show();
+    const QStringList args = app.arguments();
+    QString path = args.size() > 1 ? args.at(1) : QString();
+    if (path.isEmpty()) {
+        const QString projects = QDir::homePath() + QStringLiteral("/Projects");
+        path = QDir(projects).exists() ? projects : QDir::homePath();
+    }
+    int depth = 2;
+    if (args.size() > 2) {
+        bool ok = false;
+        const int d = args.at(2).toInt(&ok);
+        if (ok && d > 0)
+            depth = d;
+    }
 
+    ui::MainWindow window;
+    window.show();
+    window.load(path, depth);
     return app.exec();
 }

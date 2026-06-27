@@ -517,6 +517,14 @@ layers are additive — and none of them can corrupt anything until they're buil
 3. **Stack/runtime.** *Resolved (ADR-400):* standalone Qt6 + KDE Frameworks 6 (C++),
    `QGraphicsView` canvas, no embedded webview. Native KDE theming; `KF6::Solid`/`Baloo` +
    `libbtrfsutil` + `<sys/xattr.h>` for the engine.
+4. **Deferred research — a Rust core behind an API boundary.** The engine is kept
+   UI-agnostic (ADR-200) and the codebase is split `core/` ↔ `ui/` from the first POC, so a
+   future option stays open: keep the Qt/KF6 interface but move the scanning/ledger/legality/
+   commit engine into a **Rust core** reached over a process/API boundary. Open question is
+   *what* boundary is robust here — a local socket with a defined protocol, a C ABI
+   (`cxx`/`cbindgen`) in-process, gRPC/Cap'n Proto, or stdin/stdout streaming. Warrants its
+   own research + ADR before any move; not in scope now. Building the clean core/ui seam now
+   is the no-regret step that makes it possible later.
 
 ## Worked example: `~/Projects` (the real mess)
 

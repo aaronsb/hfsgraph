@@ -21,7 +21,15 @@ find_package(KF6 REQUIRED COMPONENTS CoreAddons)
 #   libbtrfsutil     — snapshots / reflink (ADR-200), linked directly
 #   <sys/xattr.h>    — durable UUID identity (ADR-100)
 
-add_executable(hfsgraph src/main.cpp)
+add_executable(hfsgraph
+    src/main.cpp
+    src/core/scanner.cpp
+    src/ui/nodeitem.cpp
+    src/ui/graphscene.cpp
+    src/ui/canvasview.cpp
+    src/ui/mainwindow.cpp
+)
+target_include_directories(hfsgraph PRIVATE src)
 target_link_libraries(hfsgraph PRIVATE Qt6::Widgets KF6::CoreAddons)
 
 include(GNUInstallDirs)
