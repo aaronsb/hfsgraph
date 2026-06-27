@@ -38,9 +38,15 @@ class GraphScene : public QGraphicsScene {
     // Experimental toolbar controls.
     void setPhysicsRunning(bool on); // animate the force sim live
     bool physicsRunning() const { return m_physicsOn; }
+    void setRepulsion(double k); // live force tuning
+    void setAttraction(double k);
     void setAllShaded(bool shaded); // bulk window-shade open/close
     void setAllViewMode(int mode);  // bulk icons (0) / list (1)
     void fitAllToContent();         // size every node to its object count
+
+    // Pin the node under an active drag so the sim doesn't fight/snap it back.
+    void setDragged(const core::FsNode *node);
+    void clearDragged();
 
   private:
     void rebuild();
@@ -69,9 +75,12 @@ class GraphScene : public QGraphicsScene {
     // Force-sim state (indices align with m_simNodes).
     std::vector<const core::FsNode *> m_simNodes;
     std::vector<QPointF> m_simPos;
+    std::vector<QPointF> m_simVel; // per-node velocity (damped integrator)
     std::vector<double> m_simMass;
     std::vector<std::pair<int, int>> m_simEdges;
-    double m_simTemp = 0.0;
+    double m_repulsion = 1.0;
+    double m_attraction = 1.0;
+    int m_draggedIndex = -1;      // node currently held by the user (pinned), or -1
     bool m_suppressEdges = false; // batch guard: refresh edges once, not per move
     bool m_physicsOn = false;
     QTimer *m_timer = nullptr;

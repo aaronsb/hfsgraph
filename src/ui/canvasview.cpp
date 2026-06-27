@@ -28,17 +28,29 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
     const QColor base = palette().color(QPalette::Base).darker(112);
     painter->fillRect(rect, base);
 
-    constexpr int grid = 40;
+    // Adapt grid spacing to zoom so dot density stays roughly constant on screen
+    // (dots became far too fine when zoomed out). Dot radius is divided by the scale
+    // so it stays a constant size in device pixels.
+    const qreal scale = transform().m11();
+    if (scale <= 0.0)
+        return;
+    qreal spacing = 40.0;
+    while (spacing * scale < 22.0) // too dense on screen -> coarsen
+        spacing *= 2.0;
+    while (spacing * scale > 90.0) // too sparse -> refine
+        spacing /= 2.0;
+
     QColor dot = palette().color(QPalette::Mid);
-    dot.setAlpha(90);
+    dot.setAlpha(110);
     painter->setPen(Qt::NoPen);
     painter->setBrush(dot);
 
-    const qreal left = std::floor(rect.left() / grid) * grid;
-    const qreal top = std::floor(rect.top() / grid) * grid;
-    for (qreal x = left; x < rect.right(); x += grid)
-        for (qreal y = top; y < rect.bottom(); y += grid)
-            painter->drawEllipse(QPointF(x, y), 1.3, 1.3);
+    const qreal dotR = 1.4 / scale; // ~constant on-screen dot size
+    const qreal left = std::floor(rect.left() / spacing) * spacing;
+    const qreal top = std::floor(rect.top() / spacing) * spacing;
+    for (qreal x = left; x < rect.right(); x += spacing)
+        for (qreal y = top; y < rect.bottom(); y += spacing)
+            painter->drawEllipse(QPointF(x, y), dotR, dotR);
 }
 
 } // namespace ui

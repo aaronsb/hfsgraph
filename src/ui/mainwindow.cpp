@@ -6,6 +6,7 @@
 
 #include <QAction>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QLabel>
 #include <QSpinBox>
@@ -45,6 +46,24 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     physicsAct->setToolTip(QStringLiteral("Animate the force layout live"));
     connect(physicsAct, &QAction::toggled, this,
             [this](bool on) { m_scene->setPhysicsRunning(on); });
+
+    auto *repelSpin = new QDoubleSpinBox(this);
+    repelSpin->setRange(0.0, 5.0);
+    repelSpin->setSingleStep(0.1);
+    repelSpin->setValue(1.0);
+    repelSpin->setPrefix(QStringLiteral("repel "));
+    connect(repelSpin, &QDoubleSpinBox::valueChanged, this,
+            [this](double v) { m_scene->setRepulsion(v); });
+    toolbar->addWidget(repelSpin);
+
+    auto *attractSpin = new QDoubleSpinBox(this);
+    attractSpin->setRange(0.0, 5.0);
+    attractSpin->setSingleStep(0.1);
+    attractSpin->setValue(1.0);
+    attractSpin->setPrefix(QStringLiteral("attract "));
+    connect(attractSpin, &QDoubleSpinBox::valueChanged, this,
+            [this](double v) { m_scene->setAttraction(v); });
+    toolbar->addWidget(attractSpin);
 
     QAction *expandAct = toolbar->addAction(QStringLiteral("Expand all"));
     connect(expandAct, &QAction::triggered, this, [this] { m_scene->setAllShaded(false); });

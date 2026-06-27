@@ -93,6 +93,7 @@ void NodeItem::buildViewer() {
     iconView->setWordWrap(true);
     iconView->setIconSize(QSize(30, 30));
     iconView->setGridSize(QSize(80, 62));
+    iconView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // wrap, don't scroll sideways
     styleView(iconView);
 
     auto *detailView = new QTreeView();
@@ -161,14 +162,18 @@ void NodeItem::fitToContent() {
     setShaded(false); // ensure the viewer exists and is open
     const int count = static_cast<int>(m_node->files.size());
     prepareGeometryChange();
+    constexpr qreal cellW = 80.0, cellH = 62.0;
     if (m_viewMode == 0) { // icon grid: roughly square
-        const int cols = std::max(1, static_cast<int>(std::ceil(std::sqrt(double(count)))));
-        const int rows = (count + cols - 1) / cols;
-        m_width = std::clamp<qreal>(cols * 80.0 + 2 * kPad, MinWidth, 900.0);
-        m_openListH = std::clamp<qreal>(rows * 62.0 + 6.0, MinListH, 1000.0);
-    } else { // detail list: one row per file
+        const int cols0 = std::max(1, static_cast<int>(std::ceil(std::sqrt(double(count)))));
+        // Pick a width that comfortably seats cols0 columns, then derive rows from
+        // the columns that *actually* fit that width (avoids a clipped last row).
+        m_width = std::clamp<qreal>(cols0 * cellW + 2 * kPad + 14.0, MinWidth, 900.0);
+        const int fitCols = std::max(1, static_cast<int>((m_width - 2 * kPad) / cellW));
+        const int rows = (count + fitCols - 1) / fitCols;
+        m_openListH = std::clamp<qreal>(rows * cellH + 20.0, MinListH, 1000.0);
+    } else { // detail list: one row per file (+ header row)
         m_width = 360.0;
-        m_openListH = std::clamp<qreal>(count * 22.0 + 8.0, MinListH, 1200.0);
+        m_openListH = std::clamp<qreal>(count * 23.0 + 32.0, MinListH, 1200.0);
     }
     recomputeHeight();
     updateListGeometry();
@@ -365,6 +370,8 @@ void NodeItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
         event->accept();
         return;
     }
+    if (m_scene)
+        m_scene->setDragged(m_node); // pin so physics doesn't fight the drag
     QGraphicsItem::mousePressEvent(event);
 }
 
@@ -390,6 +397,8 @@ void NodeItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
         event->accept();
         return;
     }
+    if (m_scene)
+        m_scene->clearDragged();
     QGraphicsItem::mouseReleaseEvent(event);
 }
 

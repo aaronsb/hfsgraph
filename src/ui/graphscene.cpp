@@ -19,8 +19,11 @@
 namespace ui {
 
 namespace {
-constexpr double kIdeal = 330.0; // ideal edge length / node separation
-constexpr int kIterations = 450;
+constexpr double kIdeal = 330.0;  // ideal edge length / node separation
+constexpr int kIterations = 300;  // build-time convergence passes
+constexpr double kAlpha = 0.04;   // force -> velocity scale
+constexpr double kDamp = 0.62;    // velocity retained each step (d3 velocityDecay≈0.6)
+constexpr double kMaxStep = 60.0; // per-step movement cap (px)
 } // namespace
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
@@ -57,6 +60,7 @@ void GraphScene::collectVisible(const core::FsNode *node,
 void GraphScene::seedSim() {
     const int n = static_cast<int>(m_simNodes.size());
     m_simPos.assign(n, QPointF());
+    m_simVel.assign(n, QPointF());
     m_simMass.assign(n, 1.0);
     m_simEdges.clear();
 
@@ -70,7 +74,10 @@ void GraphScene::seedSim() {
         const double r = kIdeal * 0.55 * std::sqrt(static_cast<double>(i));
         const double a = i * golden;
         m_simPos[i] = QPointF(r * std::cos(a), r * std::sin(a));
-        m_simMass[i] = 1.0 + std::log2(1.0 + m_simNodes[i]->fileCount);
+        // Mass = total objects in the dir: files + child dirs (drives repulsion).
+        const double objects =
+            m_simNodes[i]->fileCount + static_cast<double>(m_simNodes[i]->children.size());
+        m_simMass[i] = 1.0 + std::log2(1.0 + objects);
     }
     for (int i = 0; i < n; ++i) {
         if (!m_simNodes[i]->parent)
@@ -79,7 +86,6 @@ void GraphScene::seedSim() {
         if (it != idx.end())
             m_simEdges.emplace_back(i, it->second);
     }
-    m_simTemp = kIdeal * 1.5;
 }
 
 // One Fruchterman-Reingold pass over the sim state. All-pairs repulsion (scaled by
@@ -102,7 +108,8 @@ double GraphScene::simIterate() {
                 d2 = dx * dx + dy * dy;
             }
             const double d = std::sqrt(d2);
-            const double f = (kIdeal * kIdeal / d) * std::sqrt(m_simMass[i] * m_simMass[j]);
+            const double f =
+                m_repulsion * (kIdeal * kIdeal / d) * std::sqrt(m_simMass[i] * m_simMass[j]);
             const QPointF u(dx / d * f, dy / d * f);
             disp[i] += u;
             disp[j] -= u;
@@ -112,23 +119,34 @@ double GraphScene::simIterate() {
         double dx = m_simPos[e.first].x() - m_simPos[e.second].x();
         double dy = m_simPos[e.first].y() - m_simPos[e.second].y();
         const double d = std::sqrt(std::max(dx * dx + dy * dy, 1.0));
-        const double f = (d * d) / kIdeal;
+        const double f = m_attraction * (d * d) / kIdeal;
         const QPointF u(dx / d * f, dy / d * f);
         disp[e.first] -= u;
         disp[e.second] += u;
     }
 
-    double maxDisp = 0.0;
+    // Integrate with a damped velocity (d3 velocityDecay style): forces add to
+    // velocity, velocity is retained at kDamp each step (friction), position += v.
+    // This converts ringing/overshoot into smooth settling. The pinned (dragged)
+    // node is never moved by the sim — the user owns its position.
+    double maxStep = 0.0;
     for (int i = 0; i < n; ++i) {
-        const double dl = std::sqrt(disp[i].x() * disp[i].x() + disp[i].y() * disp[i].y());
-        if (dl > 1e-6) {
-            const double c = std::min(dl, m_simTemp);
-            m_simPos[i] += QPointF(disp[i].x() / dl * c, disp[i].y() / dl * c);
-            maxDisp = std::max(maxDisp, c);
+        if (i == m_draggedIndex) {
+            m_simVel[i] = QPointF(0, 0);
+            continue;
         }
+        QPointF v(m_simVel[i].x() + disp[i].x() * kAlpha, m_simVel[i].y() + disp[i].y() * kAlpha);
+        v *= kDamp;
+        double vl = std::sqrt(v.x() * v.x() + v.y() * v.y());
+        if (vl > kMaxStep) {
+            v *= kMaxStep / vl;
+            vl = kMaxStep;
+        }
+        m_simVel[i] = v;
+        m_simPos[i] += v;
+        maxStep = std::max(maxStep, vl);
     }
-    m_simTemp *= 0.985; // cool
-    return maxDisp;
+    return maxStep;
 }
 
 void GraphScene::settle(int iters) {
@@ -139,6 +157,8 @@ void GraphScene::settle(int iters) {
 void GraphScene::writePositions() {
     m_suppressEdges = true; // move every node first, refresh edges once at the end
     for (int i = 0; i < static_cast<int>(m_simNodes.size()); ++i) {
+        if (i == m_draggedIndex)
+            continue; // the user owns the dragged node's position
         auto it = m_items.find(m_simNodes[i]);
         if (it == m_items.end())
             continue;
@@ -148,12 +168,22 @@ void GraphScene::writePositions() {
     }
     m_suppressEdges = false;
     refreshEdges();
-    setSceneRect(itemsBoundingRect().adjusted(-300, -300, 300, 300));
 }
 
 void GraphScene::stepPhysicsTick() {
     if (m_simNodes.empty())
         return;
+    // The dragged node is authoritative: read its live position back into the sim
+    // so forces respond to where the user put it, but the sim never moves it.
+    if (m_draggedIndex >= 0 && m_draggedIndex < static_cast<int>(m_simNodes.size())) {
+        auto it = m_items.find(m_simNodes[m_draggedIndex]);
+        if (it != m_items.end()) {
+            NodeItem *item = it->second;
+            m_simPos[m_draggedIndex] =
+                QPointF(item->x() + item->nodeWidth() / 2.0, item->y() + item->nodeHeight() / 2.0);
+            m_simVel[m_draggedIndex] = QPointF(0, 0);
+        }
+    }
     simIterate();
     writePositions();
 }
@@ -162,6 +192,7 @@ void GraphScene::rebuild() {
     clear(); // deletes all items (nodes + edges + effects)
     m_items.clear();
     m_edges.clear();
+    m_draggedIndex = -1; // items are recreated; no live drag survives a rebuild
     if (!m_root)
         return;
 
@@ -198,8 +229,13 @@ void GraphScene::rebuild() {
             continue;
         auto *edge = new QGraphicsPathItem();
         edge->setZValue(0.0);
-        edge->setPen(
-            QPen(qApp ? qApp->palette().color(QPalette::Mid) : QColor(120, 120, 120), 1.5));
+        // Contrasty + cosmetic pen: cosmetic keeps a constant device width so edges
+        // stay visible when zoomed out instead of fading to a sub-pixel hairline.
+        QColor ec = qApp ? qApp->palette().color(QPalette::Text) : QColor(210, 210, 210);
+        ec.setAlpha(160);
+        QPen epen(ec, 2.0);
+        epen.setCosmetic(true);
+        edge->setPen(epen);
         addItem(edge);
         m_edges.push_back({pit->second, item, edge});
     }
@@ -214,7 +250,6 @@ void GraphScene::rebuild() {
 void GraphScene::setPhysicsRunning(bool on) {
     m_physicsOn = on;
     if (on) {
-        m_simTemp = kIdeal * 0.7; // reheat so motion is visible
         if (!m_timer) {
             m_timer = new QTimer(this);
             connect(m_timer, &QTimer::timeout, this, [this] { stepPhysicsTick(); });
@@ -223,6 +258,37 @@ void GraphScene::setPhysicsRunning(bool on) {
     } else if (m_timer) {
         m_timer->stop();
     }
+}
+
+void GraphScene::setRepulsion(double k) {
+    m_repulsion = k;
+}
+
+void GraphScene::setAttraction(double k) {
+    m_attraction = k;
+}
+
+void GraphScene::setDragged(const core::FsNode *node) {
+    m_draggedIndex = -1;
+    for (int i = 0; i < static_cast<int>(m_simNodes.size()); ++i) {
+        if (m_simNodes[i] == node) {
+            m_draggedIndex = i;
+            break;
+        }
+    }
+}
+
+void GraphScene::clearDragged() {
+    if (m_draggedIndex >= 0 && m_draggedIndex < static_cast<int>(m_simNodes.size())) {
+        auto it = m_items.find(m_simNodes[m_draggedIndex]);
+        if (it != m_items.end()) {
+            NodeItem *item = it->second;
+            m_simPos[m_draggedIndex] =
+                QPointF(item->x() + item->nodeWidth() / 2.0, item->y() + item->nodeHeight() / 2.0);
+            m_simVel[m_draggedIndex] = QPointF(0, 0);
+        }
+    }
+    m_draggedIndex = -1;
 }
 
 void GraphScene::setAllShaded(bool shaded) {
