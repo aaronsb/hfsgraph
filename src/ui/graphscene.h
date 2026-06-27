@@ -1,13 +1,16 @@
 // Builds and lays out the canvas from a core::FsNode tree: one NodeItem per
-// visible directory, containment edges between them, and a top-down tidy-tree
-// layout. Owns collapse/expand state (UI state — kept out of the core model).
+// visible directory, containment edges between them, and a force-directed layout.
+// Owns collapse/expand state and the (optionally animated) physics simulation.
 #pragma once
 
 #include <QGraphicsScene>
+#include <QPointF>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
+class QTimer;
 class QGraphicsPathItem;
 
 namespace core {
@@ -32,14 +35,23 @@ class GraphScene : public QGraphicsScene {
     // Called by NodeItems when dragged, to keep edges attached.
     void onNodeMoved();
 
+    // Experimental toolbar controls.
+    void setPhysicsRunning(bool on); // animate the force sim live
+    bool physicsRunning() const { return m_physicsOn; }
+    void setAllShaded(bool shaded); // bulk window-shade open/close
+    void setAllViewMode(int mode);  // bulk icons (0) / list (1)
+    void fitAllToContent();         // size every node to its object count
+
   private:
     void rebuild();
     void collectVisible(const core::FsNode *node, std::vector<const core::FsNode *> &out) const;
-    // Force-directed (Fruchterman-Reingold) layout that iterates to convergence:
-    // edge springs pull parent↔child together, all-pairs repulsion (weighted by
-    // file count) pushes them apart, cooling settles it. Clusters, no hollow rings.
-    void forceLayout(const std::vector<const core::FsNode *> &nodes,
-                     std::unordered_map<const core::FsNode *, QPointF> &pos) const;
+    // Force-directed (Fruchterman-Reingold) simulation, steppable so it can run to
+    // convergence at build or animate live. Repulsion is weighted by file-count mass.
+    void seedSim();
+    double simIterate();    // one pass; returns max displacement; cools temperature
+    void settle(int iters); // run simIterate iters times (build-time convergence)
+    void writePositions();  // sim positions -> item positions (+ edge refresh)
+    void stepPhysicsTick(); // one animated step
     void refreshEdges();
     bool isCollapsed(const core::FsNode *node) const;
 
@@ -53,6 +65,16 @@ class GraphScene : public QGraphicsScene {
     std::unordered_set<const core::FsNode *> m_collapsed;
     std::unordered_map<const core::FsNode *, NodeItem *> m_items;
     std::vector<Edge> m_edges;
+
+    // Force-sim state (indices align with m_simNodes).
+    std::vector<const core::FsNode *> m_simNodes;
+    std::vector<QPointF> m_simPos;
+    std::vector<double> m_simMass;
+    std::vector<std::pair<int, int>> m_simEdges;
+    double m_simTemp = 0.0;
+    bool m_suppressEdges = false; // batch guard: refresh edges once, not per move
+    bool m_physicsOn = false;
+    QTimer *m_timer = nullptr;
 };
 
 } // namespace ui

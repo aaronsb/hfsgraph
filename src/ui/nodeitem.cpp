@@ -4,6 +4,7 @@
 #include "graphscene.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QAbstractItemView>
 #include <QApplication>
@@ -123,13 +124,52 @@ void NodeItem::recomputeHeight() {
     }
 }
 
-void NodeItem::toggleShade() {
-    m_shaded = !m_shaded;
+void NodeItem::setShaded(bool shaded) {
+    if (!m_hasFiles)
+        return; // nothing to roll down
+    m_shaded = shaded;
     if (!m_shaded)
         buildViewer();
     if (m_proxy)
         m_proxy->setVisible(!m_shaded);
     prepareGeometryChange();
+    recomputeHeight();
+    updateListGeometry();
+    update();
+    if (m_scene)
+        m_scene->onNodeMoved();
+}
+
+void NodeItem::toggleShade() {
+    setShaded(!m_shaded);
+}
+
+void NodeItem::setViewMode(int mode) {
+    if (!m_hasFiles)
+        return;
+    m_viewMode = mode ? 1 : 0;
+    if (m_stack)
+        m_stack->setCurrentIndex(m_viewMode);
+    update();
+}
+
+// Size the node so its file viewer shows all entries — node size becomes an
+// indicator of object count (icon grid → larger rectangle; list → long column).
+void NodeItem::fitToContent() {
+    if (!m_hasFiles)
+        return;
+    setShaded(false); // ensure the viewer exists and is open
+    const int count = static_cast<int>(m_node->files.size());
+    prepareGeometryChange();
+    if (m_viewMode == 0) { // icon grid: roughly square
+        const int cols = std::max(1, static_cast<int>(std::ceil(std::sqrt(double(count)))));
+        const int rows = (count + cols - 1) / cols;
+        m_width = std::clamp<qreal>(cols * 80.0 + 2 * kPad, MinWidth, 900.0);
+        m_openListH = std::clamp<qreal>(rows * 62.0 + 6.0, MinListH, 1000.0);
+    } else { // detail list: one row per file
+        m_width = 360.0;
+        m_openListH = std::clamp<qreal>(count * 22.0 + 8.0, MinListH, 1200.0);
+    }
     recomputeHeight();
     updateListGeometry();
     update();

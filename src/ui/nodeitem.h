@@ -36,6 +36,11 @@ class NodeItem : public QGraphicsItem {
     qreal nodeWidth() const { return m_width; }
     qreal nodeHeight() const { return m_height; }
 
+    // Scene-wide batch controls (experimental toolbar).
+    void setShaded(bool shaded);
+    void setViewMode(int mode); // 0 = icon grid, 1 = detail list
+    void fitToContent();        // size the node to its file count (size ~ count)
+
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;

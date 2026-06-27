@@ -14,6 +14,7 @@
 #include <QPainterPath>
 #include <QPalette>
 #include <QPen>
+#include <QTimer>
 
 namespace ui {
 
@@ -51,90 +52,110 @@ void GraphScene::collectVisible(const core::FsNode *node,
         collectVisible(child.get(), out);
 }
 
-// Fruchterman-Reingold force-directed layout, iterated to convergence. Seeded on
-// a phyllotaxis spiral (even spread, deterministic), then: all-pairs repulsion
-// (scaled by sqrt of file-count mass so heavy dirs claim more room) pushes nodes
-// apart, edge springs pull parent↔child together, and a cooling schedule lets the
-// whole thing settle into clusters instead of a frozen ring.
-void GraphScene::forceLayout(const std::vector<const core::FsNode *> &nodes,
-                             std::unordered_map<const core::FsNode *, QPointF> &pos) const {
-    const int n = static_cast<int>(nodes.size());
-    if (n == 0)
-        return;
+// Seed the simulation: phyllotaxis spiral positions (even, deterministic spread),
+// file-count mass, parent↔child edges, and a starting temperature.
+void GraphScene::seedSim() {
+    const int n = static_cast<int>(m_simNodes.size());
+    m_simPos.assign(n, QPointF());
+    m_simMass.assign(n, 1.0);
+    m_simEdges.clear();
 
     std::unordered_map<const core::FsNode *, int> idx;
     idx.reserve(n);
     for (int i = 0; i < n; ++i)
-        idx[nodes[i]] = i;
+        idx[m_simNodes[i]] = i;
 
-    std::vector<QPointF> p(n);
-    std::vector<double> mass(n);
     constexpr double golden = 2.39996322972865332;
     for (int i = 0; i < n; ++i) {
         const double r = kIdeal * 0.55 * std::sqrt(static_cast<double>(i));
         const double a = i * golden;
-        p[i] = QPointF(r * std::cos(a), r * std::sin(a));
-        mass[i] = 1.0 + std::log2(1.0 + nodes[i]->fileCount);
+        m_simPos[i] = QPointF(r * std::cos(a), r * std::sin(a));
+        m_simMass[i] = 1.0 + std::log2(1.0 + m_simNodes[i]->fileCount);
     }
-
-    std::vector<std::pair<int, int>> edges;
     for (int i = 0; i < n; ++i) {
-        if (!nodes[i]->parent)
+        if (!m_simNodes[i]->parent)
             continue;
-        auto it = idx.find(nodes[i]->parent);
+        auto it = idx.find(m_simNodes[i]->parent);
         if (it != idx.end())
-            edges.emplace_back(i, it->second);
+            m_simEdges.emplace_back(i, it->second);
     }
+    m_simTemp = kIdeal * 1.5;
+}
 
-    std::vector<QPointF> disp(n);
-    double t = kIdeal * 1.5; // initial temperature (max step), cooled each pass
-    for (int iter = 0; iter < kIterations; ++iter) {
-        std::fill(disp.begin(), disp.end(), QPointF(0, 0));
+// One Fruchterman-Reingold pass over the sim state. All-pairs repulsion (scaled by
+// sqrt of file-count mass so heavy dirs claim more room), edge springs, capped by
+// temperature, which then cools. Returns the largest single-node displacement.
+double GraphScene::simIterate() {
+    const int n = static_cast<int>(m_simPos.size());
+    if (n == 0)
+        return 0.0;
+    std::vector<QPointF> disp(n, QPointF(0, 0));
 
-        for (int i = 0; i < n; ++i) {
-            for (int j = i + 1; j < n; ++j) {
-                double dx = p[i].x() - p[j].x();
-                double dy = p[i].y() - p[j].y();
-                double d2 = dx * dx + dy * dy;
-                if (d2 < 1.0) { // coincident — nudge apart deterministically
-                    dx = (i - j);
-                    dy = 0.37;
-                    d2 = dx * dx + dy * dy;
-                }
-                const double d = std::sqrt(d2);
-                const double f = (kIdeal * kIdeal / d) * std::sqrt(mass[i] * mass[j]);
-                const QPointF u(dx / d * f, dy / d * f);
-                disp[i] += u;
-                disp[j] -= u;
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            double dx = m_simPos[i].x() - m_simPos[j].x();
+            double dy = m_simPos[i].y() - m_simPos[j].y();
+            double d2 = dx * dx + dy * dy;
+            if (d2 < 1.0) { // coincident — nudge apart deterministically
+                dx = (i - j);
+                dy = 0.37;
+                d2 = dx * dx + dy * dy;
             }
-        }
-
-        for (const auto &e : edges) {
-            double dx = p[e.first].x() - p[e.second].x();
-            double dy = p[e.first].y() - p[e.second].y();
-            const double d = std::sqrt(std::max(dx * dx + dy * dy, 1.0));
-            const double f = (d * d) / kIdeal;
+            const double d = std::sqrt(d2);
+            const double f = (kIdeal * kIdeal / d) * std::sqrt(m_simMass[i] * m_simMass[j]);
             const QPointF u(dx / d * f, dy / d * f);
-            disp[e.first] -= u;
-            disp[e.second] += u;
+            disp[i] += u;
+            disp[j] -= u;
         }
-
-        for (int i = 0; i < n; ++i) {
-            const double dl = std::sqrt(disp[i].x() * disp[i].x() + disp[i].y() * disp[i].y());
-            if (dl > 1e-6) {
-                const double c = std::min(dl, t);
-                p[i] += QPointF(disp[i].x() / dl * c, disp[i].y() / dl * c);
-            }
-        }
-        t *= 0.985; // cool
+    }
+    for (const auto &e : m_simEdges) {
+        double dx = m_simPos[e.first].x() - m_simPos[e.second].x();
+        double dy = m_simPos[e.first].y() - m_simPos[e.second].y();
+        const double d = std::sqrt(std::max(dx * dx + dy * dy, 1.0));
+        const double f = (d * d) / kIdeal;
+        const QPointF u(dx / d * f, dy / d * f);
+        disp[e.first] -= u;
+        disp[e.second] += u;
     }
 
-    QPointF centroid(0, 0);
-    for (int i = 0; i < n; ++i)
-        centroid += p[i];
-    centroid /= static_cast<double>(n);
-    for (int i = 0; i < n; ++i)
-        pos[nodes[i]] = p[i] - centroid;
+    double maxDisp = 0.0;
+    for (int i = 0; i < n; ++i) {
+        const double dl = std::sqrt(disp[i].x() * disp[i].x() + disp[i].y() * disp[i].y());
+        if (dl > 1e-6) {
+            const double c = std::min(dl, m_simTemp);
+            m_simPos[i] += QPointF(disp[i].x() / dl * c, disp[i].y() / dl * c);
+            maxDisp = std::max(maxDisp, c);
+        }
+    }
+    m_simTemp *= 0.985; // cool
+    return maxDisp;
+}
+
+void GraphScene::settle(int iters) {
+    for (int i = 0; i < iters; ++i)
+        simIterate();
+}
+
+void GraphScene::writePositions() {
+    m_suppressEdges = true; // move every node first, refresh edges once at the end
+    for (int i = 0; i < static_cast<int>(m_simNodes.size()); ++i) {
+        auto it = m_items.find(m_simNodes[i]);
+        if (it == m_items.end())
+            continue;
+        NodeItem *item = it->second;
+        item->setPos(m_simPos[i].x() - item->nodeWidth() / 2.0,
+                     m_simPos[i].y() - item->nodeHeight() / 2.0);
+    }
+    m_suppressEdges = false;
+    refreshEdges();
+    setSceneRect(itemsBoundingRect().adjusted(-300, -300, 300, 300));
+}
+
+void GraphScene::stepPhysicsTick() {
+    if (m_simNodes.empty())
+        return;
+    simIterate();
+    writePositions();
 }
 
 void GraphScene::rebuild() {
@@ -144,17 +165,19 @@ void GraphScene::rebuild() {
     if (!m_root)
         return;
 
-    std::vector<const core::FsNode *> nodes;
-    collectVisible(m_root, nodes);
-    std::unordered_map<const core::FsNode *, QPointF> pos;
-    forceLayout(nodes, pos);
+    m_simNodes.clear();
+    collectVisible(m_root, m_simNodes);
+    seedSim();
+    settle(kIterations); // converge to a clustered layout for the initial view
 
-    for (const auto &[node, p] : pos) {
+    for (int i = 0; i < static_cast<int>(m_simNodes.size()); ++i) {
+        const core::FsNode *node = m_simNodes[i];
         const bool hasChildren = !node->children.empty();
         auto *item = new NodeItem(
             node, hasChildren, isCollapsed(node),
             [this](const core::FsNode *n) { toggleCollapse(n); }, this);
-        item->setPos(p.x() - item->nodeWidth() / 2.0, p.y() - item->nodeHeight() / 2.0);
+        item->setPos(m_simPos[i].x() - item->nodeWidth() / 2.0,
+                     m_simPos[i].y() - item->nodeHeight() / 2.0);
         item->setZValue(1.0);
 
         auto *shadow = new QGraphicsDropShadowEffect();
@@ -182,7 +205,47 @@ void GraphScene::rebuild() {
     }
 
     refreshEdges();
-    setSceneRect(itemsBoundingRect().adjusted(-200, -200, 200, 200));
+    setSceneRect(itemsBoundingRect().adjusted(-300, -300, 300, 300));
+
+    if (m_physicsOn)
+        setPhysicsRunning(true); // reheat & keep animating across rebuilds
+}
+
+void GraphScene::setPhysicsRunning(bool on) {
+    m_physicsOn = on;
+    if (on) {
+        m_simTemp = kIdeal * 0.7; // reheat so motion is visible
+        if (!m_timer) {
+            m_timer = new QTimer(this);
+            connect(m_timer, &QTimer::timeout, this, [this] { stepPhysicsTick(); });
+        }
+        m_timer->start(30);
+    } else if (m_timer) {
+        m_timer->stop();
+    }
+}
+
+void GraphScene::setAllShaded(bool shaded) {
+    m_suppressEdges = true;
+    for (auto &[node, item] : m_items)
+        item->setShaded(shaded);
+    m_suppressEdges = false;
+    refreshEdges();
+    setSceneRect(itemsBoundingRect().adjusted(-300, -300, 300, 300));
+}
+
+void GraphScene::setAllViewMode(int mode) {
+    for (auto &[node, item] : m_items)
+        item->setViewMode(mode);
+}
+
+void GraphScene::fitAllToContent() {
+    m_suppressEdges = true;
+    for (auto &[node, item] : m_items)
+        item->fitToContent();
+    m_suppressEdges = false;
+    refreshEdges();
+    setSceneRect(itemsBoundingRect().adjusted(-300, -300, 300, 300));
 }
 
 void GraphScene::refreshEdges() {
@@ -197,6 +260,8 @@ void GraphScene::refreshEdges() {
 }
 
 void GraphScene::onNodeMoved() {
+    if (m_suppressEdges)
+        return;
     refreshEdges();
 }
 

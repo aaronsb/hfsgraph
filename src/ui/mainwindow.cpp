@@ -38,6 +38,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     });
     toolbar->addWidget(m_depthSpin);
 
+    toolbar->addSeparator();
+
+    QAction *physicsAct = toolbar->addAction(QStringLiteral("Physics"));
+    physicsAct->setCheckable(true);
+    physicsAct->setToolTip(QStringLiteral("Animate the force layout live"));
+    connect(physicsAct, &QAction::toggled, this,
+            [this](bool on) { m_scene->setPhysicsRunning(on); });
+
+    QAction *expandAct = toolbar->addAction(QStringLiteral("Expand all"));
+    connect(expandAct, &QAction::triggered, this, [this] { m_scene->setAllShaded(false); });
+    QAction *shadeAct = toolbar->addAction(QStringLiteral("Shade all"));
+    connect(shadeAct, &QAction::triggered, this, [this] { m_scene->setAllShaded(true); });
+
+    QAction *iconsAct = toolbar->addAction(QStringLiteral("Icons"));
+    connect(iconsAct, &QAction::triggered, this, [this] { m_scene->setAllViewMode(0); });
+    QAction *listAct = toolbar->addAction(QStringLiteral("List"));
+    connect(listAct, &QAction::triggered, this, [this] { m_scene->setAllViewMode(1); });
+
+    QAction *fitAct = toolbar->addAction(QStringLiteral("Fit to count"));
+    fitAct->setToolTip(QStringLiteral("Resize every node to its object count"));
+    connect(fitAct, &QAction::triggered, this, [this] { m_scene->fitAllToContent(); });
+
     m_pathLabel = new QLabel(this);
     statusBar()->addWidget(m_pathLabel);
 
