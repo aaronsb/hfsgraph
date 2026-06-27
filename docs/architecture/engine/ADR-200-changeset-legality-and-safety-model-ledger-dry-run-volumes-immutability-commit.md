@@ -1,10 +1,10 @@
 ---
-status: Draft
+status: Accepted
 date: 2026-06-27
 deciders:
   - aaronsb
   - claude
-related: [ADR-100, ADR-101, ADR-300]
+related: [ADR-100, ADR-101, ADR-300, ADR-401]
 ---
 
 # ADR-200: Changeset legality and safety model: ledger, dry-run, volumes, immutability, commit

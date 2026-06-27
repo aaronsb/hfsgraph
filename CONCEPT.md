@@ -277,6 +277,40 @@ inside it); associations are for **siblings or cross-tree pairs** that the files
 wouldn't couple on its own. Group membership is "many nodes, shared meaning";
 associations are "this node relates to that node, with a movement contract."
 
+## Tagging subgraphs — a categorical lens (functors)
+
+A useful way to think about tagging — not a formalism we have to implement, but a lens that
+yields concrete invariants. Treat the directory tree as a small **category**: objects are
+nodes, morphisms are containment paths (ancestor→descendant), composable and with
+identities. A **semantic group / subgraph tag is then a structure-preserving map (a
+functor)** from a sub-region of the physical-containment category into a semantic category
+(your mental model of roles/labels).
+
+What that lens buys us, concretely:
+
+- **A subgraph tag is a *containment-closed sub-structure*, not an arbitrary node set.** The
+  principled default: tagging a node tags a coherent region (it and the descendants it
+  carries), so the tag composes with containment. "Mark as container → cascade to the
+  subtree" *is* the functor — it maps the whole substructure coherently.
+- **Functoriality = the co-move / cascade guarantee.** Because the map preserves composition
+  and identity, moving a tagged container moves its mapped substructure *as a unit*, and
+  relationships are preserved by construction. This is the formal backbone of
+  `mark_container` and the association co-move policies.
+- **The overlay is exactly where the tree can't keep up.** A node belonging to two groups,
+  or an association that wants a node under two parents, is a place where the *semantic*
+  category has morphisms the single-parent **tree cannot represent**. Category theory makes
+  precise *why* the groups/associations overlay (ADR-101) must exist: it carries the
+  semantic structure the physical functor can't land in the tree.
+- **Current → Proposed as a natural transformation.** The two states are two functors from
+  node-identity to (parent, position); the coherent morph between them — the diff you verify
+  and commit — behaves like a natural transformation. A *legal* change set is one where that
+  transformation respects the structure (no cycle, no collision); an *illegal* one is where
+  naturality breaks.
+
+So the whole tool, in this lens, is: **find and realize a functor that re-lands your
+semantic structure onto the physical tree**, keeping an overlay for the morphisms the tree
+can't hold. (Refines the graph model in ADR-101; informs the group/association data model.)
+
 ## Volume boundaries (first-class, *typed* node property)
 
 The scan **traverses nested volumes by default** — pick a top-level directory and the
@@ -506,6 +540,21 @@ This MVP is the foundation everything else snaps onto: once the canvas, layout, 
 rendering, and collapse/expand work read-only, the ledger / verify / commit / semantic
 layers are additive — and none of them can corrupt anything until they're built.
 
+## Roadmap (committed next)
+
+The POC is a read-only viewer. The agreed core items beyond it, in rough order:
+
+1. **Force-directed layout** — *done:* nodes settle into clusters (repulsion weighted by
+   file count), replacing the frozen geometric layout. Next: a **physics on/off toggle** to
+   watch it converge live, then **snap-to-physics** (settle → quantize) per ADR-300.
+2. **Window-shade nodes** — *done:* roll between a compact stats node and a file viewer
+   (icon-grid ↔ detail), lazily built. 
+3. **Lazy expand** — scan/expand subtrees on demand so the full ~6k-node tree is navigable
+   without loading it all up front.
+4. **Nested containment morph** — collapse `[+]` should *swallow* children into a nested
+   perimeter (treemap-in-graph), not just hide them (ADR-300's signature visual).
+5. Then the mutating layers (ledger → verify → commit) on the Rust core (ADR-200/401).
+
 ## Sharp edges to resolve (open questions)
 
 1. **Symlinks.** Relative links pointing *inside* a moved subtree stay valid for free;
@@ -517,14 +566,11 @@ layers are additive — and none of them can corrupt anything until they're buil
 3. **Stack/runtime.** *Resolved (ADR-400):* standalone Qt6 + KDE Frameworks 6 (C++),
    `QGraphicsView` canvas, no embedded webview. Native KDE theming; `KF6::Solid`/`Baloo` +
    `libbtrfsutil` + `<sys/xattr.h>` for the engine.
-4. **Deferred research — a Rust core behind an API boundary.** The engine is kept
-   UI-agnostic (ADR-200) and the codebase is split `core/` ↔ `ui/` from the first POC, so a
-   future option stays open: keep the Qt/KF6 interface but move the scanning/ledger/legality/
-   commit engine into a **Rust core** reached over a process/API boundary. Open question is
-   *what* boundary is robust here — a local socket with a defined protocol, a C ABI
-   (`cxx`/`cbindgen`) in-process, gRPC/Cap'n Proto, or stdin/stdout streaming. Warrants its
-   own research + ADR before any move; not in scope now. Building the clean core/ui seam now
-   is the no-regret step that makes it possible later.
+4. **Rust core boundary.** *Resolved (ADR-401):* researched both in-process (cxx/cxx-qt) and
+   out-of-process (stdio/JSON-RPC) options. Decision: **Rust core in-process via `cxx` +
+   Corrosion**, with a message-shaped boundary that stays promotable to out-of-process later;
+   transactional safety (WAL + snapshot + idempotent replay) lives in the core regardless of
+   topology. The `core/` ↔ `ui/` split in the POC already embodies the seam.
 
 ## Worked example: `~/Projects` (the real mess)
 

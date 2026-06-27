@@ -20,26 +20,27 @@ _Graph model, identity, state model — the conceptual foundation_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-100](./core/ADR-100-durable-directory-identity-via-uuid-in-xattr-with-inode-fingerprint.md) | Durable directory identity via UUID-in-xattr with inode fingerprint | Draft |
-| [ADR-101](./core/ADR-101-graph-model-containment-tree-as-state-mirror-not-dataflow.md) | Graph model: containment tree as state-mirror, not dataflow | Draft |
+| [ADR-100](./core/ADR-100-durable-directory-identity-via-uuid-in-xattr-with-inode-fingerprint.md) | Durable directory identity via UUID-in-xattr with inode fingerprint | Accepted |
+| [ADR-101](./core/ADR-101-graph-model-containment-tree-as-state-mirror-not-dataflow.md) | Graph model: containment tree as state-mirror, not dataflow | Accepted |
 
 ## Engine
 _Reorganization engine — ledger, legality, commit, volumes, snapshots, immutability, symlinks_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-200](./engine/ADR-200-changeset-legality-and-safety-model-ledger-dry-run-volumes-immutability-commit.md) | Changeset legality and safety model: ledger, dry-run, volumes, immutability, commit | Draft |
+| [ADR-200](./engine/ADR-200-changeset-legality-and-safety-model-ledger-dry-run-volumes-immutability-commit.md) | Changeset legality and safety model: ledger, dry-run, volumes, immutability, commit | Accepted |
 
 ## UI
 _Canvas, rendering, layout, visualization modes, interaction_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-300](./ui/ADR-300-canvas-model-collapse-expand-containment-morph-and-snap-to-physics-layout.md) | Canvas model: collapse/expand containment morph, snap-to-physics layout, and design language | Draft |
+| [ADR-300](./ui/ADR-300-canvas-model-collapse-expand-containment-morph-and-snap-to-physics-layout.md) | Canvas model: collapse/expand containment morph, snap-to-physics layout, and design language | Accepted |
 
 ## Platform
 _Tech stack & toolkit, build/packaging, OS facilities, xattr/Baloo interop_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-400](./platform/ADR-400-technology-stack-standalone-qt6-kde-frameworks-no-embedded-webview.md) | Technology stack: standalone Qt6 + KDE Frameworks, no embedded webview | Draft |
+| [ADR-400](./platform/ADR-400-technology-stack-standalone-qt6-kde-frameworks-no-embedded-webview.md) | Technology stack: standalone Qt6 + KDE Frameworks, no embedded webview | Accepted |
+| [ADR-401](./platform/ADR-401-rust-core-behind-a-cxx-in-process-boundary-promotable-to-out-of-process.md) | Rust core behind a cxx in-process boundary, promotable to out-of-process | Accepted |
