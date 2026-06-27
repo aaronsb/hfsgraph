@@ -1,0 +1,57 @@
+# ADR Configuration
+# Defines domain numbering and validation rules.
+# Used by: docs/scripts/adr  — and docs/scripts/{doc,doclint}: prose docs share
+#          these same domain bands (the "shared first octet"; catalog ids are
+#          DD.NNN.P).
+#
+# New ADRs get the next available number in their domain.
+
+# Project name (used in generated index)
+project_name: hfsgraph
+
+# Domain Number Series
+domains:
+  core:
+    range: [100, 199]
+    name: Core
+    description: Graph model, identity, state model — the conceptual foundation
+    folder: core
+
+  engine:
+    range: [200, 299]
+    name: Engine
+    description: Reorganization engine — ledger, legality, commit, volumes, snapshots, immutability, symlinks
+    folder: engine
+
+  ui:
+    range: [300, 399]
+    name: UI
+    description: Canvas, rendering, layout, visualization modes, interaction
+    folder: ui
+
+  platform:
+    range: [400, 499]
+    name: Platform
+    description: Tech stack & toolkit, build/packaging, OS facilities, xattr/Baloo interop
+    folder: platform
+
+# Valid ADR statuses
+statuses:
+  - Draft         # Initial creation, not yet proposed
+  - Proposed      # Under discussion/review
+  - Accepted      # Approved and ready for implementation
+  - Superseded    # Replaced by another ADR
+  - Deprecated    # No longer relevant
+
+# Default values for new ADRs
+defaults:
+  deciders: [aaronsb, claude]
+  status: Draft
+
+# Legacy ADR range (pre-domain numbering)
+legacy:
+  range: [1, 99]
+  label: "Legacy"
+
+# Viewer command for `adr view` (use {file} as placeholder)
+viewer: cat {file}

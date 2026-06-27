@@ -1,0 +1,17 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Python bytecode from vendored docs/adr tooling
+__pycache__/
+*.pyc
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Scratch
+/scratch
