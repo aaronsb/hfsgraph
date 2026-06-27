@@ -8,9 +8,11 @@ colors, associations drawn on a node-graph canvas alongside the real directory t
 lets you re-align the physical structure to match, through a *propose → verify → commit*
 workflow over `mv` (nothing touches disk until you Apply).
 
-> **Status:** early. The concept and architecture are captured; the code is scaffold only.
-> The first milestone is a **read-only graph viewer** (directories as nodes, containment as
-> edges, with a collapse/expand "containment morph").
+![hfsgraph showing a ~6,000-directory tree (~/Projects) as a force-directed graph — each directory a card whose size reflects its file count, clustered by containment](screenshots/overview.png)
+
+*A real, organically-grown `~/Projects` (~6,000 directories) rendered as a converged
+force-directed graph: each directory is a card, edges are containment, and clusters fall
+out of the layout.*
 
 ## Where things are
 
