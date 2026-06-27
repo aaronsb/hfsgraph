@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
+#include <vector>
 
 #include <QApplication>
 #include <QGraphicsDropShadowEffect>
@@ -16,8 +18,8 @@
 namespace ui {
 
 namespace {
-constexpr qreal kTwoPi = 2.0 * 3.14159265358979323846;
-constexpr qreal kNodeR = 190.0; // base disk radius reserved for a single node
+constexpr double kIdeal = 330.0; // ideal edge length / node separation
+constexpr int kIterations = 450;
 } // namespace
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
@@ -40,51 +42,99 @@ void GraphScene::toggleCollapse(const core::FsNode *node) {
     rebuild();
 }
 
-// Balloon layout pass 1: size each subtree's bounding disk. A leaf reserves
-// kNodeR; an internal node sizes a ring big enough to seat its children's disks
-// around it, then its own disk is that ring plus the largest child disk.
-qreal GraphScene::computeRadius(const core::FsNode *node,
-                                std::unordered_map<const core::FsNode *, qreal> &ringR,
-                                std::unordered_map<const core::FsNode *, qreal> &subR) const {
-    if (isCollapsed(node) || node->children.empty()) {
-        subR[node] = kNodeR;
-        return kNodeR;
-    }
-    qreal sum = 0.0, maxChild = 0.0;
-    for (const auto &child : node->children) {
-        const qreal cr = computeRadius(child.get(), ringR, subR);
-        sum += 2.0 * cr;
-        maxChild = std::max(maxChild, cr);
-    }
-    const qreal R = std::max(sum / kTwoPi, kNodeR + maxChild);
-    ringR[node] = R;
-    const qreal sr = R + maxChild;
-    subR[node] = sr;
-    return sr;
+void GraphScene::collectVisible(const core::FsNode *node,
+                                std::vector<const core::FsNode *> &out) const {
+    out.push_back(node);
+    if (isCollapsed(node))
+        return;
+    for (const auto &child : node->children)
+        collectVisible(child.get(), out);
 }
 
-// Balloon layout pass 2: place each child around its parent's ring, giving each
-// an angular slice proportional to its subtree disk so siblings cluster locally
-// and fill 2D space (no hollow global ring).
-void GraphScene::placeBalloon(const core::FsNode *node, QPointF center, qreal baseAngle,
-                              const std::unordered_map<const core::FsNode *, qreal> &ringR,
-                              const std::unordered_map<const core::FsNode *, qreal> &subR,
-                              std::unordered_map<const core::FsNode *, QPointF> &pos) const {
-    pos[node] = center;
-    if (isCollapsed(node) || node->children.empty())
+// Fruchterman-Reingold force-directed layout, iterated to convergence. Seeded on
+// a phyllotaxis spiral (even spread, deterministic), then: all-pairs repulsion
+// (scaled by sqrt of file-count mass so heavy dirs claim more room) pushes nodes
+// apart, edge springs pull parent↔child together, and a cooling schedule lets the
+// whole thing settle into clusters instead of a frozen ring.
+void GraphScene::forceLayout(const std::vector<const core::FsNode *> &nodes,
+                             std::unordered_map<const core::FsNode *, QPointF> &pos) const {
+    const int n = static_cast<int>(nodes.size());
+    if (n == 0)
         return;
-    const qreal R = ringR.at(node);
-    qreal total = 0.0;
-    for (const auto &child : node->children)
-        total += 2.0 * subR.at(child.get());
-    qreal a = baseAngle;
-    for (const auto &child : node->children) {
-        const qreal frac = (2.0 * subR.at(child.get())) / total;
-        const qreal mid = a + frac * kTwoPi / 2.0;
-        const QPointF c = center + QPointF(R * std::cos(mid), R * std::sin(mid));
-        placeBalloon(child.get(), c, mid + kTwoPi / 2.0, ringR, subR, pos);
-        a += frac * kTwoPi;
+
+    std::unordered_map<const core::FsNode *, int> idx;
+    idx.reserve(n);
+    for (int i = 0; i < n; ++i)
+        idx[nodes[i]] = i;
+
+    std::vector<QPointF> p(n);
+    std::vector<double> mass(n);
+    constexpr double golden = 2.39996322972865332;
+    for (int i = 0; i < n; ++i) {
+        const double r = kIdeal * 0.55 * std::sqrt(static_cast<double>(i));
+        const double a = i * golden;
+        p[i] = QPointF(r * std::cos(a), r * std::sin(a));
+        mass[i] = 1.0 + std::log2(1.0 + nodes[i]->fileCount);
     }
+
+    std::vector<std::pair<int, int>> edges;
+    for (int i = 0; i < n; ++i) {
+        if (!nodes[i]->parent)
+            continue;
+        auto it = idx.find(nodes[i]->parent);
+        if (it != idx.end())
+            edges.emplace_back(i, it->second);
+    }
+
+    std::vector<QPointF> disp(n);
+    double t = kIdeal * 1.5; // initial temperature (max step), cooled each pass
+    for (int iter = 0; iter < kIterations; ++iter) {
+        std::fill(disp.begin(), disp.end(), QPointF(0, 0));
+
+        for (int i = 0; i < n; ++i) {
+            for (int j = i + 1; j < n; ++j) {
+                double dx = p[i].x() - p[j].x();
+                double dy = p[i].y() - p[j].y();
+                double d2 = dx * dx + dy * dy;
+                if (d2 < 1.0) { // coincident — nudge apart deterministically
+                    dx = (i - j);
+                    dy = 0.37;
+                    d2 = dx * dx + dy * dy;
+                }
+                const double d = std::sqrt(d2);
+                const double f = (kIdeal * kIdeal / d) * std::sqrt(mass[i] * mass[j]);
+                const QPointF u(dx / d * f, dy / d * f);
+                disp[i] += u;
+                disp[j] -= u;
+            }
+        }
+
+        for (const auto &e : edges) {
+            double dx = p[e.first].x() - p[e.second].x();
+            double dy = p[e.first].y() - p[e.second].y();
+            const double d = std::sqrt(std::max(dx * dx + dy * dy, 1.0));
+            const double f = (d * d) / kIdeal;
+            const QPointF u(dx / d * f, dy / d * f);
+            disp[e.first] -= u;
+            disp[e.second] += u;
+        }
+
+        for (int i = 0; i < n; ++i) {
+            const double dl = std::sqrt(disp[i].x() * disp[i].x() + disp[i].y() * disp[i].y());
+            if (dl > 1e-6) {
+                const double c = std::min(dl, t);
+                p[i] += QPointF(disp[i].x() / dl * c, disp[i].y() / dl * c);
+            }
+        }
+        t *= 0.985; // cool
+    }
+
+    QPointF centroid(0, 0);
+    for (int i = 0; i < n; ++i)
+        centroid += p[i];
+    centroid /= static_cast<double>(n);
+    for (int i = 0; i < n; ++i)
+        pos[nodes[i]] = p[i] - centroid;
 }
 
 void GraphScene::rebuild() {
@@ -94,10 +144,10 @@ void GraphScene::rebuild() {
     if (!m_root)
         return;
 
-    std::unordered_map<const core::FsNode *, qreal> ringR, subR;
-    computeRadius(m_root, ringR, subR);
+    std::vector<const core::FsNode *> nodes;
+    collectVisible(m_root, nodes);
     std::unordered_map<const core::FsNode *, QPointF> pos;
-    placeBalloon(m_root, QPointF(0, 0), 0.0, ringR, subR, pos);
+    forceLayout(nodes, pos);
 
     for (const auto &[node, p] : pos) {
         const bool hasChildren = !node->children.empty();
