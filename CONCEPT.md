@@ -542,17 +542,22 @@ layers are additive — and none of them can corrupt anything until they're buil
 
 ## Roadmap (committed next)
 
-The POC is a read-only viewer. The agreed core items beyond it, in rough order:
+The POC is a read-only viewer. Status of the core items:
 
-1. **Force-directed layout** — *done:* nodes settle into clusters (repulsion weighted by
-   file count), replacing the frozen geometric layout. Next: a **physics on/off toggle** to
-   watch it converge live, then **snap-to-physics** (settle → quantize) per ADR-300.
-2. **Window-shade nodes** — *done:* roll between a compact stats node and a file viewer
-   (icon-grid ↔ detail), lazily built. 
-3. **Lazy expand** — scan/expand subtrees on demand so the full ~6k-node tree is navigable
-   without loading it all up front.
-4. **Nested containment morph** — collapse `[+]` should *swallow* children into a nested
-   perimeter (treemap-in-graph), not just hide them (ADR-300's signature visual).
+1. **Force-directed layout** — *done.* d3-style spring-electrical model (inverse-square
+   charge with mass = files + child dirs, Hooke springs to a rest length, velocity damping,
+   cooling alpha) that settles instead of ringing. **Physics on/off toggle** + live
+   **repel/attract** controls done. **Box collision** done (cards separate on real bounds,
+   no overlap). Remaining: **snap-to-physics** (settle → quantize) per ADR-300, and
+   **Barnes-Hut** to drop the O(n²) per-tick cost at scale.
+2. **Window-shade nodes** — *done.* Roll between a compact stats node (files · dirs · size)
+   and a lazily-built file viewer that toggles icon-grid ↔ detail and is drag-resizable.
+   Bulk controls (expand/shade all, icons/list, fit-to-count) done. Node size reflects
+   object count via fit-to-count.
+3. **Lazy expand** — *not yet.* Scan/expand subtrees on demand so the full ~6k-node tree is
+   navigable without loading it all up front. (Pairs with Barnes-Hut for scale.)
+4. **Nested containment morph** — *not yet.* Collapse `[+]` currently hides children; it
+   should *swallow* them into a nested perimeter (treemap-in-graph), ADR-300's signature.
 5. Then the mutating layers (ledger → verify → commit) on the Rust core (ADR-200/401).
 
 ## Sharp edges to resolve (open questions)
