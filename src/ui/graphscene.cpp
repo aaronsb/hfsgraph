@@ -107,6 +107,20 @@ double GraphScene::simIterate() {
         return 0.0;
     std::vector<QPointF> force(n, QPointF(0, 0));
 
+    // Per-node card half-extents for box collision. During the build-time settle the
+    // items don't exist yet, so fall back to a default shaded-card size.
+    std::vector<double> hw(n), hh(n);
+    for (int i = 0; i < n; ++i) {
+        auto it = m_items.find(m_simNodes[i]);
+        if (it != m_items.end()) {
+            hw[i] = it->second->nodeWidth() / 2.0;
+            hh[i] = it->second->nodeHeight() / 2.0;
+        } else {
+            hw[i] = 135.0;
+            hh[i] = 38.0;
+        }
+    }
+
     const double minD2 = kMinDist * kMinDist;
     for (int i = 0; i < n; ++i) {
         for (int j = i + 1; j < n; ++j) {
@@ -156,6 +170,46 @@ double GraphScene::simIterate() {
         m_simPos[i] += v;
         maxStep = std::max(maxStep, vl);
     }
+
+    // Box collision: separate overlapping cards along the minimum-translation axis
+    // using their real bounds (a point charge can't keep wide rectangles apart).
+    // Resolved as a soft position correction (a pinned node is never moved).
+    constexpr double kGap = 16.0; // breathing room between cards
+    constexpr double kCollideStrength = 0.6;
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            const double dx = m_simPos[i].x() - m_simPos[j].x();
+            const double dy = m_simPos[i].y() - m_simPos[j].y();
+            const double ox = (hw[i] + hw[j] + kGap) - std::abs(dx);
+            const double oy = (hh[i] + hh[j] + kGap) - std::abs(dy);
+            if (ox <= 0.0 || oy <= 0.0)
+                continue; // not overlapping
+            const bool pinI = (i == m_draggedIndex);
+            const bool pinJ = (j == m_draggedIndex);
+            if (ox < oy) { // least overlap on X — push apart horizontally
+                const double s = (dx < 0 ? -1.0 : 1.0) * ox * kCollideStrength;
+                if (pinI)
+                    m_simPos[j].rx() -= s;
+                else if (pinJ)
+                    m_simPos[i].rx() += s;
+                else {
+                    m_simPos[i].rx() += s * 0.5;
+                    m_simPos[j].rx() -= s * 0.5;
+                }
+            } else { // push apart vertically
+                const double s = (dy < 0 ? -1.0 : 1.0) * oy * kCollideStrength;
+                if (pinI)
+                    m_simPos[j].ry() -= s;
+                else if (pinJ)
+                    m_simPos[i].ry() += s;
+                else {
+                    m_simPos[i].ry() += s * 0.5;
+                    m_simPos[j].ry() -= s * 0.5;
+                }
+            }
+        }
+    }
+
     m_alpha *= kAlphaDecay; // cool toward rest
     return maxStep;
 }
