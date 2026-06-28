@@ -12,33 +12,71 @@
 namespace ui {
 
 namespace {
-// The treemap's root rectangle in scene units. Absolute size is arbitrary — the
-// view zoom decides on-screen scale — but a 16:10 frame reads well.
-constexpr qreal kCanvasW = 1600.0;
-constexpr qreal kCanvasH = 1000.0;
 // Hard cap on a lens's own scan depth (relative to its root). Lenses deepen with
 // nesting (baseDepth + level); this bounds the recursion/work no matter how deep
 // you stack them — "we are talking C++ here".
 constexpr int kMaxLensDepth = 12;
+// Default size of a base (level-0) root frame, in scene units — roomier than a lens
+// (520×360) since it stands in for the whole map. Generous bounds give cells more
+// area, so constant-size labels elide less (the ADR-304 magnify-by-resize idea).
+constexpr qreal kBaseW = 1100.0, kBaseH = 680.0;
 } // namespace
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
 
-void GraphScene::setRoot(const core::FsNode *root) {
-    m_root = root;
-    m_scanRoot = root; // a genuinely new tree: (re)resolve rule groups against it
-    if (m_scanRoot)
-        core::resolveRuleGroups(*m_scanRoot, m_groups);
+std::vector<FrameItem *> GraphScene::baseFrames() const {
+    std::vector<FrameItem *> out;
+    for (FrameItem *f : m_frames)
+        if (f->level() == 0) // level 0 == a base surface (ADR-304)
+            out.push_back(f);
+    return out;
+}
+
+FrameItem *GraphScene::addBase(std::unique_ptr<core::FsNode> tree) {
+    if (!tree)
+        return nullptr;
+    const core::FsNode *render = tree.get();
+    auto *base = new FrameItem(render, kBaseW, kBaseH, this);
+    base->adoptTree(std::move(tree)); // the base frame is the sole owner of its scan
+    base->setLevel(0);                // a root frame: no parent, no callout, removable
+    // Cascade new bases down-right so two opened back-to-back don't sit exactly atop
+    // each other. Count existing bases to pick the offset.
+    const int n = static_cast<int>(baseFrames().size());
+    base->setPos(40.0 + n * 48.0, 40.0 + n * 48.0);
+    addItem(base);
+    m_frames.push_back(base);
+    resolveGroups();     // re-resolve rule groups across all bases (multi-root)
+    restackFrames();
+    updateSceneBounds();
+    Q_EMIT surfacesChanged();
+    return base;
+}
+
+void GraphScene::removeBase(FrameItem *base) {
+    closeFrame(base); // generic teardown + cascade; re-resolves groups for a base
+}
+
+void GraphScene::clearBases() {
+    // Closing every base cascade-closes its lenses; iterate over a snapshot since
+    // closeFrame mutates m_frames.
+    const std::vector<FrameItem *> bases = baseFrames();
+    for (FrameItem *b : bases)
+        closeFrame(b);
+}
+
+void GraphScene::resolveGroups() {
+    std::vector<const core::FsNode *> roots;
+    for (FrameItem *f : baseFrames())
+        roots.push_back(f->node());
+    if (roots.empty())
+        m_groups.clear(); // no surfaces: drop stale groups so the panel matches
     else
-        m_groups.clear(); // cleared canvas: drop stale groups so the panel matches
-    rebuild();
+        core::resolveRuleGroups(roots, m_groups);
 }
 
 void GraphScene::updateGroupOverlay() {
-    if (m_treemap)
-        m_treemap->update();
     for (FrameItem *f : m_frames)
-        f->update(); // frames carry the same overlay
+        f->update(); // every surface carries the same overlay
 }
 
 void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRect,
@@ -78,8 +116,8 @@ void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRe
     // Float to the lower-right of the origin so it reads as an enlargement of it
     // without fully covering the source square.
     frame->setPos(originSceneRect.right() + 60.0, originSceneRect.top() + 30.0);
-    // The callout's origin is the source node in the source surface (parentFrame's
-    // interior, or the base map when parentFrame is null) — tracked dynamically.
+    // The callout's origin is the source node in the source surface — the frame the
+    // double-click happened in (a base or a lens), tracked dynamically.
     auto *callout = new CalloutItem(node, parentFrame, frame);
     frame->setCallout(callout);
     addItem(callout);
@@ -99,10 +137,11 @@ void GraphScene::closeFrame(FrameItem *frame) {
     const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
     if (it == m_frames.end())
         return;
+    const bool wasBase = frame->level() == 0; // read before teardown (ADR-304)
     m_frames.erase(it); // remove before recursing so a re-entrant call can't re-find it
 
     // Close descendants first (frames opened from within this one), so closing an
-    // upstream frame never leaves its children dangling.
+    // upstream frame — or a base — never leaves its lenses dangling.
     std::vector<FrameItem *> children;
     for (FrameItem *f : m_frames)
         if (f->parentFrame() == frame)
@@ -116,6 +155,16 @@ void GraphScene::closeFrame(FrameItem *frame) {
     }
     removeItem(frame);
     frame->deleteLater();
+
+    // Removing a base surface drops its tree from the canvas: re-resolve rule groups
+    // over the remaining bases (so its groups go) and tell the dock. Cascade-closed
+    // lenses are level > 0, so this fires once, for the base itself.
+    if (wasBase) {
+        resolveGroups();
+        updateGroupOverlay();
+        updateSceneBounds();
+        Q_EMIT surfacesChanged();
+    }
 }
 
 void GraphScene::raiseFrame(FrameItem *frame) {
@@ -177,35 +226,22 @@ void GraphScene::restackFrames() {
 
 void GraphScene::setSizeMetric(int metric) {
     m_sizeMetric = metric;
-    rebuild();
+    for (FrameItem *f : m_frames)
+        f->rebuildInterior(); // recreate each interior treemap with the new metric
+    refreshCallouts();
 }
 
 void GraphScene::setColorRamp(int ramp) {
     m_colorRamp = ramp;
-    rebuild();
+    for (FrameItem *f : m_frames)
+        f->rebuildInterior(); // recreate each interior treemap with the new ramp
+    refreshCallouts();
 }
 
 void GraphScene::setLod(double factor) {
     m_lod = factor;
-    if (m_treemap)
-        m_treemap->setLod(factor); // live — paint-only, no rebuild
     for (FrameItem *f : m_frames)
-        f->setLod(factor);
-}
-
-void GraphScene::rebuild() {
-    clear(); // deletes all items, including the previous treemap and any frames
-    m_treemap = nullptr;
-    m_frames.clear(); // the FrameItems were just deleted by clear()
-    if (!m_root)
-        return;
-    m_treemap = new TreemapItem(m_root, kCanvasW, kCanvasH,
-                                static_cast<TreemapItem::SizeMetric>(m_sizeMetric),
-                                static_cast<TreemapItem::Ramp>(m_colorRamp), this);
-    m_treemap->setLod(m_lod);
-    m_treemap->setGroupStore(&m_groups);
-    addItem(m_treemap);
-    updateSceneBounds();
+        f->setLod(factor); // live — paint-only, no rebuild
 }
 
 void GraphScene::updateSceneBounds() {

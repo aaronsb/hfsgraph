@@ -33,7 +33,7 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
       click-to-raise (child-event filter) + close-cascade (closing a frame closes descendants).
       *Debt: drag / × / raise / recursion are interactive-confirm.*
 
-## Slice 2.5 — Frames as the universal surface (ADR-304)  [partial]
+## Slice 2.5 — Frames as the universal surface (ADR-304)  ✅ SHIPPED
 - [x] **Resizable frames** — corner `ResizeGrip` (device-constant) → `TreemapItem::setSize`
       re-squarifies into larger bounds; constant-size labels elide less (magnifying lens).
 - [x] **Per-level lens depth** — each lens scans its *own* subtree to `baseDepth + level`
@@ -47,11 +47,20 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
       move/resize; scoped `refreshCalloutsFor` (affected chain only). Mode toolbar: On/Lines/Off.
 - [x] **Crash fixes** — idempotent `closeFrame`; close on *release* not press (grabber-deletion
       race); `QPointer` deferred-close guard; `~FrameItem` deletes interior before owned tree.
-- [ ] **(task #19) Level 0 as a root frame** — base becomes a `FrameItem` (title, resize, no
-      callout, removable); frames are the single abstraction.
-- [ ] **(task #19) Multiple base surfaces** — several root frames (e.g. two volumes); multi-root
-      group resolution; the ADR-302 ledger spans all surfaces.
-- [ ] **(task #19) "Add base folder"** terminology (not "root"); remove a base; bases list in dock.
+- [x] **(task #19) Level 0 as a root frame** — base is now a level-0 `FrameItem` (title, resize
+      grip, drop shadow, removable, no callout). `GraphScene::m_treemap`/`m_root`/`setRoot` gone;
+      one `m_frames` vector holds bases + lenses, one render path top to bottom. Appearance
+      changes (`setSizeMetric`/`setColorRamp`) now rebuild each interior in place
+      (`FrameItem::rebuildInterior`) instead of destroying frames.
+- [x] **(task #19) Multiple base surfaces** — `GraphScene::addBase/removeBase/clearBases`; each
+      base frame owns its scanned tree (`unique_ptr`, RAII); `resolveRuleGroups` takes a *vector*
+      of roots and resolves all bases in one pass, so adding/removing one never drops another's
+      groups (verified: 3 groups across 2 bases, none dropped). `MainWindow` holds no tree state;
+      depth change re-scans every base.
+- [x] **(task #19) "Add base folder"** terminology; removable bases (× on the frame *and* in the
+      dock); a **Bases** list at the top of the left dock, refreshed via `GraphScene::
+      surfacesChanged`. *Interactive-confirm debt: base/lens drag-resize-close-raise + dock remove
+      + multi-base lens open need a real-session click-through.*
 
 ## Slice 3 — Move staging (ADR-302)  [no new deps; Commit stubbed]
 - [ ] Move-op + **ledger** (ordered list) + **projection** = base tree with ops[0..k] replayed.

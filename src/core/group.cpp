@@ -109,9 +109,13 @@ QColor autoColor(int index) {
 
 } // namespace
 
-void resolveRuleGroups(const FsNode &root, GroupStore &store) {
+void resolveRuleGroups(const std::vector<const FsNode *> &roots, GroupStore &store) {
+    // Anchors from *all* base surfaces in one pass (ADR-304), so resolving one base
+    // never strands another's groups: an anchor is stale only if no root holds it.
     std::vector<const FsNode *> anchors;
-    findAnchors(root, anchors);
+    for (const FsNode *root : roots)
+        if (root)
+            findAnchors(*root, anchors);
 
     // Index anchors by key for quick lookup, and remember each node.
     QHash<MemberKey, const FsNode *> anchorByKey;

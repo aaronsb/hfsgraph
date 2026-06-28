@@ -123,6 +123,11 @@ class GroupStore {
 // view state, and exclusions are preserved. Anchors that have vanished have their
 // rule groups removed; new anchors get a freshly-coloured rule group. Manual
 // groups are never touched.
-void resolveRuleGroups(const FsNode &root, GroupStore &store);
+//
+// Multi-root (ADR-304): the canvas can hold several base surfaces at once, so
+// resolution scans the union of all roots' anchors in one pass. Resolving against
+// one base must not drop another base's groups — a single combined pass guarantees
+// it (an anchor is "stale" only if it is absent from *every* root).
+void resolveRuleGroups(const std::vector<const FsNode *> &roots, GroupStore &store);
 
 } // namespace core
