@@ -10,6 +10,7 @@
 #include <QGraphicsScene>
 
 #include "core/group.h"
+#include "core/move.h"
 
 #include <memory>
 #include <vector>
@@ -27,6 +28,7 @@ class GraphScene : public QGraphicsScene {
     Q_OBJECT
   public:
     explicit GraphScene(QObject *parent = nullptr);
+    ~GraphScene() override; // out-of-line so the unique_ptr<FsNode> projection can free it
 
     // Base surfaces (ADR-304). Each base is a level-0 root FrameItem rendering its
     // own scanned tree; several may coexist (e.g. two volumes). addBase takes
@@ -80,6 +82,13 @@ class GraphScene : public QGraphicsScene {
     void updateGroupOverlay(); // repaint the overlay after a group view-state change
     int colorRamp() const { return m_colorRamp; } // current ramp (for the depth legend)
 
+    // Move staging (ADR-302). The ledger is the staged plan; the canvas renders the
+    // *projection* — each base's scanned tree with the ledger's active ops [0, step)
+    // replayed (ADR-200 idempotent replay). Mutate the ledger, then rebuildProjection()
+    // re-renders every base. While the ledger is empty the projection is the identity.
+    core::Ledger &ledger() { return m_ledger; }
+    void rebuildProjection();
+
   Q_SIGNALS:
     // Emitted when the set of base surfaces changes (add/remove/clear) so the dock's
     // bases list and group cards can refresh together.
@@ -91,6 +100,11 @@ class GraphScene : public QGraphicsScene {
     void restackFrames();     // reassign z so each callout sits just under its frame
 
     core::GroupStore m_groups;                // semantic groups (ADR-102), owned
+    core::Ledger m_ledger;                     // staged move plan (ADR-302), owned
+    // Projected base forest (scanned trees + active ops replayed), owned here and
+    // index-aligned with baseFrames(); empty while the ledger has no active ops (the
+    // bases then render their scanned sources directly).
+    std::vector<std::unique_ptr<core::FsNode>> m_projection;
     // Every frame in the scene: level-0 base frames and level-1+ lenses together
     // (ADR-304 — one surface abstraction). Base frames have no parent and no callout.
     std::vector<FrameItem *> m_frames;

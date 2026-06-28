@@ -24,6 +24,17 @@ constexpr qreal kBaseW = 1100.0, kBaseH = 680.0;
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
 
+// Out-of-line (fsnode.h is included here) so the unique_ptr<FsNode> projection trees
+// can be freed — the header only forward-declares core::FsNode.
+GraphScene::~GraphScene() {
+    // Delete all items (frames + their interior treemaps) now, while m_projection is
+    // still alive: a base frame's interior holds raw pointers into its projected tree,
+    // and member destruction would otherwise free m_projection before ~QGraphicsScene
+    // deletes those frames — a latent use-after-free if a TreemapItem ever derefs its
+    // root at teardown. Synchronous clear() closes that ordering gap.
+    clear();
+}
+
 std::vector<FrameItem *> GraphScene::baseFrames() const {
     std::vector<FrameItem *> out;
     for (FrameItem *f : m_frames)
@@ -47,7 +58,7 @@ FrameItem *GraphScene::addBase(std::unique_ptr<core::FsNode> tree) {
     m_frames.push_back(base);
     resolveGroups();     // re-resolve rule groups across all bases (multi-root)
     restackFrames();
-    updateSceneBounds();
+    rebuildProjection(); // render the projection (identity until moves are staged)
     Q_EMIT surfacesChanged();
     return base;
 }
@@ -65,13 +76,42 @@ void GraphScene::clearBases() {
 }
 
 void GraphScene::resolveGroups() {
+    // Resolve over each base's immutable scanned source, not its (possibly projected)
+    // render root — group identity is stable across staged moves. NOTE: with path
+    // keys the overlay only lines up with the projection while the ledger is empty;
+    // re-resolving over the projected tree needs ADR-100 durable ids (task #14).
     std::vector<const core::FsNode *> roots;
     for (FrameItem *f : baseFrames())
-        roots.push_back(f->node());
+        roots.push_back(f->sourceRoot());
     if (roots.empty())
         m_groups.clear(); // no surfaces: drop stale groups so the panel matches
     else
         core::resolveRuleGroups(roots, m_groups);
+}
+
+void GraphScene::rebuildProjection() {
+    const std::vector<FrameItem *> bases = baseFrames();
+    const std::vector<core::MoveOp> active = m_ledger.active();
+    if (active.empty()) {
+        // Identity: render the scanned sources directly (no copy).
+        m_projection.clear();
+        for (FrameItem *b : bases)
+            b->setRenderRoot(b->sourceRoot());
+    } else {
+        std::vector<const core::FsNode *> sources;
+        sources.reserve(bases.size());
+        for (FrameItem *b : bases)
+            sources.push_back(b->sourceRoot());
+        // projectForest builds the new forest from the (still-live) sources before the
+        // assignment frees the previous m_projection, so new node addresses can't alias
+        // freed ones — keep this order so setRenderRoot's identity guard stays sound.
+        m_projection = core::projectForest(sources, active);
+        for (std::size_t i = 0; i < bases.size(); ++i)
+            bases[i]->setRenderRoot(m_projection[i] ? m_projection[i].get()
+                                                    : bases[i]->sourceRoot());
+    }
+    updateSceneBounds();
+    refreshCallouts();
 }
 
 void GraphScene::updateGroupOverlay() {
@@ -162,7 +202,7 @@ void GraphScene::closeFrame(FrameItem *frame) {
     if (wasBase) {
         resolveGroups();
         updateGroupOverlay();
-        updateSceneBounds();
+        rebuildProjection(); // re-project the survivors (ops into the gone base now no-op)
         Q_EMIT surfacesChanged();
     }
 }

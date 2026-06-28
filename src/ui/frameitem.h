@@ -84,7 +84,17 @@ class FrameItem : public QGraphicsObject {
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                QWidget *widget) override;
 
-    const core::FsNode *node() const { return m_node; }
+    const core::FsNode *node() const { return m_node; } // current render root (may be projected)
+
+    // The immutable scanned tree this surface was built from — its stable identity,
+    // independent of the staged projection (ADR-302). For a base that owns its scan
+    // this is the owned tree; otherwise it is the render root.
+    const core::FsNode *sourceRoot() const { return m_ownTree ? m_ownTree.get() : m_node; }
+
+    // Re-point the interior at a different root (this surface's projected tree) and
+    // rebuild it. No-op if unchanged; the owned scanned tree is untouched.
+    void setRenderRoot(const core::FsNode *root);
+
     void setLod(qreal factor); // forward to the interior treemap
 
     // Resize the panel + re-squarify the interior (ADR-304), clamped to a minimum.

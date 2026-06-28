@@ -63,7 +63,16 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
       + multi-base lens open need a real-session click-through.*
 
 ## Slice 3 — Move staging (ADR-302)  [no new deps; Commit stubbed]
-- [ ] Move-op + **ledger** (ordered list) + **projection** = base tree with ops[0..k] replayed.
+- [x] Move-op + **ledger** (ordered list) + **projection** = base tree with ops[0..k] replayed.
+      `core::MoveOp`/`core::Ledger` (append-on-drop, undo/redo pops/pushes the tail, `setStep`
+      scrub, no mid-list reorder) + `core::projectForest` (deep-copy replay over the *immutable*
+      scanned forest, identity-keyed so ops survive later moves; skips unresolved/root/cycle/
+      collision — safe replay floor; cross-base moves supported, ADR-304). `GraphScene` owns the
+      ledger + projection and re-points each base frame's render root via `FrameItem::
+      setRenderRoot` (`sourceRoot()` keeps the immutable identity for group resolution). Unit
+      test `tests/move_test.cpp` (ctest) covers ledger + replay; verified end-to-end headlessly
+      (a staged move re-squarifies the projection). *No gesture yet (#10); group overlay vs a
+      non-empty projection awaits durable ids (#14).*
 - [ ] Drag gesture: pick up square/group → overlay arrow `✕————▶` (legal) / `✕————✕` (illegal),
       target hitbox lit, legality at drop (cycle / collision / immutable / cross-volume); release
       appends an op and re-squarifies to the projection.
