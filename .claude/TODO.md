@@ -91,12 +91,15 @@ node-link/force machinery is gone; the treemap is the only view.
       default-on first run. Groups follow for free (ADR-102 id-keying). The staging UX is
       buildable on the in-memory projection now; Commit stubs until the ADR-200 engine
       (eventually Rust, ADR-401) lands.
-- [ ] **Investigation frames (ADR-303)** — double-click opens a floating focused treemap of that
-      subtree *over* the canvas (no re-root; removes the Up/drill). Same scene, recursive (L0 base
-      → L1 → L2…), draggable header, ordered-dither drop shadow, diagonal callout lines (origin
-      UR→frame UR, origin LL→frame LL; over parent, under child). Frames root on node identity, so
-      moves and queue-scrub re-render base + all frames; the move arrow and one shared ledger span
-      base and frames for free. (Revises ADR-301 double-click.)
+- [x] **Investigation frames (ADR-303)** — SHIPPED (Slice 2). Double-click opens a floating
+      `FrameItem` (interior treemap of the subtree) *over* the canvas — no re-root; `drillInto/
+      drillUp` and the Up control removed. Same scene, recursive (double-click inside a frame →
+      child frame), draggable header, ordered-dither drop shadow (device-tiled, pixel-perfect,
+      area scales; offset 18px), screen-constant header chrome, diagonal callout lines
+      (origin UR→frame UR, origin LL→frame LL; over base, under frame). Click-to-raise; closing a
+      frame cascade-closes its descendants; self-open guard (only nodes deeper than the root).
+      *Frames not yet identity-pinned across moves/queue-scrub (needs Slice 3 ledger). Drag / × /
+      raise / recursion are interactive-confirm.*
 - [ ] **Lazy scan = truly unbounded depth** — semantic zoom can only reveal what's scanned; scan a
       subtree the first time you zoom into it, so the Depth control can go away entirely.
 - [ ] **Treemap polish** — breadcrumb for the drill path; hover tooltip (full name + size);

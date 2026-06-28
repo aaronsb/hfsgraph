@@ -21,13 +21,17 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
       root, `updateGroupOverlay()`; panel refresh on load + ramp change).
       *Debt: checkbox→overlay click path needs an interactive confirm (with pan/select/drill).*
 
-## Slice 2 — Investigation frames (ADR-303)  [no new deps]
-- [ ] `FrameItem`: draggable header (move/close) + interior treemap rooted at a subtree +
-      ordered-dither drop shadow.
-- [ ] Double-click opens a frame anchored near its origin square; diagonal **callout lines**
-      (origin UR→frame UR, origin LL→frame LL; over parent, under child). Remove the
-      double-click re-root and the Up/drill control (ADR-303 revises ADR-301).
-- [ ] Recursive frames (double-click inside a frame → child frame) + z-order / click-to-raise.
+## Slice 2 — Investigation frames (ADR-303)  [no new deps]  ✅ SHIPPED
+- [x] `FrameItem`: draggable header (move/×) + interior treemap rooted at a subtree +
+      ordered-dither drop shadow. Header chrome drawn device-space (screen-constant); dither
+      tiled device-space (pixel-perfect, area scales with zoom). Shadow offset 18px.
+- [x] Double-click opens a frame anchored to its origin square; diagonal **callout lines**
+      (origin UR→frame UR, origin LL→frame LL; over base, under frame). Removed the
+      double-click re-root and the Up/drill control (`drillInto/drillUp` gone). Guard: opens
+      only a node strictly deeper than the treemap's own root (no self-stacking, no leaf).
+- [x] Recursive frames (double-click inside a frame → child frame, shared scene) + z-order /
+      click-to-raise (child-event filter) + close-cascade (closing a frame closes descendants).
+      *Debt: drag / × / raise / recursion are interactive-confirm.*
 
 ## Slice 3 — Move staging (ADR-302)  [no new deps; Commit stubbed]
 - [ ] Move-op + **ledger** (ordered list) + **projection** = base tree with ops[0..k] replayed.
