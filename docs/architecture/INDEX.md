@@ -38,6 +38,7 @@ _Canvas, rendering, layout, visualization modes, interaction_
 |-----|-------|--------|
 | [ADR-300](./ui/ADR-300-canvas-model-collapse-expand-containment-morph-and-snap-to-physics-layout.md) | Canvas model: collapse/expand containment morph, snap-to-physics layout, and design language | Superseded |
 | [ADR-301](./ui/ADR-301-treemap-as-the-canvas-squarified-nested-containment-with-semantic-lod-zoom.md) | Treemap as the canvas: squarified nested-containment with semantic LOD zoom | Accepted |
+| [ADR-302](./ui/ADR-302-move-staging-drag-arrow-gesture-queued-changeset-with-scrub-preview-atomic-commit.md) | Move staging: drag-arrow gesture, queued changeset with scrub preview, atomic commit | Accepted |
 
 ## Platform
 _Tech stack & toolkit, build/packaging, OS facilities, xattr/Baloo interop_
