@@ -351,17 +351,25 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
         dimScrim(); // dim this cell's chrome; children overdraw the inner and self-dim
         for (size_t k = 0; k < kids.size(); ++k)
             drawCell(p, kids[k], rects[k], depth + 1, toDevice, exposed);
-        if (!m_diffSteps.isEmpty())
-            if (const int step = m_diffSteps.value(core::keyFor(*node), 0))
-                drawDiffMark(p, dev, step); // on top of children, so a moved dir stays marked
+        if (const int step = diffStepFor(node))
+            drawDiffMark(p, dev, step); // on top of children, so a moved dir stays marked
         return;
     }
 
     drawLeafContents(p, node, dev, hasTitle, body);
     dimScrim(); // leaf: dim the whole cell (body + contents) when de-emphasised
-    if (!m_diffSteps.isEmpty())
-        if (const int step = m_diffSteps.value(core::keyFor(*node), 0))
-            drawDiffMark(p, dev, step);
+    if (const int step = diffStepFor(node))
+        drawDiffMark(p, dev, step);
+}
+
+// The staged-move step that *actually relocated* this node, or 0 if none. A node is
+// only marked when its projected path diverged from its identity (original key): an op
+// projectForest skipped (collision / cycle / unresolved) leaves the node in place, so
+// path == identity and we must not paint a false "moved" badge on it (ADR-302 #12).
+int TreemapItem::diffStepFor(const core::FsNode *node) const {
+    if (m_diffSteps.isEmpty() || node->path == node->identity)
+        return 0;
+    return m_diffSteps.value(core::keyFor(*node), 0);
 }
 
 // The leaf rung: a cell's files drawn as a list (icon+name), icons, or pixel-dots
@@ -516,6 +524,8 @@ void TreemapItem::drawDiffMark(QPainter *p, const QRectF &dev, int step) const {
     // mark never reads as either. Drawn device-space so the hatch density and the badge
     // stay constant under zoom.
     const QColor diff(255, 165, 60);
+    p->save(); // the painter is shared across the recursive drawCell walk — the bold
+               // badge font (and pen/brush) must not bleed into the next cell's text
     p->setWorldMatrixEnabled(false);
     QColor lines = diff;
     lines.setAlpha(70); // sparse, low-alpha hatch so nested cells still read through it
@@ -542,6 +552,7 @@ void TreemapItem::drawDiffMark(QPainter *p, const QRectF &dev, int step) const {
         p->drawText(badge, Qt::AlignCenter, label);
     }
     p->setWorldMatrixEnabled(true);
+    p->restore();
 }
 
 void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) {
