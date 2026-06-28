@@ -37,6 +37,10 @@ class TreemapItem : public QGraphicsItem {
     // categorical HSL hue cycle. Keep in sync with kRampNames in the .cpp.
     enum Ramp { Viridis, Magma, Plasma, Cividis, Turbo, Spectrum };
 
+    // Identity colour for a nesting depth under a ramp (depth spans 0..6). Shared so
+    // the group panel's depth legend matches what the treemap paints.
+    static QColor depthColor(Ramp ramp, int depth);
+
     TreemapItem(const core::FsNode *root, qreal width, qreal height, SizeMetric metric, Ramp ramp,
                 GraphScene *scene);
 

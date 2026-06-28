@@ -169,6 +169,10 @@ TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, Si
     setAcceptedMouseButtons(Qt::LeftButton);
 }
 
+QColor TreemapItem::depthColor(Ramp ramp, int depth) {
+    return rampColor(static_cast<int>(ramp), depth);
+}
+
 double TreemapItem::weight(const core::FsNode *n) const {
     const auto it = m_weight.find(n);
     if (it != m_weight.end())

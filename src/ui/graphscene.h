@@ -42,6 +42,7 @@ class GraphScene : public QGraphicsScene {
     // panel reads/edits it and calls updateGroupOverlay() to repaint the treemap.
     core::GroupStore &groups() { return m_groups; }
     void updateGroupOverlay(); // repaint the overlay after a group view-state change
+    int colorRamp() const { return m_colorRamp; } // current ramp (for the depth legend)
 
   private:
     void rebuild();

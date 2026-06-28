@@ -3,10 +3,12 @@
 #include "canvasview.h"
 #include "core/scanner.h"
 #include "graphscene.h"
+#include "grouppanel.h"
 
 #include <QAction>
 #include <QComboBox>
 #include <QDir>
+#include <QDockWidget>
 #include <QFileDialog>
 #include <QLabel>
 #include <QSlider>
@@ -58,8 +60,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
                           QStringLiteral("Plasma"), QStringLiteral("Cividis"),
                           QStringLiteral("Turbo"), QStringLiteral("Spectrum")});
     colorCombo->setToolTip(QStringLiteral("Colour ramp (by nesting depth)"));
-    connect(colorCombo, &QComboBox::currentIndexChanged, this,
-            [this](int i) { m_scene->setColorRamp(i); });
+    connect(colorCombo, &QComboBox::currentIndexChanged, this, [this](int i) {
+        m_scene->setColorRamp(i);
+        m_groupPanel->refresh(); // keep the depth legend in sync with the ramp
+    });
     toolbar->addWidget(colorCombo);
 
     toolbar->addWidget(new QLabel(QStringLiteral(" Detail ")));
@@ -73,6 +77,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(lodSlider, &QSlider::valueChanged, this,
             [this](int v) { m_scene->setLod(1.6 - 1.2 * (v / 100.0)); });
     toolbar->addWidget(lodSlider);
+
+    // Left dock: semantic-group legend + controls (ADR-102).
+    auto *groupDock = new QDockWidget(QStringLiteral("Groups"), this);
+    groupDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_groupPanel = new GroupPanel(m_scene, groupDock);
+    groupDock->setWidget(m_groupPanel);
+    addDockWidget(Qt::LeftDockWidgetArea, groupDock);
 
     m_pathLabel = new QLabel(this);
     statusBar()->addWidget(m_pathLabel);
@@ -103,6 +114,7 @@ void MainWindow::load(const QString &path, int depth) {
         return;
     }
     m_scene->setRoot(m_root.get());
+    m_groupPanel->refresh(); // rule groups were re-resolved against the new tree
     m_view->resetTransform();
     if (m_scene->itemsBoundingRect().isValid())
         m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
