@@ -1,6 +1,8 @@
 #include "grouppanel.h"
 
+#include "core/fsnode.h"
 #include "core/group.h"
+#include "frameitem.h"
 #include "graphscene.h"
 #include "treemapitem.h"
 
@@ -23,6 +25,17 @@ GroupPanel::GroupPanel(GraphScene *scene, QWidget *parent) : QWidget(parent), m_
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(6, 6, 6, 6);
     outer->setSpacing(6);
+
+    // Bases section (ADR-304): the open level-0 surfaces, each removable.
+    auto *basesTitle = new QLabel(QStringLiteral("Bases"), this);
+    QFont btf = basesTitle->font();
+    btf.setBold(true);
+    basesTitle->setFont(btf);
+    outer->addWidget(basesTitle);
+    m_basesLayout = new QVBoxLayout;
+    m_basesLayout->setContentsMargins(0, 0, 0, 0);
+    m_basesLayout->setSpacing(2);
+    outer->addLayout(m_basesLayout);
 
     auto *title = new QLabel(QStringLiteral("Groups"), this);
     QFont tf = title->font();
@@ -48,10 +61,13 @@ GroupPanel::GroupPanel(GraphScene *scene, QWidget *parent) : QWidget(parent), m_
     outer->addWidget(m_legend);
 
     setMinimumWidth(270); // room for the four view-state toggles on one row
+    if (m_scene)
+        connect(m_scene, &GraphScene::surfacesChanged, this, &GroupPanel::refresh);
     refresh();
 }
 
 void GroupPanel::refresh() {
+    rebuildBases();
     rebuildCards();
 
     // Depth-ramp legend: the same colours the treemap paints per nesting depth.
@@ -63,6 +79,49 @@ void GroupPanel::refresh() {
         p.fillRect(QRect(d * band, 0, band, h), TreemapItem::depthColor(ramp, d));
     p.end();
     m_legend->setPixmap(pm);
+}
+
+void GroupPanel::rebuildBases() {
+    // Clear the existing base rows (this layout has no trailing stretch).
+    while (QLayoutItem *item = m_basesLayout->takeAt(0)) {
+        if (QWidget *w = item->widget())
+            w->deleteLater();
+        delete item;
+    }
+    if (!m_scene)
+        return;
+
+    const std::vector<FrameItem *> bases = m_scene->baseFrames();
+    if (bases.empty()) {
+        auto *empty = new QLabel(QStringLiteral("No bases — use “Add base folder”."));
+        empty->setEnabled(false);
+        empty->setWordWrap(true);
+        m_basesLayout->addWidget(empty);
+        return;
+    }
+    for (FrameItem *base : bases) {
+        auto *row = new QWidget;
+        auto *h = new QHBoxLayout(row);
+        h->setContentsMargins(0, 0, 0, 0);
+        h->setSpacing(4);
+        const QString path = base->node() ? base->node()->path : QString();
+        const QString name = base->node() ? base->node()->name : QStringLiteral("(base)");
+        auto *label = new QLabel(name);
+        label->setToolTip(path);
+        auto *remove = new QToolButton;
+        remove->setAutoRaise(true);
+        remove->setText(QStringLiteral("×"));
+        remove->setToolTip(QStringLiteral("Remove this base surface"));
+        // The row is rebuilt on surfacesChanged after removal, so capturing `base`
+        // raw is safe for the row's lifetime (same pattern as the group cards).
+        connect(remove, &QToolButton::clicked, this, [this, base] {
+            if (m_scene)
+                m_scene->removeBase(base);
+        });
+        h->addWidget(label, 1);
+        h->addWidget(remove);
+        m_basesLayout->addWidget(row);
+    }
 }
 
 void GroupPanel::rebuildCards() {

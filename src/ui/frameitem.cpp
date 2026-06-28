@@ -94,15 +94,14 @@ CalloutItem::CalloutItem(const core::FsNode *originNode, FrameItem *sourceFrame,
 }
 
 void CalloutItem::recomputeOrigin() {
-    // The origin square lives in the source surface (a frame's interior treemap, or
-    // the base map). Recompute its scene rect from the *current* layout so the callout
+    // The origin square lives in the source surface — the frame the double-click
+    // happened in (a base or a lens), since every surface is now a FrameItem
+    // (ADR-304). Recompute its scene rect from the *current* layout so the callout
     // re-anchors after the source frame is moved or resized.
-    TreemapItem *map = nullptr;
-    if (m_sourceFrame)
-        map = m_sourceFrame->interiorTreemap();
-    else if (scene())
-        map = static_cast<GraphScene *>(scene())->baseTreemap();
-    if (!map || !m_originNode)
+    if (!m_sourceFrame || !m_originNode)
+        return;
+    TreemapItem *map = m_sourceFrame->interiorTreemap();
+    if (!map)
         return;
     const QRectF r = map->cellRectForNode(m_originNode);
     if (!r.isNull())
@@ -177,18 +176,23 @@ FrameItem::FrameItem(const core::FsNode *node, qreal width, qreal height, GraphS
     setFlag(ItemClipsChildrenToShape, true); // keep the interior treemap inside the panel
     setFiltersChildEvents(true);             // see sceneEventFilter (click-to-raise)
 
+    rebuildInterior(); // builds m_interior from the scene's current metric/ramp/LOD
+
+    m_grip = new ResizeGrip(this); // child; anchors to the bottom-right corner
+    m_grip->setPos(m_w, m_h);
+}
+
+void FrameItem::rebuildInterior() {
+    delete m_interior; // child item, removed from the scene on delete (null on first build)
     const QRectF in = interiorRect();
-    m_interior = new TreemapItem(node, in.width(), in.height(),
+    m_interior = new TreemapItem(m_node, in.width(), in.height(),
                                  static_cast<TreemapItem::SizeMetric>(m_scene->sizeMetric()),
                                  static_cast<TreemapItem::Ramp>(m_scene->colorRamp()), m_scene);
     m_interior->setLod(m_scene->lod());
     m_interior->setGroupStore(&m_scene->groups());
-    m_interior->setOwnerFrame(this); // so its double-clicks record this as the parent
+    m_interior->setOwnerFrame(this); // so its double-clicks record this frame as the parent
     m_interior->setParentItem(this);
     m_interior->setPos(in.topLeft());
-
-    m_grip = new ResizeGrip(this); // child; anchors to the bottom-right corner
-    m_grip->setPos(m_w, m_h);
 }
 
 // Out-of-line so unique_ptr<core::FsNode> sees the complete type here (fsnode.h is

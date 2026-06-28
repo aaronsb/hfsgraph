@@ -1,16 +1,17 @@
-// Hosts the treemap view of a core::FsNode tree. The graph is a strict containment
-// tree (ADR-101), so we render it as a squarified treemap (ADR-300's nested-
-// containment view) rather than node-link cards + edges: nesting *is* the
-// parent→child relationship, and semantic (level-of-detail) zoom reveals depth as
-// you zoom in — no fixed render depth. GraphScene owns the root, the semantic
-// groups, and the open investigation frames (ADR-303); TreemapItem does the layout
-// and painting.
+// Hosts the treemap surfaces (ADR-301/304). The graph is a strict containment tree
+// (ADR-101), rendered as squarified treemaps where nesting *is* the parent→child
+// relationship and semantic (level-of-detail) zoom reveals depth — no fixed render
+// depth. Every surface is a FrameItem (ADR-304): level-0 *base* frames (one per
+// scanned tree, several may coexist) and the level-1+ investigation *lenses*
+// (ADR-303) opened over them. GraphScene owns the semantic groups and tracks all
+// frames; each FrameItem owns its own scanned subtree and its interior TreemapItem.
 #pragma once
 
 #include <QGraphicsScene>
 
 #include "core/group.h"
 
+#include <memory>
 #include <vector>
 
 namespace core {
@@ -27,12 +28,19 @@ class GraphScene : public QGraphicsScene {
   public:
     explicit GraphScene(QObject *parent = nullptr);
 
-    // Set the tree to display (not owned). Triggers a rebuild.
-    void setRoot(const core::FsNode *root);
-    const core::FsNode *root() const { return m_root; }
+    // Base surfaces (ADR-304). Each base is a level-0 root FrameItem rendering its
+    // own scanned tree; several may coexist (e.g. two volumes). addBase takes
+    // ownership of the scanned tree (the frame holds it, RAII), floats a root frame
+    // for it, and re-resolves rule groups across all bases. removeBase tears one
+    // down (cascade-closing its lenses); clearBases drops them all.
+    FrameItem *addBase(std::unique_ptr<core::FsNode> tree);
+    void removeBase(FrameItem *base);
+    void clearBases();
+    bool hasBases() const { return !baseFrames().empty(); }
+    std::vector<FrameItem *> baseFrames() const; // the level-0 frames, for the dock list
 
     // Treemap appearance (indices match TreemapItem::SizeMetric / ::Ramp). Each
-    // rebuilds the map.
+    // rebuilds every surface's interior in place (frames survive).
     void setSizeMetric(int metric); // 0 = file count, 1 = bytes
     void setColorRamp(int ramp);    // Viridis/Magma/Plasma/Cividis/Turbo/Spectrum
     void setLod(double factor);     // detail "view distance" (live; no rebuild)
@@ -54,7 +62,6 @@ class GraphScene : public QGraphicsScene {
     void raiseFrame(FrameItem *frame);          // raises the frame and its descendants
     void refreshCallouts();                     // re-anchor every callout (view change)
     void refreshCalloutsFor(FrameItem *frame);  // only the callouts a move/resize affects
-    TreemapItem *baseTreemap() const { return m_treemap; } // for callout origin replay
 
     // Callout draw mode (0 = Filled frustum, 1 = Lines, 2 = Off). Toolbar-controlled.
     void setCalloutMode(int mode);
@@ -73,16 +80,20 @@ class GraphScene : public QGraphicsScene {
     void updateGroupOverlay(); // repaint the overlay after a group view-state change
     int colorRamp() const { return m_colorRamp; } // current ramp (for the depth legend)
 
+  Q_SIGNALS:
+    // Emitted when the set of base surfaces changes (add/remove/clear) so the dock's
+    // bases list and group cards can refresh together.
+    void surfacesChanged();
+
   private:
-    void rebuild();
+    void resolveGroups();     // re-resolve rule groups across every base's tree
     void updateSceneBounds(); // generous sceneRect so panning works in all directions
     void restackFrames();     // reassign z so each callout sits just under its frame
 
-    const core::FsNode *m_root = nullptr;     // currently displayed (sub)tree
-    const core::FsNode *m_scanRoot = nullptr; // full scanned tree (group resolution)
     core::GroupStore m_groups;                // semantic groups (ADR-102), owned
-    TreemapItem *m_treemap = nullptr;         // current item (for live LOD tuning)
-    std::vector<FrameItem *> m_frames;        // open investigation frames (ADR-303)
+    // Every frame in the scene: level-0 base frames and level-1+ lenses together
+    // (ADR-304 — one surface abstraction). Base frames have no parent and no callout.
+    std::vector<FrameItem *> m_frames;
     int m_sizeMetric = 0;             // TreemapItem::Files
     int m_colorRamp = 0;              // TreemapItem::Viridis
     double m_lod = 1.0;               // persists across rebuilds

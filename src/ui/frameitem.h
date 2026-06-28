@@ -71,8 +71,14 @@ class FrameItem : public QGraphicsObject {
     // so the independent per-lens scan never leaks.
     void adoptTree(std::unique_ptr<core::FsNode> tree);
 
-    int level() const { return m_level; }   // 1 for a top lens, +1 per nesting
+    int level() const { return m_level; }   // 0 for a base, 1 for a top lens, +1 per nesting
     void setLevel(int level) { m_level = level; }
+    bool isBase() const { return m_level == 0; } // a level-0 root surface (ADR-304)
+
+    // Recreate the interior treemap from the scene's current metric/ramp/LOD (the
+    // tree itself is unchanged). Used when a global appearance control changes so
+    // every surface re-renders in place without destroying the frame.
+    void rebuildInterior();
 
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,

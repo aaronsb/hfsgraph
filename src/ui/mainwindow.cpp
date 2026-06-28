@@ -1,9 +1,13 @@
 #include "mainwindow.h"
 
 #include "canvasview.h"
+#include "core/fsnode.h"
 #include "core/scanner.h"
+#include "frameitem.h"
 #include "graphscene.h"
 #include "grouppanel.h"
+
+#include <memory>
 
 #include <QAction>
 #include <QComboBox>
@@ -14,6 +18,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QStatusBar>
+#include <QStringList>
 #include <QToolBar>
 
 namespace ui {
@@ -27,19 +32,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     auto *toolbar = addToolBar(QStringLiteral("Main"));
     toolbar->setMovable(false);
 
-    QAction *openAct = toolbar->addAction(QStringLiteral("Open Folder…"));
-    connect(openAct, &QAction::triggered, this, &MainWindow::openFolder);
+    QAction *openAct = toolbar->addAction(QStringLiteral("Add base folder…"));
+    openAct->setToolTip(QStringLiteral("Add a directory tree as a base surface (ADR-304)"));
+    connect(openAct, &QAction::triggered, this, &MainWindow::addBaseFolder);
 
     toolbar->addSeparator();
     toolbar->addWidget(new QLabel(QStringLiteral(" Depth: ")));
     m_depthSpin = new QSpinBox(this);
     m_depthSpin->setRange(1, 12);
     m_depthSpin->setValue(2);
-    m_depthSpin->setToolTip(QStringLiteral("Directory depth to scan"));
-    connect(m_depthSpin, &QSpinBox::valueChanged, this, [this](int d) {
-        if (!m_currentPath.isEmpty())
-            load(m_currentPath, d);
-    });
+    m_depthSpin->setToolTip(QStringLiteral("Directory depth to scan (re-scans every base)"));
+    connect(m_depthSpin, &QSpinBox::valueChanged, this,
+            [this](int d) { rescanAllBases(d); });
     toolbar->addWidget(m_depthSpin);
 
     toolbar->addSeparator();
@@ -93,40 +97,85 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_pathLabel = new QLabel(this);
     statusBar()->addWidget(m_pathLabel);
 
+    // Keep the status bar / title in step when a base is removed (dock × or frame ×).
+    connect(m_scene, &GraphScene::surfacesChanged, this, &MainWindow::updateStatus);
+
     setWindowTitle(QStringLiteral("hfsgraph"));
     resize(1200, 800);
 }
 
-void MainWindow::openFolder() {
+void MainWindow::addBaseFolder() {
     const QString dir = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Choose a directory to graph"),
+        this, QStringLiteral("Add a base folder to the canvas"),
         m_currentPath.isEmpty() ? QDir::homePath() : m_currentPath);
     if (!dir.isEmpty())
-        load(dir, m_depthSpin->value());
+        addBaseAtPath(dir, m_depthSpin->value());
 }
 
 void MainWindow::load(const QString &path, int depth) {
-    m_currentPath = path;
     if (m_depthSpin->value() != depth) {
-        QSignalBlocker block(m_depthSpin);
+        QSignalBlocker block(m_depthSpin); // setting the value here must not re-scan
         m_depthSpin->setValue(depth);
     }
+    addBaseAtPath(path, depth);
+}
 
-    m_root = core::Scanner::scan(path, depth);
-    if (!m_root) {
+void MainWindow::addBaseAtPath(const QString &path, int depth) {
+    std::unique_ptr<core::FsNode> tree = core::Scanner::scan(path, depth);
+    if (!tree) {
         m_pathLabel->setText(QStringLiteral("Cannot read: %1").arg(path));
-        m_scene->setRoot(nullptr);
-        m_groupPanel->refresh(); // store was cleared — keep the panel in step
         return;
     }
+    m_currentPath = path;
     m_scene->setBaseDepth(depth); // lenses scan baseDepth + their level (ADR-304)
-    m_scene->setRoot(m_root.get());
-    m_groupPanel->refresh(); // rule groups were re-resolved against the new tree
+    m_scene->addBase(std::move(tree)); // the base frame takes ownership of the scan
+    // The panel refreshes itself via GraphScene::surfacesChanged.
     m_view->resetTransform();
     if (m_scene->itemsBoundingRect().isValid())
         m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
-    m_pathLabel->setText(QStringLiteral("%1   (depth %2)").arg(path).arg(depth));
-    setWindowTitle(QStringLiteral("hfsgraph — %1").arg(path));
+    updateStatus();
+}
+
+void MainWindow::rescanAllBases(int depth) {
+    // Depth changed: re-scan every base at the new depth. Snapshot the current base
+    // paths (the scene owns the trees), drop all surfaces, then re-add each freshly
+    // scanned. Open lenses don't survive a depth change (they're rooted in the old
+    // trees) — same as the pre-ADR-304 reload behaviour, now generalised to N bases.
+    QStringList paths;
+    for (FrameItem *b : m_scene->baseFrames())
+        paths << b->node()->path;
+    if (paths.isEmpty())
+        return;
+    m_scene->setBaseDepth(depth);
+    m_scene->clearBases();
+    for (const QString &p : paths) {
+        std::unique_ptr<core::FsNode> tree = core::Scanner::scan(p, depth);
+        if (tree)
+            m_scene->addBase(std::move(tree));
+    }
+    m_view->resetTransform();
+    if (m_scene->itemsBoundingRect().isValid())
+        m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
+    updateStatus();
+}
+
+void MainWindow::updateStatus() {
+    const std::vector<FrameItem *> bases = m_scene->baseFrames();
+    const int n = static_cast<int>(bases.size());
+    const int depth = m_depthSpin->value();
+    if (n == 0) {
+        m_pathLabel->clear();
+        setWindowTitle(QStringLiteral("hfsgraph"));
+    } else if (n == 1) {
+        // The surviving base, not m_currentPath — which may name a base that was
+        // just removed (status refreshes via GraphScene::surfacesChanged).
+        const QString path = bases.front()->node() ? bases.front()->node()->path : QString();
+        m_pathLabel->setText(QStringLiteral("%1   (depth %2)").arg(path).arg(depth));
+        setWindowTitle(QStringLiteral("hfsgraph — %1").arg(path));
+    } else {
+        m_pathLabel->setText(QStringLiteral("%1 bases   (depth %2)").arg(n).arg(depth));
+        setWindowTitle(QStringLiteral("hfsgraph — %1 bases").arg(n));
+    }
 }
 
 } // namespace ui
