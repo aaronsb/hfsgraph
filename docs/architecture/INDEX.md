@@ -22,6 +22,7 @@ _Graph model, identity, state model — the conceptual foundation_
 |-----|-------|--------|
 | [ADR-100](./core/ADR-100-durable-directory-identity-via-uuid-in-xattr-with-inode-fingerprint.md) | Durable directory identity via UUID-in-xattr with inode fingerprint | Accepted |
 | [ADR-101](./core/ADR-101-graph-model-containment-tree-as-state-mirror-not-dataflow.md) | Graph model: containment tree as state-mirror, not dataflow | Accepted |
+| [ADR-102](./core/ADR-102-semantic-groups-rule-derived-and-manual-membership-durable-id-keyed-json-persisted.md) | Semantic groups: rule-derived and manual membership, durable-id keyed, JSON-persisted | Accepted |
 
 ## Engine
 _Reorganization engine — ledger, legality, commit, volumes, snapshots, immutability, symlinks_
