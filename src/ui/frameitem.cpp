@@ -228,6 +228,14 @@ void FrameItem::resizePanel(qreal width, qreal height) {
     update();
 }
 
+void FrameItem::setRenderRoot(const core::FsNode *root) {
+    if (root == m_node)
+        return; // already rendering this root — skip the interior rebuild
+    m_node = root;
+    rebuildInterior();
+    update(); // the header title tracks m_node
+}
+
 void FrameItem::setLod(qreal factor) {
     if (m_interior)
         m_interior->setLod(factor);
