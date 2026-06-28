@@ -55,9 +55,9 @@ void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRe
             if (f->node() && f->node()->path == node->path) {
                 // Re-point the existing frame at the new origin/lineage so its callout
                 // and close-cascade stay accurate when re-opened from a different cell.
-                if (CalloutItem *c = f->callout())
-                    c->setOrigin(originSceneRect);
                 f->setParentFrame(parentFrame);
+                if (CalloutItem *c = f->callout())
+                    c->setSource(node, parentFrame);
                 raiseFrame(f);
                 return;
             }
@@ -78,10 +78,13 @@ void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRe
     // Float to the lower-right of the origin so it reads as an enlargement of it
     // without fully covering the source square.
     frame->setPos(originSceneRect.right() + 60.0, originSceneRect.top() + 30.0);
-    auto *callout = new CalloutItem(originSceneRect, frame);
+    // The callout's origin is the source node in the source surface (parentFrame's
+    // interior, or the base map when parentFrame is null) — tracked dynamically.
+    auto *callout = new CalloutItem(node, parentFrame, frame);
     frame->setCallout(callout);
     addItem(callout);
     addItem(frame);
+    callout->refresh(); // compute the origin now that it's in the scene
     m_frames.push_back(frame);
     restackFrames(); // assign z so each callout sits just under its frame
     updateSceneBounds(); // a frame may extend past the map's edges
@@ -137,12 +140,27 @@ void GraphScene::raiseFrame(FrameItem *frame) {
 }
 
 void GraphScene::refreshCallouts() {
-    // Callout geometry is derived from live frame positions; force the items to
-    // recompute + repaint after any view change (zoom/pan) so the lines never go
-    // stale.
+    // Every callout — for a view change (zoom/pan), where all of them shift.
     for (FrameItem *f : m_frames)
         if (CalloutItem *c = f->callout())
             c->refresh();
+}
+
+void GraphScene::refreshCalloutsFor(FrameItem *frame) {
+    // Only the callouts a move/resize of `frame` affects: its own (its frame-end
+    // moved) and any whose origin lives inside it (child lenses sourced from it).
+    // Grandchildren are sourced from unmoved frames, so they need no refresh.
+    if (CalloutItem *c = frame->callout())
+        c->refresh();
+    for (FrameItem *g : m_frames)
+        if (CalloutItem *c = g->callout())
+            if (c->sourceFrame() == frame)
+                c->refresh();
+}
+
+void GraphScene::setCalloutMode(int mode) {
+    m_calloutMode = mode;
+    refreshCallouts(); // repaint all in the new mode
 }
 
 void GraphScene::restackFrames() {

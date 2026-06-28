@@ -195,6 +195,52 @@ void TreemapItem::setGroupStore(const core::GroupStore *store) {
     update(); // overlay is decided in paint()
 }
 
+QRectF TreemapItem::cellRectForNode(const core::FsNode *target) const {
+    if (!target)
+        return {};
+    // Path root..target via parent pointers (the tree this item renders).
+    std::vector<const core::FsNode *> path;
+    for (const core::FsNode *n = target; n; n = n->parent) {
+        path.push_back(n);
+        if (n == m_root)
+            break;
+    }
+    if (path.empty() || path.back() != m_root)
+        return {}; // target isn't under this root
+    std::reverse(path.begin(), path.end());
+
+    // Replay the same subdivision as drawCell, in item space (zoom=1 approximation:
+    // the device-constant header/pad insets are small, so the cone anchor is close
+    // enough). Descend rect → child rect along the path.
+    QRectF rect(0, 0, m_w, m_h);
+    for (size_t i = 0; i + 1 < path.size(); ++i) {
+        const core::FsNode *node = path[i];
+        std::vector<const core::FsNode *> kids;
+        kids.reserve(node->children.size());
+        for (const auto &c : node->children)
+            kids.push_back(c.get());
+        std::sort(kids.begin(), kids.end(), [this](const core::FsNode *a, const core::FsNode *b) {
+            return weight(a) > weight(b);
+        });
+        const QRectF inner = rect.adjusted(kPadPx, kHeaderPx, -kPadPx, -kPadPx);
+        std::vector<double> ws;
+        ws.reserve(kids.size());
+        for (const auto *k : kids)
+            ws.push_back(weight(k));
+        const std::vector<QRectF> rects = squarify(ws, inner);
+        int idx = -1;
+        for (size_t k = 0; k < kids.size(); ++k)
+            if (kids[k] == path[i + 1]) {
+                idx = static_cast<int>(k);
+                break;
+            }
+        if (idx < 0)
+            return {};
+        rect = rects[idx];
+    }
+    return rect;
+}
+
 void TreemapItem::setSize(qreal width, qreal height) {
     if (width <= 0 || height <= 0 || (qFuzzyCompare(width, m_w) && qFuzzyCompare(height, m_h)))
         return;

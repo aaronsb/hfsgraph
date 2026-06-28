@@ -86,15 +86,38 @@ QPolygonF convexHull(QVector<QPointF> pts) {
 
 // ---- CalloutItem --------------------------------------------------------------
 
-CalloutItem::CalloutItem(const QRectF &originSceneRect, FrameItem *frame)
-    : m_origin(originSceneRect), m_frame(frame) {
-    setZValue(0);                              // set properly by the scene (below its frame)
-    setAcceptedMouseButtons(Qt::NoButton);     // a passive overlay — never intercept clicks
+CalloutItem::CalloutItem(const core::FsNode *originNode, FrameItem *sourceFrame, FrameItem *frame)
+    : m_originNode(originNode), m_sourceFrame(sourceFrame), m_frame(frame) {
+    setZValue(0);                          // set properly by the scene (below its frame)
+    setAcceptedMouseButtons(Qt::NoButton); // a passive overlay — never intercept clicks
+}
+
+void CalloutItem::recomputeOrigin() {
+    // The origin square lives in the source surface (a frame's interior treemap, or
+    // the base map). Recompute its scene rect from the *current* layout so the callout
+    // re-anchors after the source frame is moved or resized.
+    TreemapItem *map = nullptr;
+    if (m_sourceFrame)
+        map = m_sourceFrame->interiorTreemap();
+    else if (scene())
+        map = static_cast<GraphScene *>(scene())->baseTreemap();
+    if (!map || !m_originNode)
+        return;
+    const QRectF r = map->cellRectForNode(m_originNode);
+    if (!r.isNull())
+        m_origin = map->mapToScene(r).boundingRect();
 }
 
 void CalloutItem::refresh() {
     prepareGeometryChange();
+    recomputeOrigin();
     update();
+}
+
+void CalloutItem::setSource(const core::FsNode *originNode, FrameItem *sourceFrame) {
+    m_originNode = originNode;
+    m_sourceFrame = sourceFrame;
+    refresh();
 }
 
 QRectF CalloutItem::boundingRect() const {
@@ -103,21 +126,29 @@ QRectF CalloutItem::boundingRect() const {
     return m_origin.united(frameRect).adjusted(-3, -3, 3, 3); // margin for the AA stroke
 }
 
-void CalloutItem::setOrigin(const QRectF &originSceneRect) {
-    if (m_origin == originSceneRect)
-        return;
-    prepareGeometryChange();
-    m_origin = originSceneRect;
-    update();
-}
-
 void CalloutItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) {
+    const auto mode = scene()
+                          ? static_cast<CalloutMode>(static_cast<GraphScene *>(scene())->calloutMode())
+                          : CalloutMode::Filled;
+    if (mode == CalloutMode::Off)
+        return;
+
     const QRectF frameRect(m_frame->pos(), m_frame->panelSize());
 
-    // "Zoom-from" frustum: the convex hull of the origin square and the frame, with
-    // both rectangles subtracted out (vertex occlusion) so only the connecting cone
-    // is filled — not the boxes themselves. A filled, light-dithered shape reads far
-    // better than crossing hairlines when several frames are open.
+    if (mode == CalloutMode::Lines) {
+        // Two diagonal hairlines (no fill): origin UR → frame UR, origin LL → frame LL.
+        QPen pen(QColor(165, 180, 210, 200));
+        pen.setCosmetic(true);
+        p->setPen(pen);
+        p->setRenderHint(QPainter::Antialiasing, true);
+        p->drawLine(m_origin.topRight(), QPointF(frameRect.right(), frameRect.top()));
+        p->drawLine(m_origin.bottomLeft(), QPointF(frameRect.left(), frameRect.bottom()));
+        return;
+    }
+
+    // Filled "zoom-from" frustum: convex hull of the origin square and the frame, with
+    // both rectangles subtracted out (vertex occlusion) so only the connecting cone is
+    // filled — not the boxes. Reads better than crossing lines when several are open.
     const QVector<QPointF> pts = {
         m_origin.topLeft(),  m_origin.topRight(),  m_origin.bottomRight(),  m_origin.bottomLeft(),
         frameRect.topLeft(), frameRect.topRight(), frameRect.bottomRight(), frameRect.bottomLeft()};
@@ -180,8 +211,8 @@ void FrameItem::resizePanel(qreal width, qreal height) {
         m_interior->setSize(in.width(), in.height()); // re-squarify → more text room
     if (m_grip)
         m_grip->setPos(m_w, m_h);
-    if (m_callout)
-        m_callout->refresh();
+    if (m_scene)
+        m_scene->refreshCalloutsFor(this); // this frame's callout + child lenses sourced here
     update();
 }
 
@@ -264,16 +295,12 @@ void FrameItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) 
 void FrameItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
     const QPointF pos = event->pos();
     if (closeRect().contains(pos)) {
-        event->accept(); // consume so it doesn't fall through to the base map
-        // Defer the close to the next event-loop tick: removing/deleting this item
-        // synchronously inside its own mousePressEvent leaves QGraphicsScene's press
-        // handling holding a dangling pointer (segfault). The frame stays alive for
-        // the rest of this event; closeFrame runs once the scene is done with it.
-        if (m_scene) {
-            GraphScene *scene = m_scene;
-            FrameItem *self = this;
-            QTimer::singleShot(0, scene, [scene, self] { scene->closeFrame(self); });
-        }
+        // Arm the close, but do it on RELEASE — not here. Removing/deleting this item
+        // while it is the mouse grabber (which it becomes right after this handler)
+        // leaves the scene delivering the release to a dangling item (intermittent
+        // segfault). Acting on release means the grab is released first.
+        m_pendingClose = true;
+        event->accept();
         return;
     }
     if (headerRect().contains(pos)) {
@@ -290,8 +317,8 @@ void FrameItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
 void FrameItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
     if (m_dragging) {
         setPos(event->scenePos() - m_dragOffset);
-        if (m_callout)
-            m_callout->refresh(); // the callout anchors to the frame's new position
+        if (m_scene)
+            m_scene->refreshCalloutsFor(this); // this frame + child lenses sourced here
         event->accept();
         return;
     }
@@ -353,6 +380,18 @@ void FrameItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
     if (m_dragging) {
         m_dragging = false;
         event->accept();
+        return;
+    }
+    if (m_pendingClose) {
+        m_pendingClose = false;
+        event->accept();
+        // Only close if the release is still on the ×, like a normal button. Defer to
+        // the next tick so the scene finishes releasing the grab before we delete.
+        if (m_scene && closeRect().contains(event->pos())) {
+            GraphScene *scene = m_scene;
+            FrameItem *self = this;
+            QTimer::singleShot(0, scene, [scene, self] { scene->closeFrame(self); });
+        }
         return;
     }
     QGraphicsItem::mouseReleaseEvent(event);

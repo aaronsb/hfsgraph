@@ -57,6 +57,11 @@ class TreemapItem : public QGraphicsItem {
     // capability. Paint-time layout, so this is just a geometry change + repaint.
     void setSize(qreal width, qreal height);
 
+    // The cell rect (item coords) for a node, computed by replaying the squarify
+    // layout from the root down to it — so callouts can re-anchor to a source square
+    // after the treemap is resized/moved. Empty if the node isn't under this root.
+    QRectF cellRectForNode(const core::FsNode *target) const;
+
     // The semantic-group overlay source (ADR-102), not owned. Per-cell membership
     // drives highlight (tint + group-colour border), focus (dim non-members), and
     // dim (de-emphasise members). Null = no overlay. Paint-only.

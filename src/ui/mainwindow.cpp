@@ -62,6 +62,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     });
     toolbar->addWidget(colorCombo);
 
+    auto *calloutCombo = new QComboBox(this); // GraphScene callout mode order
+    calloutCombo->addItems({QStringLiteral("Zoom link: On"), QStringLiteral("Zoom link: Lines"),
+                            QStringLiteral("Zoom link: Off")});
+    calloutCombo->setToolTip(QStringLiteral("How a lens is tied to its origin square: filled "
+                                            "frustum, hairlines, or nothing"));
+    connect(calloutCombo, &QComboBox::currentIndexChanged, this,
+            [this](int i) { m_scene->setCalloutMode(i); });
+    toolbar->addWidget(calloutCombo);
+
     toolbar->addWidget(new QLabel(QStringLiteral(" Detail ")));
     auto *lodSlider = new QSlider(Qt::Horizontal, this);
     lodSlider->setRange(0, 100);

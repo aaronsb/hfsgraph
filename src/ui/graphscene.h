@@ -51,8 +51,14 @@ class GraphScene : public QGraphicsScene {
     void openFrame(const core::FsNode *node, const QRectF &originSceneRect,
                    FrameItem *parentFrame = nullptr);
     void closeFrame(FrameItem *frame); // also closes frames opened from within it
-    void raiseFrame(FrameItem *frame); // raises the frame and its descendants
-    void refreshCallouts();            // re-anchor callout lines after a view change
+    void raiseFrame(FrameItem *frame);          // raises the frame and its descendants
+    void refreshCallouts();                     // re-anchor every callout (view change)
+    void refreshCalloutsFor(FrameItem *frame);  // only the callouts a move/resize affects
+    TreemapItem *baseTreemap() const { return m_treemap; } // for callout origin replay
+
+    // Callout draw mode (0 = Filled frustum, 1 = Lines, 2 = Off). Toolbar-controlled.
+    void setCalloutMode(int mode);
+    int calloutMode() const { return m_calloutMode; }
 
     // Cardinality: when true (default), a node may have at most one open frame —
     // re-opening it raises the existing one instead of stacking a duplicate. A
@@ -82,6 +88,7 @@ class GraphScene : public QGraphicsScene {
     double m_lod = 1.0;               // persists across rebuilds
     bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
     int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
+    int m_calloutMode = 0;           // 0 Filled, 1 Lines, 2 Off (ADR-304)
 };
 
 } // namespace ui
