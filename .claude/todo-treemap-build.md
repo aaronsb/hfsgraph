@@ -84,9 +84,15 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
       seam), so re-moving an already-moved node resolves. Unit-tested (`checkMove` + chained-move
       identity); all three states verified headlessly. *Cross-volume legality not modelled (no
       volume id until ADR-100); lens→ drops are #13. Interactive mouse-path is confirm-debt.*
-- [ ] Bottom **queue dock**: numbered ops + status; click row → preview that step (scrub);
-      undo/redo (append + pop tail); **Commit** button (stub until the engine); per-op
-      confirmation setting (training wheels, default-on first run).
+- [x] Bottom **queue dock** (#11): `ui::QueuePanel` in a bottom `QDockWidget`. A list with a
+      `◆ Base` row + one row per staged op (`source → dest`); clicking a row **scrubs** the
+      projection to that step (`GraphScene::scrubTo`), ops past the step shown italic/dimmed.
+      **Undo/Redo/Clear** drive `GraphScene::undoMove/redoMove/clearMoves` (enable-states from
+      the ledger); **Commit…** is a stub message (ADR-200 engine pending). New
+      `GraphScene::ledgerChanged()` signal refreshes the panel (also on `surfacesChanged`).
+      Verified headlessly (staged plan, scrub to an intermediate step, dimmed pending row).
+      *Deferred: per-op confirmation "training wheels" (a modal mid-gesture needs care — would
+      ride the endMoveDrag deferral); interactive mouse-path is confirm-debt.*
 - [ ] **Diff overlay**: crosshatch + step-number tag on squares touched by the plan.
 - [ ] **Cross-frame** arrows + hit-testing on a top overlay layer (needs Slice 2 frames).
 

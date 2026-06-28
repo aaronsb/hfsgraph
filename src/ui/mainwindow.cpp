@@ -6,6 +6,7 @@
 #include "frameitem.h"
 #include "graphscene.h"
 #include "grouppanel.h"
+#include "queuepanel.h"
 
 #include <memory>
 
@@ -121,6 +122,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_groupPanel = new GroupPanel(m_scene, groupDock);
     groupDock->setWidget(m_groupPanel);
     addDockWidget(Qt::LeftDockWidgetArea, groupDock);
+
+    // Bottom dock: the staged move plan (ADR-302 #11) — list, scrub, undo/redo, commit.
+    auto *queueDock = new QDockWidget(QStringLiteral("Move queue"), this);
+    queueDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::RightDockWidgetArea);
+    m_queuePanel = new QueuePanel(m_scene, queueDock);
+    queueDock->setWidget(m_queuePanel);
+    addDockWidget(Qt::BottomDockWidgetArea, queueDock);
 
     m_pathLabel = new QLabel(this);
     statusBar()->addWidget(m_pathLabel);
