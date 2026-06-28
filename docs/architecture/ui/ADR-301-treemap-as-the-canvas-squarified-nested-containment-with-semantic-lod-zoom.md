@@ -4,7 +4,7 @@ date: 2026-06-27
 deciders:
   - aaronsb
   - claude
-related: [ADR-300, ADR-101, ADR-200]
+related: [ADR-300, ADR-303, ADR-101, ADR-200]
 ---
 
 # ADR-301: Treemap as the canvas: squarified nested-containment with semantic LOD zoom
@@ -58,6 +58,9 @@ forward (see Neutral).
   lighter in light) so file icons read against it.
 - **Interaction.** Middle-button drag pans (the map fills the viewport); left-click selects;
   double-click drills in and an **Up** button ascends (re-rooting via parent pointers).
+  *(Revised by [ADR-303](ADR-303-investigation-frames-double-click-opens-a-floating-focused-treemap-with-callout-lines-one-shared-scene-and-ledger.md):
+  double-click now opens a floating investigation frame instead of re-rooting, and the Up/drill
+  control is removed.)*
   ADR-300's *drag-to-rewire* — a drag that drops onto another node and emits a `move`
   (ADR-200) — is retained as the planned editing gesture, now literally "drag a square (and
   its contents) into another square."
