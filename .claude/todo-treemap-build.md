@@ -7,16 +7,19 @@ on the in-memory tree; 4–5 need new substrate. Mirrors the session task list (
 Design source of truth: `docs/architecture/` — ADR-101 (graph model), ADR-102 (groups),
 ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (frames).
 
-## Slice 1 — Semantic groups (ADR-102)  [no new deps]
-- [ ] Group data model + in-memory store (id, name, colour, kind=rule|manual, rule/members,
-      exclusions, view-state: visible/highlight/dim/focus).
-- [ ] git-worktree **rule**: detect dirs containing `.git`; resolve members = anchor + all
-      descendants − exclusions over the in-memory tree; re-resolve on rescan.
-- [ ] Left **dock panel** of window-shade group cards (swatch, name, count, expand; per-group
-      visible/highlight/dim/focus/select; add/remove); depth-ramp legend at the bottom.
-- [ ] Treemap **group overlay** in `TreemapItem` (highlight = tint/border in group colour; focus
-      = dim non-members; selection).
-- [ ] Wire panel ↔ scene ↔ overlay repaint.
+## Slice 1 — Semantic groups (ADR-102)  [no new deps]  ✅ SHIPPED
+- [x] Group data model + in-memory store (id, name, colour, kind=rule|manual, rule/members,
+      exclusions, view-state: visible/highlight/dim/focus). — `core::Group` / `core::GroupStore`.
+- [x] git-worktree **rule**: detect dirs containing `.git` (subdir or `.git` file); resolve
+      members = anchor + all descendants − exclusions over the in-memory tree; re-resolve on
+      rescan (idempotent, exclusions/colour/id preserved). — `core::resolveRuleGroups`.
+- [x] Left **dock panel** of window-shade group cards (swatch, name, count, ▾ shade; per-group
+      Show/Hi/Focus/Dim); depth-ramp legend at the bottom. — `ui::GroupPanel`.
+- [x] Treemap **group overlay** in `TreemapItem` (highlight = tint/border in group colour; focus
+      = dim non-members; dim = de-emphasise members; selection unchanged).
+- [x] Wire panel ↔ scene ↔ overlay repaint (`GraphScene` owns the store, resolves on the scan
+      root, `updateGroupOverlay()`; panel refresh on load + ramp change).
+      *Debt: checkbox→overlay click path needs an interactive confirm (with pan/select/drill).*
 
 ## Slice 2 — Investigation frames (ADR-303)  [no new deps]
 - [ ] `FrameItem`: draggable header (move/close) + interior treemap rooted at a subtree +
