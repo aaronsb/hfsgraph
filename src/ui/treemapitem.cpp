@@ -375,7 +375,7 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
         // file as a tiny block coloured by its type (the shared fileTypeColor
         // dictionary) — a file-count + type-density cue where the cell would
         // otherwise be blank. Device space, so the dots stay a constant screen size.
-        constexpr qreal kBlock = 3.0, kPitch = 4.0; // 3px dot + 1px gap, device px
+        constexpr qreal kBlock = 3.0, kPitch = 5.0; // 3px dot + 2px gap, device px
         const QRectF grid = dev.adjusted(2, (hasTitle ? kHeaderPx : 2.0), -2, -2);
         if (grid.width() >= kBlock && grid.height() >= kBlock) {
             p->setWorldMatrixEnabled(false);
