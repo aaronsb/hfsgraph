@@ -293,20 +293,16 @@ void GroupPanel::applyToTargets(const std::function<void(core::Group &)> &fn) {
         selected.insert(idx.row());
     const bool all = selected.isEmpty(); // no selection → act on every group
 
-    for (int r = 0; r < m_table->rowCount(); ++r) {
-        if (!all && !selected.contains(r))
-            continue;
-        if (core::Group *g = groupForRow(r))
-            fn(*g);
-    }
-
-    // Re-sync the checkboxes to the mutated groups (guarded so this doesn't recurse),
-    // preserving the current row selection, then repaint once.
+    // One pass: resolve each row's group once (avoids a second lookup), apply the
+    // change to targets, and re-sync every row's checkboxes from the (possibly
+    // mutated) group. Guarded so the setCheckState calls don't re-fire onItemChanged.
     m_populating = true;
     for (int r = 0; r < m_table->rowCount(); ++r) {
-        const core::Group *g = groupForRow(r);
+        core::Group *g = groupForRow(r);
         if (!g)
             continue;
+        if (all || selected.contains(r))
+            fn(*g);
         m_table->item(r, ColShow)->setCheckState(g->view.visible ? Qt::Checked : Qt::Unchecked);
         m_table->item(r, ColHi)->setCheckState(g->view.highlight ? Qt::Checked : Qt::Unchecked);
         m_table->item(r, ColFocus)->setCheckState(g->view.focus ? Qt::Checked : Qt::Unchecked);
