@@ -4,15 +4,21 @@ A canvas tool for **re-wiring a directory hierarchy to match its semantic struct
 
 A hierarchical filesystem forces one rigid tree onto your files, but you think
 semantically and multi-dimensionally. hfsgraph makes the semantic layer visible — groups,
-colors, associations drawn on a node-graph canvas alongside the real directory tree — and
-lets you re-align the physical structure to match, through a *propose → verify → commit*
-workflow over `mv` (nothing touches disk until you Apply).
+colors, associations drawn over the real directory tree — and lets you re-align the
+physical structure to match, through a *propose → verify → commit* workflow over `mv`
+(nothing touches disk until you Apply).
 
-![hfsgraph showing a ~6,000-directory tree (~/Projects) as a force-directed graph — each directory a card whose size reflects its file count, clustered by containment](screenshots/overview.png)
+The canvas is a **squarified treemap**: a directory is a rectangle subdivided among its
+children, so nesting *is* containment — no edges to route. **Semantic level-of-detail zoom**
+reveals deeper structure as you zoom in (no fixed render depth), and the contents of a
+directory — its child directories and, at the leaf, its files as icons — populate as cells
+grow large enough on screen.
 
-*A real, organically-grown `~/Projects` (~6,000 directories) rendered as a converged
-force-directed graph: each directory is a card, edges are containment, and clusters fall
-out of the layout.*
+![hfsgraph rendering ~/Projects as a squarified treemap — each directory a rectangle subdivided among its children, area by file count, coloured by depth (Viridis), with file icons inside leaf directories](screenshots/treemap-overview.png)
+
+*A real, organically-grown `~/Projects` as a treemap: area ∝ subtree file count, colour by
+nesting depth, file icons inside leaf directories. The same tree a node-link graph turned
+into a hairball (see [ADR-301](docs/architecture/ui/)).*
 
 ## Where things are
 
@@ -25,9 +31,10 @@ out of the layout.*
 ## Stack
 
 Standalone **Qt6 + KDE Frameworks 6** desktop app (C++) — no embedded webview, no
-client/server, launches and exits. Native KDE theming and controls; `QGraphicsView` canvas;
-`KF6::Solid` for mount/device detection, `KF6::Baloo` + `user.xdg.tags` for tag interop,
-`libbtrfsutil` for snapshots. See [ADR-400](docs/architecture/platform/) for the rationale.
+client/server, launches and exits. Native KDE theming and controls; a `QGraphicsView` canvas
+with a custom treemap item that does level-of-detail rendering in `paint()`; `KF6::Solid` for
+mount/device detection, `KF6::Baloo` + `user.xdg.tags` for tag interop, `libbtrfsutil` for
+snapshots. See [ADR-400](docs/architecture/platform/) for the rationale.
 
 ## Quick start
 
@@ -43,10 +50,13 @@ make adr CMD="list --group"
 
 ## Status
 
-Early. A working **read-only graph viewer**: directories as cards on a force-directed
-canvas (physics toggle, repel/attract controls, box collision), window-shade nodes with a
-file browser (icon grid ↔ detail), and bulk controls. The *re-wiring* engine (propose →
-verify → commit over `mv`) is the next phase — see `.claude/TODO.md` and `CONCEPT.md`.
+Early. A working **read-only treemap viewer**: the directory tree as a squarified,
+semantic-LOD-zoom treemap with file icons in leaf cells, a title-bar/contents colour split,
+selectable area metric (file count / bytes on disk), data-viz colour ramps
+(Viridis/Magma/Plasma/Cividis/Turbo/Spectrum), a Detail "view distance" slider, middle-drag
+pan, and click-to-select / double-click-to-drill navigation. Semantic **groups/tagging** and
+the *re-wiring* engine (propose → verify → commit over `mv`) are the next phases — see
+`.claude/TODO.md`, `CONCEPT.md`, and [ADR-301](docs/architecture/ui/).
 
 ## License
 
