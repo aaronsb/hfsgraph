@@ -188,7 +188,8 @@ void FrameItem::rebuildInterior() {
     m_interior = new TreemapItem(m_node, in.width(), in.height(),
                                  static_cast<TreemapItem::SizeMetric>(m_scene->sizeMetric()),
                                  static_cast<TreemapItem::Ramp>(m_scene->colorRamp()), m_scene);
-    m_interior->setLod(m_scene->lod());
+    m_interior->setReveal(m_scene->reveal());
+    m_interior->setDetail(m_scene->detail());
     m_interior->setGroupStore(&m_scene->groups());
     m_interior->setOwnerFrame(this); // so its double-clicks record this frame as the parent
     m_interior->setParentItem(this);
@@ -236,9 +237,14 @@ void FrameItem::setRenderRoot(const core::FsNode *root) {
     update(); // the header title tracks m_node
 }
 
-void FrameItem::setLod(qreal factor) {
+void FrameItem::setReveal(qreal factor) {
     if (m_interior)
-        m_interior->setLod(factor);
+        m_interior->setReveal(factor);
+}
+
+void FrameItem::setDetail(qreal factor) {
+    if (m_interior)
+        m_interior->setDetail(factor);
 }
 
 QSizeF FrameItem::panelSize() const { return QSizeF(m_w, m_h); }

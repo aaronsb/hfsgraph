@@ -186,9 +186,14 @@ double TreemapItem::weight(const core::FsNode *n) const {
     return w;
 }
 
-void TreemapItem::setLod(qreal factor) {
-    m_lod = std::max<qreal>(0.05, factor);
-    update(); // detail is decided in paint(), so a repaint is all it takes
+void TreemapItem::setReveal(qreal factor) {
+    m_reveal = std::max<qreal>(0.05, factor);
+    update(); // gates are evaluated in paint(), so a repaint is all it takes
+}
+
+void TreemapItem::setDetail(qreal factor) {
+    m_detail = std::max<qreal>(0.05, factor);
+    update();
 }
 
 void TreemapItem::setGroupStore(const core::GroupStore *store) {
@@ -268,17 +273,18 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
 
     m_cells.push_back({rect, node});
     const double zoom = toDevice.m11();
-    // m_lod scales every detail gate — the "view distance": <1 populates contents
-    // (children, title, icons) at smaller on-screen sizes; >1 holds them back.
-    const bool subdivide = !node->children.empty() && dev.width() > kSubdivW * m_lod &&
-                           dev.height() > kSubdivH * m_lod;
+    // m_reveal gates subdivision (how deep nesting shows); m_detail gates the
+    // contents crossover below — kept separate so revealing deeper nesting doesn't
+    // also promote small squares from pixel-dots into full icons, and vice versa.
+    const bool subdivide = !node->children.empty() && dev.width() > kSubdivW * m_reveal &&
+                           dev.height() > kSubdivH * m_reveal;
 
     // Every cell = a title bar (the ramp identity colour) over a contents area (a
     // darker value in dark mode / lighter in light mode), so icons and child cells
     // sit on a low-key background and read clearly.
     const QColor title = rampColor(m_ramp, depth);
     const QColor body = m_dark ? title.darker(235) : title.lighter(168);
-    const bool hasTitle = dev.width() > kLabelW * m_lod && dev.height() > kHeaderPx * 1.5 * m_lod;
+    const bool hasTitle = dev.width() > kLabelW * m_detail && dev.height() > kHeaderPx * 1.5 * m_detail;
 
     // Semantic-group overlay (ADR-102): highlight tints + borders a group's cells;
     // focus dims non-members; dim de-emphasises a group's own members.
@@ -366,8 +372,8 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
     }
 
     // Leaf: file icons on the contents area (device space, constant screen size).
-    if (!node->files.isEmpty() && dev.width() > 70.0 * m_lod &&
-        dev.height() > (kHeaderPx + kIconGlyph.pitch()) * m_lod) {
+    if (!node->files.isEmpty() && dev.width() > 70.0 * m_detail &&
+        dev.height() > (kHeaderPx + kIconGlyph.pitch()) * m_detail) {
         p->setWorldMatrixEnabled(false);
         const QRectF grid = dev.adjusted(4, (hasTitle ? kHeaderPx : 2.0), -2, -2);
         const GridFit fit = fitGlyphs(grid, kIconGlyph, static_cast<int>(node->files.size()));
@@ -379,7 +385,7 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
             fileTypeIcon(node->files[i]).paint(p, ir);
         }
         p->setWorldMatrixEnabled(true);
-    } else if (!hasTitle && dev.width() > kLabelW * m_lod && dev.height() > kLabelH * m_lod) {
+    } else if (!hasTitle && dev.width() > kLabelW * m_detail && dev.height() > kLabelH * m_detail) {
         // No room for a title bar — centre the name on the body instead.
         p->setWorldMatrixEnabled(false);
         QFont f = p->font();

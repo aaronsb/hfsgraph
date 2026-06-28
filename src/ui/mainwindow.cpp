@@ -75,17 +75,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             [this](int i) { m_scene->setCalloutMode(i); });
     toolbar->addWidget(calloutCombo);
 
-    toolbar->addWidget(new QLabel(QStringLiteral(" Detail ")));
-    auto *lodSlider = new QSlider(Qt::Horizontal, this);
-    lodSlider->setRange(0, 100);
-    lodSlider->setValue(50); // mid → factor 1.0 (the baseline thresholds)
-    lodSlider->setFixedWidth(120);
-    lodSlider->setToolTip(QStringLiteral("View distance: higher reveals squares' contents from "
-                                         "farther out (more detail at a given zoom)"));
-    // Higher slider = farther view distance = smaller gates = factor < 1.
-    connect(lodSlider, &QSlider::valueChanged, this,
-            [this](int v) { m_scene->setLod(1.6 - 1.2 * (v / 100.0)); });
-    toolbar->addWidget(lodSlider);
+    // Two independent LOD sliders (ADR-301): Reveal = how deep nesting subdivides;
+    // Detail = at what cell size contents switch pixel-dots → icons → name. Same
+    // mapping (mid = factor 1.0; higher = smaller gates = appears sooner). They were
+    // one knob, but it forced a trade — revealing deeper nesting also promoted small
+    // squares from dots to icons, and vice versa.
+    auto detailSlider = [this, toolbar](const QString &label, const QString &tip, auto setter) {
+        toolbar->addWidget(new QLabel(label));
+        auto *s = new QSlider(Qt::Horizontal, this);
+        s->setRange(0, 100);
+        s->setValue(50); // mid → factor 1.0 (the baseline thresholds)
+        s->setFixedWidth(110);
+        s->setToolTip(tip);
+        connect(s, &QSlider::valueChanged, this,
+                [this, setter](int v) { (m_scene->*setter)(1.6 - 1.2 * (v / 100.0)); });
+        toolbar->addWidget(s);
+    };
+    detailSlider(QStringLiteral(" Reveal "),
+                 QStringLiteral("How deep nesting subdivides on screen"),
+                 &GraphScene::setReveal);
+    detailSlider(QStringLiteral(" Detail "),
+                 QStringLiteral("Cell size at which contents switch dots → icons → name"),
+                 &GraphScene::setDetail);
 
     // Left dock: semantic-group legend + controls (ADR-102).
     auto *groupDock = new QDockWidget(QStringLiteral("Groups"), this);
