@@ -93,7 +93,12 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
       Verified headlessly (staged plan, scrub to an intermediate step, dimmed pending row).
       *Deferred: per-op confirmation "training wheels" (a modal mid-gesture needs care — would
       ride the endMoveDrag deferral); interactive mouse-path is confirm-debt.*
-- [ ] **Diff overlay**: crosshatch + step-number tag on squares touched by the plan.
+- [x] **Diff overlay** (#12): each square the active plan relocated gets an amber crosshatch
+      + bold border + a step-number badge (matching the queue dock row). `TreemapItem` builds
+      an identity→step map from `ledger().active()` each paint and `drawDiffMark`s matching
+      cells on top (incl. over a moved dir's children); it tracks scrub/undo/redo since those
+      re-project + repaint. Amber sits outside the depth ramps and group hues so it never reads
+      as either. Verified headlessly (full plan badges 1+2; scrub to step 1 marks only op 1).
 - [ ] **Cross-frame** arrows + hit-testing on a top overlay layer (needs Slice 2 frames).
 
 ## UI/UX polish — interactive iteration (ADR-301/304)  [ongoing]

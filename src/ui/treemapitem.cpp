@@ -351,11 +351,25 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
         dimScrim(); // dim this cell's chrome; children overdraw the inner and self-dim
         for (size_t k = 0; k < kids.size(); ++k)
             drawCell(p, kids[k], rects[k], depth + 1, toDevice, exposed);
+        if (const int step = diffStepFor(node))
+            drawDiffMark(p, dev, step); // on top of children, so a moved dir stays marked
         return;
     }
 
     drawLeafContents(p, node, dev, hasTitle, body);
     dimScrim(); // leaf: dim the whole cell (body + contents) when de-emphasised
+    if (const int step = diffStepFor(node))
+        drawDiffMark(p, dev, step);
+}
+
+// The staged-move step that *actually relocated* this node, or 0 if none. A node is
+// only marked when its projected path diverged from its identity (original key): an op
+// projectForest skipped (collision / cycle / unresolved) leaves the node in place, so
+// path == identity and we must not paint a false "moved" badge on it (ADR-302 #12).
+int TreemapItem::diffStepFor(const core::FsNode *node) const {
+    if (m_diffSteps.isEmpty() || node->path == node->identity)
+        return 0;
+    return m_diffSteps.value(core::keyFor(*node), 0);
 }
 
 // The leaf rung: a cell's files drawn as a list (icon+name), icons, or pixel-dots
@@ -505,6 +519,42 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         drawDots(); // Auto floor: density dots where even the name won't fit
 }
 
+void TreemapItem::drawDiffMark(QPainter *p, const QRectF &dev, int step) const {
+    // Amber — deliberately outside the depth ramps and the group hues so a staged-move
+    // mark never reads as either. Drawn device-space so the hatch density and the badge
+    // stay constant under zoom.
+    const QColor diff(255, 165, 60);
+    p->save(); // the painter is shared across the recursive drawCell walk — the bold
+               // badge font (and pen/brush) must not bleed into the next cell's text
+    p->setWorldMatrixEnabled(false);
+    QColor lines = diff;
+    lines.setAlpha(70); // sparse, low-alpha hatch so nested cells still read through it
+    p->fillRect(dev, QBrush(lines, Qt::FDiagPattern));
+    QPen border(diff, 2.0);
+    border.setJoinStyle(Qt::MiterJoin);
+    p->setPen(border);
+    p->setBrush(Qt::NoBrush);
+    p->drawRect(dev.adjusted(1.0, 1.0, -1.0, -1.0));
+    // Step badge (matches the queue dock row number) in the top-right — skip on cells
+    // too small to host it without burying their own content.
+    if (dev.width() > 26.0 && dev.height() > 20.0) {
+        QFont f = p->font();
+        f.setPixelSize(10);
+        f.setBold(true);
+        p->setFont(f);
+        const QString label = QString::number(step);
+        const qreal bw = std::max(15.0, QFontMetrics(f).horizontalAdvance(label) + 8.0);
+        const QRectF badge(dev.right() - bw - 2.0, dev.top() + 2.0, bw, 14.0);
+        p->setPen(Qt::NoPen);
+        p->setBrush(diff);
+        p->drawRoundedRect(badge, 3.0, 3.0);
+        p->setPen(QColor(40, 25, 0)); // dark glyph on the amber chip
+        p->drawText(badge, Qt::AlignCenter, label);
+    }
+    p->setWorldMatrixEnabled(true);
+    p->restore();
+}
+
 void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) {
     painter->setRenderHint(QPainter::Antialiasing, false); // crisp rectangle edges
     m_cells.clear();
@@ -516,6 +566,15 @@ void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *optio
                 m_anyFocus = true;
                 break;
             }
+    // Staged-move diff targets (#12): identity → 1-based step for every node the active
+    // plan relocated, so drawCell can mark it. Rebuilt each paint, so it tracks the
+    // queue dock's scrub/undo/redo (which re-projects and repaints).
+    m_diffSteps.clear();
+    if (m_scene) {
+        const std::vector<core::MoveOp> active = m_scene->ledger().active();
+        for (int i = 0; i < static_cast<int>(active.size()); ++i)
+            m_diffSteps.insert(active[i].source, i + 1); // a re-moved node shows its latest step
+    }
     const QTransform toDevice = painter->worldTransform();
     m_lastZoom = toDevice.m11() > 0 ? toDevice.m11() : 1.0; // for cellRectForNode insets
     const QRectF exposed = option ? option->exposedRect : QRectF(0, 0, m_w, m_h);

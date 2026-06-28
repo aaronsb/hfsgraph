@@ -13,7 +13,9 @@
 #pragma once
 
 #include <QGraphicsItem>
+#include <QHash>
 #include <QRectF>
+#include <QString>
 #include <unordered_map>
 #include <vector>
 
@@ -108,6 +110,12 @@ class TreemapItem : public QGraphicsItem {
     // out of drawCell to keep it focused on cull / subdivide / chrome.
     void drawLeafContents(QPainter *painter, const core::FsNode *node, const QRectF &dev,
                           bool hasTitle, const QColor &body) const;
+    // The staged-move diff decoration (ADR-302 #12): a crosshatch + a step-number badge
+    // marking a square the plan relocated, drawn on top of the cell (and its children).
+    void drawDiffMark(QPainter *painter, const QRectF &dev, int step) const;
+    // The plan step that actually relocated `node` (0 = none) — gates drawDiffMark so a
+    // skipped op never paints a false mark on a node still in its original place.
+    int diffStepFor(const core::FsNode *node) const;
     const core::FsNode *cellAt(const QPointF &p) const; // deepest cell under a point
 
     const core::FsNode *m_root;
@@ -132,6 +140,9 @@ class TreemapItem : public QGraphicsItem {
     int m_fileMode = Auto;       // forced file rung, or Auto (size-driven)
     mutable bool m_dark = true;   // resolved from the palette each paint
     mutable bool m_anyFocus = false; // any visible group in focus mode (resolved each paint)
+    // identity → 1-based ledger step for cells the staged plan relocated (#12); rebuilt
+    // each paint from the scene's active ops, so the overlay tracks queue scrub/undo.
+    mutable QHash<QString, int> m_diffSteps;
     mutable qreal m_lastZoom = 1.0;  // view zoom from the last paint (for cellRectForNode)
 
     mutable std::unordered_map<const core::FsNode *, double> m_weight;
