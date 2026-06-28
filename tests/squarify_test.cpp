@@ -64,6 +64,23 @@ int main() {
                   "cell within bounds");
         }
         check(nearly(sumArea, boundsArea, 1e-3), "cells tile the whole area");
+
+        // The squarified properties themselves — what distinguishes this from a naive
+        // slice-and-dice (which conserves area + tiles too, so the checks above alone
+        // wouldn't catch a broken greedy `worst` comparison): cells must not overlap,
+        // and aspect ratios must stay near square.
+        for (size_t a = 0; a < rects.size(); ++a)
+            for (size_t b = a + 1; b < rects.size(); ++b) {
+                const QRectF i = rects[a].intersected(rects[b]);
+                check(i.width() <= 1e-6 || i.height() <= 1e-6, "cells do not overlap");
+            }
+        for (const QRectF &r : rects) {
+            const double ar = std::max(r.width() / r.height(), r.height() / r.width());
+            // Slice-and-dice of {6,3,2,1} in 100×50 makes the smallest sliver ~6:1;
+            // squarified keeps every cell well under 4:1. A loose bound catches the
+            // degenerate layout without being flaky on the good one.
+            check(ar < 4.0, "cell aspect ratio kept near square");
+        }
     }
 
     // A single weight fills the bounds exactly.
