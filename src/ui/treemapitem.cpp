@@ -382,8 +382,9 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
     dimScrim(); // leaf: dim the whole cell (body + contents) when de-emphasised
 }
 
-// The leaf rung: a cell's files drawn as names, icons, or pixel-dots (or the cell's
-// own name when it has none). The rung is chosen by cell size (Detail LOD) in Auto,
+// The leaf rung: a cell's files drawn as a list (icon+name), icons, or pixel-dots
+// (or the cell's own name when it has none). The rung is chosen by cell size (Detail
+// LOD) in Auto,
 // or forced by m_fileMode. All three colour-match the file type (shared
 // fileTypeColor / fileTypeIcon). Each helper self-guards on room, so a forced rung
 // on a too-small cell simply draws nothing.
