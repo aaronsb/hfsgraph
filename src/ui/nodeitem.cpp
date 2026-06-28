@@ -19,6 +19,7 @@
 #include <QPalette>
 #include <QSize>
 #include <QStackedWidget>
+#include <QStyle>
 #include <QTreeView>
 
 namespace ui {
@@ -79,6 +80,14 @@ void NodeItem::buildViewer() {
     m_fsModel = new QFileSystemModel(m_stack);
     m_fsModel->setOption(QFileSystemModel::DontWatchForChanges, true);
     m_fsModel->setFilter(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+    // The model loads its directory on a background thread; a fit requested before
+    // the rows arrive is finished here, once they have. Context is m_fsModel so the
+    // connection drops when the model (and this item) is destroyed.
+    QObject::connect(m_fsModel, &QFileSystemModel::directoryLoaded, m_fsModel,
+                     [this](const QString &) {
+                         if (m_pendingListFit)
+                             applyListFit();
+                     });
     const QModelIndex root = m_fsModel->setRootPath(m_node->path);
 
     auto *iconView = new QListView();
@@ -162,19 +171,80 @@ void NodeItem::fitToContent() {
     setShaded(false); // ensure the viewer exists and is open
     const int count = static_cast<int>(m_node->files.size());
     prepareGeometryChange();
-    constexpr qreal cellW = 80.0, cellH = 62.0;
-    if (m_viewMode == 0) { // icon grid: roughly square
-        const int cols0 = std::max(1, static_cast<int>(std::ceil(std::sqrt(double(count)))));
-        // Pick a width that comfortably seats cols0 columns, then derive rows from
-        // the columns that *actually* fit that width (avoids a clipped last row).
-        m_width = std::clamp<qreal>(cols0 * cellW + 2 * kPad + 14.0, MinWidth, 900.0);
-        const int fitCols = std::max(1, static_cast<int>((m_width - 2 * kPad) / cellW));
+    if (m_viewMode == 0) { // icon grid: roughly square, sized to show every cell
+        auto *iconView = qobject_cast<QListView *>(m_stack->widget(0));
+        const QSize cell = iconView ? iconView->gridSize() : QSize(80, 62);
+        const int sb =
+            iconView ? iconView->style()->pixelMetric(QStyle::PM_ScrollBarExtent) : 16;
+        constexpr qreal kComfort = 8.0; // beats QListView's internal cell margin
+        const int cols = std::max(1, static_cast<int>(std::ceil(std::sqrt(double(count)))));
+        // Aim for a roughly square grid, plus a scrollbar-width gutter so the layout
+        // never has to choose between a column and the scrollbar.
+        m_width =
+            std::clamp<qreal>(cols * cell.width() + 2 * kPad + sb + kComfort, MinWidth, 900.0);
+        // Derive rows from the columns that PESSIMISTICALLY fit the (possibly clamped)
+        // width — subtract the scrollbar + comfort so this is never more than the view
+        // actually packs. Undercounting columns only over-estimates rows, which sizes
+        // the height tall enough that no vertical scrollbar appears (a scrollbar would
+        // steal width, drop a column, add a row, and bring itself back — the old bug).
+        const int fitCols =
+            std::max(1, static_cast<int>((m_width - 2 * kPad - sb - kComfort) / cell.width()));
         const int rows = (count + fitCols - 1) / fitCols;
-        m_openListH = std::clamp<qreal>(rows * cellH + 20.0, MinListH, 1000.0);
-    } else { // detail list: one row per file (+ header row)
+        m_openListH = std::clamp<qreal>(rows * cell.height() + kPad + 6.0, MinListH, 1000.0);
+    } else { // detail list: size to the QTreeView's real columns + rows
+        auto *tree = qobject_cast<QTreeView *>(m_stack->widget(1));
+        if (tree && m_fsModel->rowCount(tree->rootIndex()) > 0) {
+            applyListFit(); // model already populated — measure now
+            return;         // applyListFit() finishes the geometry update
+        }
+        // Model loads asynchronously; defer sizing until its rows arrive (see
+        // the directoryLoaded hook wired in buildViewer). Give a provisional size
+        // so the node isn't tiny in the meantime.
+        m_pendingListFit = true;
         m_width = 360.0;
-        m_openListH = std::clamp<qreal>(count * 23.0 + 32.0, MinListH, 1200.0);
+        m_openListH = std::clamp<qreal>(count * 24.0 + 32.0, MinListH, 1200.0);
     }
+    recomputeHeight();
+    updateListGeometry();
+    update();
+    if (m_scene)
+        m_scene->onNodeMoved();
+}
+
+// Size the open detail list to its populated QTreeView: width = sum of the four
+// content-fit column widths, height = header row + one row per file. Called once
+// the QFileSystemModel has loaded (rows must exist for the measurements to be
+// real — see fitToContent() and the directoryLoaded hook).
+void NodeItem::applyListFit() {
+    m_pendingListFit = false;
+    if (m_shaded || m_viewMode != 1 || !m_proxy)
+        return;
+    auto *tree = qobject_cast<QTreeView *>(m_stack->widget(1));
+    if (!tree)
+        return;
+    const int count = static_cast<int>(m_node->files.size());
+    prepareGeometryChange();
+
+    QHeaderView *hdr = tree->header();
+    hdr->setStretchLastSection(false);
+    // Width = the four content-fit columns + a scrollbar-width gutter so that even
+    // if a vertical scrollbar does appear it never squeezes out a horizontal one.
+    const int sbExtent = tree->style()->pixelMetric(QStyle::PM_ScrollBarExtent);
+    qreal w = 2 * kPad + sbExtent + 4.0;
+    for (int c = 0; c < m_fsModel->columnCount(); ++c) {
+        tree->resizeColumnToContents(c);
+        w += tree->columnWidth(c) + 4.0; // a hair of per-column slack
+    }
+    hdr->setStretchLastSection(true); // let the last column absorb the slack
+    m_width = std::clamp<qreal>(w, MinWidth, 900.0);
+
+    // Height = header + one row per file. sizeHintForRow can under-report by the
+    // 1px grid line per row, so budget rowH+1 plus a small base slack — sizing to
+    // fit every row keeps the vertical scrollbar away.
+    const int rowH = std::max(tree->sizeHintForRow(0), 16);
+    const int headerH = std::max(hdr->height(), hdr->sizeHint().height());
+    m_openListH = std::clamp<qreal>(headerH + count * (rowH + 1) + 8.0, MinListH, 1600.0);
+
     recomputeHeight();
     updateListGeometry();
     update();

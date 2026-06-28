@@ -58,6 +58,7 @@ class NodeItem : public QGraphicsItem {
     void toggleShade();
     void recomputeHeight();
     void updateListGeometry();
+    void applyListFit(); // size the open detail list once its model has loaded
     static QString humanSize(qint64 bytes);
 
     const core::FsNode *m_node;
@@ -72,6 +73,7 @@ class NodeItem : public QGraphicsItem {
     qreal m_height;
     qreal m_openListH; // viewer height when open (resizable)
     bool m_resizing = false;
+    bool m_pendingListFit = false; // a list fit is waiting on the model to load
     QString m_stats1; // "N files · M dirs"
     QString m_stats2; // "1.2 MB on disk"
     QGraphicsProxyWidget *m_proxy = nullptr;
