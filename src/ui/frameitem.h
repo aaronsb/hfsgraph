@@ -97,6 +97,7 @@ class FrameItem : public QGraphicsObject {
 
     void setReveal(qreal factor); // forward to the interior treemap (subdivision LOD)
     void setDetail(qreal factor); // forward to the interior treemap (contents LOD)
+    void setFileMode(int mode);   // forward to the interior treemap (forced file rung)
 
     // Resize the panel + re-squarify the interior (ADR-304), clamped to a minimum.
     // Driven by the corner ResizeGrip; gives every cell more room for its label.

@@ -47,10 +47,12 @@ class GraphScene : public QGraphicsScene {
     void setColorRamp(int ramp);    // Viridis/Magma/Plasma/Cividis/Turbo/Spectrum
     void setReveal(double factor);  // subdivision/nesting LOD (live; no rebuild)
     void setDetail(double factor);  // contents-crossover LOD (live; no rebuild)
+    void setFileMode(int mode);     // force file rung (TreemapItem::FileMode) or Auto
 
     int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)
     double reveal() const { return m_reveal; }      // current reveal LOD (for frames)
     double detail() const { return m_detail; }      // current detail LOD (for frames)
+    int fileMode() const { return m_fileMode; }     // current file rung (for frames)
 
     // The base scan depth (toolbar Depth). A level-N lens scans its own subtree to
     // baseDepth + N (capped), so deeper lenses reveal more detail (ADR-304).
@@ -114,6 +116,7 @@ class GraphScene : public QGraphicsScene {
     int m_colorRamp = 0;              // TreemapItem::Viridis
     double m_reveal = 1.0;            // subdivision LOD, persists across rebuilds
     double m_detail = 1.0;            // contents-crossover LOD, persists across rebuilds
+    int m_fileMode = 0;               // TreemapItem::FileMode (0 = Auto), persists
     bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
     int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
     int m_calloutMode = 0;           // 0 Filled, 1 Lines, 2 Off (ADR-304)

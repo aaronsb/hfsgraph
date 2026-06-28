@@ -190,6 +190,7 @@ void FrameItem::rebuildInterior() {
                                  static_cast<TreemapItem::Ramp>(m_scene->colorRamp()), m_scene);
     m_interior->setReveal(m_scene->reveal());
     m_interior->setDetail(m_scene->detail());
+    m_interior->setFileMode(m_scene->fileMode());
     m_interior->setGroupStore(&m_scene->groups());
     m_interior->setOwnerFrame(this); // so its double-clicks record this frame as the parent
     m_interior->setParentItem(this);
@@ -245,6 +246,11 @@ void FrameItem::setReveal(qreal factor) {
 void FrameItem::setDetail(qreal factor) {
     if (m_interior)
         m_interior->setDetail(factor);
+}
+
+void FrameItem::setFileMode(int mode) {
+    if (m_interior)
+        m_interior->setFileMode(mode);
 }
 
 QSizeF FrameItem::panelSize() const { return QSizeF(m_w, m_h); }

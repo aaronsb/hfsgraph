@@ -38,6 +38,11 @@ class TreemapItem : public QGraphicsItem {
     // categorical HSL hue cycle. Keep in sync with kRampNames in the .cpp.
     enum Ramp { Viridis, Magma, Plasma, Cividis, Turbo, Spectrum };
 
+    // How a cell's files are drawn. Auto picks by cell size (names → icons → dots as
+    // it shrinks); the others force that rung regardless of size (ADR-301). Keep in
+    // sync with the toolbar combo order in MainWindow.
+    enum FileMode { Auto, Dots, Icons, Names };
+
     // Identity colour for a nesting depth under a ramp (depth spans 0..6). Shared so
     // the group panel's depth legend matches what the treemap paints.
     static QColor depthColor(Ramp ramp, int depth);
@@ -55,6 +60,9 @@ class TreemapItem : public QGraphicsItem {
     // triggers sooner (more), >1 holds back. Paint-only — no rebuild needed.
     void setReveal(qreal factor); // subdivision / nesting depth
     void setDetail(qreal factor); // contents rung crossover (dots/icons/name)
+
+    // Force the file rung (FileMode), or Auto to pick by size. Paint-only.
+    void setFileMode(int mode);
 
     // Re-squarify into new bounds (ADR-304). Larger bounds give each cell more
     // scene-space area, so constant-size labels elide less — the resize/magnify
@@ -88,6 +96,10 @@ class TreemapItem : public QGraphicsItem {
     double weight(const core::FsNode *n) const; // subtree file count (memoized)
     void drawCell(QPainter *painter, const core::FsNode *node, const QRectF &rect, int depth,
                   const QTransform &toDevice, const QRectF &exposed) const;
+    // The leaf rung (files as names / icons / dots, or the cell's own name) — split
+    // out of drawCell to keep it focused on cull / subdivide / chrome.
+    void drawLeafContents(QPainter *painter, const core::FsNode *node, const QRectF &dev,
+                          bool hasTitle, const QColor &body) const;
     const core::FsNode *cellAt(const QPointF &p) const; // deepest cell under a point
 
     const core::FsNode *m_root;
@@ -101,6 +113,7 @@ class TreemapItem : public QGraphicsItem {
     const core::FsNode *m_selected = nullptr;
     qreal m_reveal = 1.0;        // subdivision gate multiplier; <1 = subdivide sooner
     qreal m_detail = 1.0;        // contents-crossover gate multiplier; <1 = icons/name sooner
+    int m_fileMode = Auto;       // forced file rung, or Auto (size-driven)
     mutable bool m_dark = true;   // resolved from the palette each paint
     mutable bool m_anyFocus = false; // any visible group in focus mode (resolved each paint)
     mutable qreal m_lastZoom = 1.0;  // view zoom from the last paint (for cellRectForNode)
