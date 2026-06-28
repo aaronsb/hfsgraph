@@ -10,6 +10,8 @@
 
 #include "core/group.h"
 
+#include <vector>
+
 namespace core {
 struct FsNode;
 }
@@ -17,6 +19,7 @@ struct FsNode;
 namespace ui {
 
 class TreemapItem;
+class FrameItem;
 
 class GraphScene : public QGraphicsScene {
     Q_OBJECT
@@ -37,6 +40,16 @@ class GraphScene : public QGraphicsScene {
     void setColorRamp(int ramp);    // Viridis/Magma/Plasma/Cividis/Turbo/Spectrum
     void setLod(double factor);     // detail "view distance" (live; no rebuild)
 
+    int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)
+    double lod() const { return m_lod; }            // current LOD factor (for frames)
+
+    // Investigation frames (ADR-303). openFrame floats a new frame rooted at `node`
+    // near `originScenePos` (a non-destructive lens — the base is not re-rooted);
+    // closeFrame removes it; raiseFrame brings it to the front of the frame stack.
+    void openFrame(const core::FsNode *node, const QPointF &originScenePos);
+    void closeFrame(FrameItem *frame);
+    void raiseFrame(FrameItem *frame);
+
     // Semantic groups (ADR-102). The store is resolved against the *scan* root on
     // setRoot (so drill navigation doesn't disturb membership) and owned here; the
     // panel reads/edits it and calls updateGroupOverlay() to repaint the treemap.
@@ -52,6 +65,7 @@ class GraphScene : public QGraphicsScene {
     const core::FsNode *m_scanRoot = nullptr; // full scanned tree (group resolution)
     core::GroupStore m_groups;                // semantic groups (ADR-102), owned
     TreemapItem *m_treemap = nullptr;         // current item (for live LOD tuning)
+    std::vector<FrameItem *> m_frames;        // open investigation frames (ADR-303)
     int m_sizeMetric = 0;             // TreemapItem::Files
     int m_colorRamp = 0;              // TreemapItem::Viridis
     double m_lod = 1.0;               // persists across rebuilds

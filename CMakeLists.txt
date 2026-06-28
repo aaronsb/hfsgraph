@@ -29,6 +29,7 @@ add_executable(hfsgraph
     #   future click-to-inspect detail panel; not built in the treemap-only canvas.
     src/ui/treemapitem.cpp
     src/ui/grouppanel.cpp
+    src/ui/frameitem.cpp
     src/ui/graphscene.cpp
     src/ui/canvasview.cpp
     src/ui/mainwindow.cpp

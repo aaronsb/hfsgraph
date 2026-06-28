@@ -1,6 +1,7 @@
 #include "graphscene.h"
 
 #include "core/fsnode.h"
+#include "frameitem.h"
 #include "treemapitem.h"
 
 #include <algorithm>
@@ -47,6 +48,40 @@ void GraphScene::drillUp() {
 void GraphScene::updateGroupOverlay() {
     if (m_treemap)
         m_treemap->update();
+    for (FrameItem *f : m_frames)
+        f->update(); // frames carry the same overlay
+}
+
+void GraphScene::openFrame(const core::FsNode *node, const QPointF &originScenePos) {
+    if (!node)
+        return;
+    constexpr qreal kFrameW = 520.0, kFrameH = 360.0;
+    auto *frame = new FrameItem(node, kFrameW, kFrameH, this);
+    // Offset from the origin so the frame doesn't fully cover its source square.
+    frame->setPos(originScenePos + QPointF(48, 36));
+    frame->setZValue(100.0 + static_cast<qreal>(m_frames.size()));
+    addItem(frame);
+    m_frames.push_back(frame);
+    updateSceneBounds(); // a frame may extend past the map's edges
+}
+
+void GraphScene::closeFrame(FrameItem *frame) {
+    const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
+    if (it != m_frames.end())
+        m_frames.erase(it);
+    removeItem(frame);
+    frame->deleteLater(); // safe even when called from the frame's own handler
+}
+
+void GraphScene::raiseFrame(FrameItem *frame) {
+    const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
+    if (it == m_frames.end())
+        return;
+    m_frames.erase(it);
+    m_frames.push_back(frame); // front of the stack
+    qreal z = 100.0;
+    for (FrameItem *f : m_frames)
+        f->setZValue(z++);
 }
 
 void GraphScene::setSizeMetric(int metric) {
@@ -63,11 +98,14 @@ void GraphScene::setLod(double factor) {
     m_lod = factor;
     if (m_treemap)
         m_treemap->setLod(factor); // live — paint-only, no rebuild
+    for (FrameItem *f : m_frames)
+        f->setLod(factor);
 }
 
 void GraphScene::rebuild() {
-    clear(); // deletes all items, including the previous treemap
+    clear(); // deletes all items, including the previous treemap and any frames
     m_treemap = nullptr;
+    m_frames.clear(); // the FrameItems were just deleted by clear()
     if (!m_root)
         return;
     m_treemap = new TreemapItem(m_root, kCanvasW, kCanvasH,

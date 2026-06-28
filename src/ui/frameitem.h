@@ -1,0 +1,61 @@
+// An investigation frame (ADR-303): a floating panel, living in the *same* scene
+// as the base treemap, that holds its own squarified treemap rooted at a
+// double-clicked subtree. It does not re-root the base — it's a non-destructive,
+// stackable lens. The frame has a draggable header (move / close), an interior
+// treemap child (semantic LOD + the group overlay apply within it), and casts an
+// ordered-dither drop shadow (the project's future-retro dither language).
+//
+// Frames are tied to their origin square by callout lines and can be opened
+// recursively (a double-click inside a frame opens a deeper frame) — both wired in
+// later Slice-2 tasks. Frames root on node identity, so they survive moves and
+// queue-scrubs (ADR-302/303).
+#pragma once
+
+#include <QGraphicsObject>
+#include <QPointF>
+#include <QRectF>
+
+namespace core {
+struct FsNode;
+}
+
+namespace ui {
+
+class GraphScene;
+class TreemapItem;
+
+// QGraphicsObject (not plain QGraphicsItem) so a frame can deleteLater() itself
+// when its × is clicked — safe deletion from within its own event handler.
+class FrameItem : public QGraphicsObject {
+    Q_OBJECT
+  public:
+    FrameItem(const core::FsNode *node, qreal width, qreal height, GraphScene *scene);
+
+    QRectF boundingRect() const override;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
+               QWidget *widget) override;
+
+    const core::FsNode *node() const { return m_node; }
+    void setLod(qreal factor); // forward to the interior treemap
+
+  protected:
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
+
+  private:
+    QRectF panelRect() const;    // the frame body (excludes the shadow margin)
+    QRectF headerRect() const;   // draggable title strip
+    QRectF closeRect() const;    // the × hit box
+    QRectF interiorRect() const; // where the child treemap sits
+
+    const core::FsNode *m_node;
+    qreal m_w;
+    qreal m_h;
+    GraphScene *m_scene;
+    TreemapItem *m_interior = nullptr;
+    bool m_dragging = false;
+    QPointF m_dragOffset; // cursor → item-origin offset while dragging
+};
+
+} // namespace ui
