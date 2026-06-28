@@ -49,7 +49,8 @@ QBrush ditherBrush() {
 
 CalloutItem::CalloutItem(const QRectF &originSceneRect, FrameItem *frame)
     : m_origin(originSceneRect), m_frame(frame) {
-    setZValue(0); // set properly by the scene, between the base map and the frame
+    setZValue(0);                              // set properly by the scene (below its frame)
+    setAcceptedMouseButtons(Qt::NoButton);     // a passive overlay — never intercept clicks
 }
 
 void CalloutItem::refresh() {
@@ -60,7 +61,7 @@ void CalloutItem::refresh() {
 QRectF CalloutItem::boundingRect() const {
     // Item sits at scene origin (no transform), so local == scene coordinates.
     QRectF frameRect(m_frame->pos(), m_frame->panelSize());
-    return m_origin.united(frameRect).adjusted(-2, -2, 2, 2);
+    return m_origin.united(frameRect).adjusted(-3, -3, 3, 3); // margin for the AA stroke
 }
 
 void CalloutItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) {
@@ -168,6 +169,7 @@ void FrameItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) 
 void FrameItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
     const QPointF pos = event->pos();
     if (closeRect().contains(pos)) {
+        event->accept(); // consume before deletion, else it falls through to the base map
         if (m_scene)
             m_scene->closeFrame(this); // deletes this item
         return;

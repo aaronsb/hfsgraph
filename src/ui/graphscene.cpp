@@ -78,12 +78,33 @@ void GraphScene::closeFrame(FrameItem *frame) {
 }
 
 void GraphScene::raiseFrame(FrameItem *frame) {
-    const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
-    if (it == m_frames.end())
+    if (std::find(m_frames.begin(), m_frames.end(), frame) == m_frames.end())
         return;
-    m_frames.erase(it);
-    m_frames.push_back(frame); // front of the stack
+    // Raise the frame *and its descendants* together, preserving their relative
+    // order (a child is always created after its parent, so the order already has
+    // ancestors before descendants). Raising the whole subtree keeps child frames —
+    // and their × — above the frame the user clicked, never buried beneath it.
+    auto inSubtree = [&](FrameItem *f) {
+        for (FrameItem *p = f; p; p = p->parentFrame())
+            if (p == frame)
+                return true;
+        return false;
+    };
+    std::vector<FrameItem *> rest, sub;
+    for (FrameItem *f : m_frames)
+        (inSubtree(f) ? sub : rest).push_back(f);
+    m_frames = std::move(rest);
+    m_frames.insert(m_frames.end(), sub.begin(), sub.end());
     restackFrames();
+}
+
+void GraphScene::refreshCallouts() {
+    // Callout geometry is derived from live frame positions; force the items to
+    // recompute + repaint after any view change (zoom/pan) so the lines never go
+    // stale.
+    for (FrameItem *f : m_frames)
+        if (CalloutItem *c = f->callout())
+            c->refresh();
 }
 
 void GraphScene::restackFrames() {

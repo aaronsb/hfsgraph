@@ -63,7 +63,7 @@ class TreemapItem : public QGraphicsItem {
 
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;       // select
-    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override; // drill in
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override; // open a frame
 
   private:
     struct Cell {
