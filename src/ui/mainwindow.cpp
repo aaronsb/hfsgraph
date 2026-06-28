@@ -5,8 +5,8 @@
 #include "graphscene.h"
 
 #include <QAction>
+#include <QComboBox>
 #include <QDir>
-#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QLabel>
 #include <QSpinBox>
@@ -39,45 +39,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     });
     toolbar->addWidget(m_depthSpin);
 
+    QAction *upAct = toolbar->addAction(QStringLiteral("Up"));
+    upAct->setToolTip(QStringLiteral("Go up to the parent directory"));
+    connect(upAct, &QAction::triggered, this, [this] { m_scene->drillUp(); });
+
     toolbar->addSeparator();
 
-    QAction *physicsAct = toolbar->addAction(QStringLiteral("Physics"));
-    physicsAct->setCheckable(true);
-    physicsAct->setToolTip(QStringLiteral("Animate the force layout live"));
-    connect(physicsAct, &QAction::toggled, this,
-            [this](bool on) { m_scene->setPhysicsRunning(on); });
+    auto *sizeCombo = new QComboBox(this); // TreemapItem::SizeMetric order
+    sizeCombo->addItems({QStringLiteral("Size: Count"), QStringLiteral("Size: Bytes")});
+    sizeCombo->setToolTip(QStringLiteral("What a square's area is proportional to"));
+    connect(sizeCombo, &QComboBox::currentIndexChanged, this,
+            [this](int i) { m_scene->setSizeMetric(i); });
+    toolbar->addWidget(sizeCombo);
 
-    auto *repelSpin = new QDoubleSpinBox(this);
-    repelSpin->setRange(0.0, 5.0);
-    repelSpin->setSingleStep(0.1);
-    repelSpin->setValue(1.0);
-    repelSpin->setPrefix(QStringLiteral("repel "));
-    connect(repelSpin, &QDoubleSpinBox::valueChanged, this,
-            [this](double v) { m_scene->setRepulsion(v); });
-    toolbar->addWidget(repelSpin);
-
-    auto *attractSpin = new QDoubleSpinBox(this);
-    attractSpin->setRange(0.0, 5.0);
-    attractSpin->setSingleStep(0.1);
-    attractSpin->setValue(1.0);
-    attractSpin->setPrefix(QStringLiteral("attract "));
-    connect(attractSpin, &QDoubleSpinBox::valueChanged, this,
-            [this](double v) { m_scene->setAttraction(v); });
-    toolbar->addWidget(attractSpin);
-
-    QAction *expandAct = toolbar->addAction(QStringLiteral("Expand all"));
-    connect(expandAct, &QAction::triggered, this, [this] { m_scene->setAllShaded(false); });
-    QAction *shadeAct = toolbar->addAction(QStringLiteral("Shade all"));
-    connect(shadeAct, &QAction::triggered, this, [this] { m_scene->setAllShaded(true); });
-
-    QAction *iconsAct = toolbar->addAction(QStringLiteral("Icons"));
-    connect(iconsAct, &QAction::triggered, this, [this] { m_scene->setAllViewMode(0); });
-    QAction *listAct = toolbar->addAction(QStringLiteral("List"));
-    connect(listAct, &QAction::triggered, this, [this] { m_scene->setAllViewMode(1); });
-
-    QAction *fitAct = toolbar->addAction(QStringLiteral("Fit to count"));
-    fitAct->setToolTip(QStringLiteral("Resize every node to its object count"));
-    connect(fitAct, &QAction::triggered, this, [this] { m_scene->fitAllToContent(); });
+    auto *colorCombo = new QComboBox(this); // TreemapItem::Ramp order
+    colorCombo->addItems({QStringLiteral("Viridis"), QStringLiteral("Magma"),
+                          QStringLiteral("Plasma"), QStringLiteral("Cividis"),
+                          QStringLiteral("Turbo"), QStringLiteral("Spectrum")});
+    colorCombo->setToolTip(QStringLiteral("Colour ramp (by nesting depth)"));
+    connect(colorCombo, &QComboBox::currentIndexChanged, this,
+            [this](int i) { m_scene->setColorRamp(i); });
+    toolbar->addWidget(colorCombo);
 
     m_pathLabel = new QLabel(this);
     statusBar()->addWidget(m_pathLabel);

@@ -24,7 +24,9 @@ find_package(KF6 REQUIRED COMPONENTS CoreAddons)
 add_executable(hfsgraph
     src/main.cpp
     src/core/scanner.cpp
-    src/ui/nodeitem.cpp
+    # src/ui/nodeitem.cpp  — parked: the node-link card + file-viewer, kept for a
+    #   future click-to-inspect detail panel; not built in the treemap-only canvas.
+    src/ui/treemapitem.cpp
     src/ui/graphscene.cpp
     src/ui/canvasview.cpp
     src/ui/mainwindow.cpp

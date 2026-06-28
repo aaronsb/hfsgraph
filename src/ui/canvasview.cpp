@@ -2,8 +2,10 @@
 
 #include <cmath>
 
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
+#include <QScrollBar>
 #include <QWheelEvent>
 
 namespace ui {
@@ -11,7 +13,10 @@ namespace ui {
 CanvasView::CanvasView(QWidget *parent) : QGraphicsView(parent) {
     setRenderHint(QPainter::Antialiasing, true);
     setRenderHint(QPainter::TextAntialiasing, true);
-    setDragMode(QGraphicsView::ScrollHandDrag);
+    // NoDrag: the treemap fills the viewport and the left button is for cell
+    // select / (future) drag-to-reparent, so panning is on the middle button
+    // (handled below) instead of QGraphicsView's left-button ScrollHandDrag.
+    setDragMode(QGraphicsView::NoDrag);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -29,6 +34,39 @@ void CanvasView::wheelEvent(QWheelEvent *event) {
     constexpr double step = 1.15;
     const double factor = event->angleDelta().y() > 0 ? step : 1.0 / step;
     scale(factor, factor);
+}
+
+void CanvasView::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::MiddleButton) {
+        m_panning = true;
+        m_panLast = event->pos();
+        setCursor(Qt::ClosedHandCursor);
+        event->accept();
+        return;
+    }
+    QGraphicsView::mousePressEvent(event);
+}
+
+void CanvasView::mouseMoveEvent(QMouseEvent *event) {
+    if (m_panning) {
+        const QPoint d = event->pos() - m_panLast;
+        m_panLast = event->pos();
+        horizontalScrollBar()->setValue(horizontalScrollBar()->value() - d.x());
+        verticalScrollBar()->setValue(verticalScrollBar()->value() - d.y());
+        event->accept();
+        return;
+    }
+    QGraphicsView::mouseMoveEvent(event);
+}
+
+void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
+    if (m_panning && event->button() == Qt::MiddleButton) {
+        m_panning = false;
+        unsetCursor();
+        event->accept();
+        return;
+    }
+    QGraphicsView::mouseReleaseEvent(event);
 }
 
 void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
