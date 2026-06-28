@@ -299,10 +299,23 @@ void GraphScene::setLod(double factor) {
 }
 
 void GraphScene::updateSceneBounds() {
-    // Pad the content so ScrollHandDrag can pan past the map's edges.
+    // Generous panning room so exploring (dragging frames far, several bases side by
+    // side) never butts up against the canvas edge: a large floor plus a margin that
+    // scales with the content. Bounded by a hard maximum so the scroll range stays
+    // finite (ScrollHandDrag is constrained to sceneRect).
+    constexpr qreal kFloor = 4000.0;     // minimum margin beyond the content, each side
+    constexpr qreal kMaxExtent = 80000.0; // hard cap on either scene dimension
     const QRectF b = itemsBoundingRect();
-    const qreal m = std::max({600.0, b.width() * 0.5, b.height() * 0.5});
-    setSceneRect(b.adjusted(-m, -m, m, m));
+    const qreal m = std::max({kFloor, b.width(), b.height()});
+    QRectF r = b.adjusted(-m, -m, m, m);
+    // Clamp to the maximum extent, kept centred on the content.
+    if (r.width() > kMaxExtent || r.height() > kMaxExtent) {
+        const QPointF c = b.center();
+        const qreal halfW = std::min(r.width(), kMaxExtent) / 2.0;
+        const qreal halfH = std::min(r.height(), kMaxExtent) / 2.0;
+        r = QRectF(c.x() - halfW, c.y() - halfH, halfW * 2.0, halfH * 2.0);
+    }
+    setSceneRect(r);
 }
 
 } // namespace ui
