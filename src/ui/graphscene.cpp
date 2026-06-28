@@ -23,6 +23,8 @@ void GraphScene::setRoot(const core::FsNode *root) {
     m_scanRoot = root; // a genuinely new tree: (re)resolve rule groups against it
     if (m_scanRoot)
         core::resolveRuleGroups(*m_scanRoot, m_groups);
+    else
+        m_groups.clear(); // cleared canvas: drop stale groups so the panel matches
     rebuild();
 }
 

@@ -91,6 +91,9 @@ class GroupStore {
     // Remove a group by id. No-op if unknown.
     void remove(const QString &id);
 
+    // Drop every group (e.g. when the workspace is cleared).
+    void clear() { m_groups.clear(); }
+
     Group *find(const QString &id);
     const Group *find(const QString &id) const;
 

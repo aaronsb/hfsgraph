@@ -137,7 +137,10 @@ void resolveRuleGroups(const FsNode &root, GroupStore &store) {
         store.remove(id);
 
     // Create rule groups for anchors that don't have one yet. Seed the colour index
-    // past the survivors so a fresh anchor doesn't reuse a surviving group's hue.
+    // past the survivors so a fresh anchor usually gets a distinct hue. Survivors
+    // keep their original (creation-order) hues, so after a rescan that adds/removes
+    // anchors a new group can still land on a colour a survivor holds — accepted as
+    // cosmetic; exact distinctness can come later if it matters.
     int colorIdx = resolvedAnchors.size();
     for (const FsNode *a : anchors) {
         const MemberKey key = keyFor(*a);

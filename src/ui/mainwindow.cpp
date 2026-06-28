@@ -111,6 +111,7 @@ void MainWindow::load(const QString &path, int depth) {
     if (!m_root) {
         m_pathLabel->setText(QStringLiteral("Cannot read: %1").arg(path));
         m_scene->setRoot(nullptr);
+        m_groupPanel->refresh(); // store was cleared — keep the panel in step
         return;
     }
     m_scene->setRoot(m_root.get());

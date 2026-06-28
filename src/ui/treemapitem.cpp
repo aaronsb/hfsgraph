@@ -227,10 +227,16 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
     QColor ovColor;
     bool ovDim = false;
     if (m_groups && !m_groups->empty()) {
+        // Hot path: drawCell runs for every visible cell every frame, so iterate the
+        // groups directly (no per-cell allocation — groupsContaining() would heap a
+        // vector here). g->contains() is two QSet lookups.
+        const core::MemberKey key = core::keyFor(*node);
         bool focusMember = false, dimMember = false;
-        for (const core::Group *g : m_groups->groupsContaining(core::keyFor(*node))) {
-            if (!g->view.visible)
+        for (const auto &g : m_groups->groups()) {
+            if (!g->view.visible || !g->contains(key))
                 continue;
+            // First highlighted group in store order wins the tint/border colour;
+            // others contribute nothing — deterministic, no blending by design.
             if (g->view.highlight && !ovHighlight) {
                 ovHighlight = true;
                 ovColor = g->color;
