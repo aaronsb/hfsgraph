@@ -113,8 +113,12 @@ unless noted; each had a code-reviewer pass.
       column (perms via QFileDevice bits, human size via QLocale::formattedDataSize, mtime)
       + type-coloured icon + name; self-guards on width like the other rungs (verified
       headlessly: src/ cell shows aligned `ls -l` rows incl. a symlink's leading `l`).
-- [ ] **Tech-debt:** extract the pure `squarify()` algorithm into its own layout module —
-      `treemapitem.cpp` is ~543 lines (over the 500 soft flag) and squarify is the clean seam.
+- [x] **Tech-debt:** extracted the pure `squarify()` algorithm into `ui/squarify.{h,cpp}`
+      (`treemapitem.cpp` 631 → 566 lines). Now a free function `ui::squarify`, unit-tested
+      in isolation (`tests/squarify_test.cpp` — degenerate inputs, area∝weight conservation,
+      containment, single-weight fill; second ctest target). treemapitem.cpp is still over
+      the 500 flag (drawCell/drawLeafContents are the remaining bulk, but they're genuine
+      TreemapItem methods, not a clean seam).
 - [ ] **Interactive-confirm debt (this session):** every new control's mouse path — groups
       table row-select + bulk buttons, the two LOD sliders, the Files combo, Fit names, base
       drag/resize/close/remove, panning the grown canvas. A real-session click-through.
