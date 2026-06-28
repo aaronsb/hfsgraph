@@ -7,8 +7,15 @@
 #include <QMainWindow>
 #include <QString>
 
+#include <functional>
+#include <memory>
+
 class QLabel;
 class QSpinBox;
+
+namespace core {
+struct FsNode;
+}
 
 namespace ui {
 
@@ -31,6 +38,14 @@ class MainWindow : public QMainWindow {
     void rescanAllBases(int depth);                   // depth changed: re-scan every base
     void updateStatus();                              // path label + window title
 
+    // Scan `path` to `depth` on a worker thread (the walk can take tens of seconds on
+    // a cold/large/FUSE tree and must not freeze the UI), then deliver the owned tree
+    // to `onReady` back on the GUI thread. Tracks in-flight scans to drive the busy
+    // indicator. The FsNode tree has no Qt-GUI deps, so building it off-thread is safe.
+    void scanAsync(const QString &path, int depth,
+                   std::function<void(std::unique_ptr<core::FsNode>)> onReady);
+    void updateBusy(); // wait-cursor + status while any scan is in flight
+
     CanvasView *m_view;
     GraphScene *m_scene;
     GroupPanel *m_groupPanel;
@@ -38,6 +53,8 @@ class MainWindow : public QMainWindow {
     QLabel *m_pathLabel;
     QSpinBox *m_depthSpin;
     QString m_currentPath; // last folder added, for the file dialog's start dir
+    int m_pendingScans = 0; // in-flight async scans (drives the busy indicator)
+    bool m_busyActive = false; // whether we've pushed an override cursor
 };
 
 } // namespace ui

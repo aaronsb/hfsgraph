@@ -133,6 +133,14 @@ unless noted; each had a code-reviewer pass.
       containment, single-weight fill; second ctest target). treemapitem.cpp is still over
       the 500 flag (drawCell/drawLeafContents are the remaining bulk, but they're genuine
       TreemapItem methods, not a clean seam).
+- [x] **Threaded scan (responsiveness fix)** — `Scanner::scan` ran synchronously on the UI
+      thread; a cold/large/FUSE tree froze the app (measured ~32s for `~` at depth 2, with a
+      `kg-fuse` mount under it). `MainWindow::scanAsync` runs the walk on a worker thread
+      (`QtConcurrent::run` + `QFutureWatcher`), shows a busy cursor + "Scanning…" status, and
+      hands the owned `FsNode` tree back on the GUI thread (the tree has no Qt-GUI deps, so
+      off-thread build is safe). add-base, the startup load, and depth-change re-scan all route
+      through it; concurrent scans are counted for the indicator. *Cancel/progress is a fuller
+      follow-up if a tree is so big even the worker takes too long.*
 - [ ] **Interactive-confirm debt (this session):** every new control's mouse path — groups
       table row-select + bulk buttons, the two LOD sliders, the Files combo, Fit names, base
       drag/resize/close/remove, panning the grown canvas. A real-session click-through.

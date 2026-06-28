@@ -11,16 +11,19 @@
 #include <memory>
 
 #include <QAction>
+#include <QApplication>
 #include <QComboBox>
 #include <QDir>
 #include <QDockWidget>
 #include <QFileDialog>
+#include <QFutureWatcher>
 #include <QLabel>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QStringList>
 #include <QToolBar>
+#include <QtConcurrent>
 
 namespace ui {
 
@@ -157,42 +160,80 @@ void MainWindow::load(const QString &path, int depth) {
 }
 
 void MainWindow::addBaseAtPath(const QString &path, int depth) {
-    std::unique_ptr<core::FsNode> tree = core::Scanner::scan(path, depth);
-    if (!tree) {
-        m_pathLabel->setText(QStringLiteral("Cannot read: %1").arg(path));
-        return;
-    }
     m_currentPath = path;
     m_scene->setBaseDepth(depth); // lenses scan baseDepth + their level (ADR-304)
-    m_scene->addBase(std::move(tree)); // the base frame takes ownership of the scan
-    // The panel refreshes itself via GraphScene::surfacesChanged.
-    m_view->resetTransform();
-    if (m_scene->itemsBoundingRect().isValid())
-        m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
-    updateStatus();
+    scanAsync(path, depth, [this, path](std::unique_ptr<core::FsNode> tree) {
+        if (!tree) {
+            m_pathLabel->setText(QStringLiteral("Cannot read: %1").arg(path));
+            return;
+        }
+        m_scene->addBase(std::move(tree)); // the base frame takes ownership of the scan
+        // The panel refreshes itself via GraphScene::surfacesChanged.
+        m_view->resetTransform();
+        if (m_scene->itemsBoundingRect().isValid())
+            m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
+        updateStatus();
+    });
 }
 
 void MainWindow::rescanAllBases(int depth) {
     // Depth changed: re-scan every base at the new depth. Snapshot the current base
     // paths (the scene owns the trees), drop all surfaces, then re-add each freshly
-    // scanned. Open lenses don't survive a depth change (they're rooted in the old
-    // trees) — same as the pre-ADR-304 reload behaviour, now generalised to N bases.
+    // scanned (off-thread). Open lenses don't survive a depth change (they're rooted in
+    // the old trees) — same as the pre-ADR-304 reload behaviour, generalised to N bases.
     QStringList paths;
     for (FrameItem *b : m_scene->baseFrames())
-        paths << b->node()->path;
+        paths << b->sourceRoot()->path; // the immutable scanned path, not a projected one
     if (paths.isEmpty())
         return;
     m_scene->setBaseDepth(depth);
     m_scene->clearBases();
-    for (const QString &p : paths) {
-        std::unique_ptr<core::FsNode> tree = core::Scanner::scan(p, depth);
-        if (tree)
+    for (const QString &p : paths)
+        scanAsync(p, depth, [this](std::unique_ptr<core::FsNode> tree) {
+            if (!tree)
+                return;
             m_scene->addBase(std::move(tree));
+            m_view->resetTransform();
+            if (m_scene->itemsBoundingRect().isValid())
+                m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
+            updateStatus();
+        });
+}
+
+void MainWindow::scanAsync(const QString &path, int depth,
+                           std::function<void(std::unique_ptr<core::FsNode>)> onReady) {
+    ++m_pendingScans;
+    updateBusy();
+    auto *watcher = new QFutureWatcher<std::unique_ptr<core::FsNode>>(this);
+    connect(watcher, &QFutureWatcher<std::unique_ptr<core::FsNode>>::finished, this,
+            [this, watcher, onReady = std::move(onReady)]() mutable {
+                std::unique_ptr<core::FsNode> tree = watcher->future().takeResult();
+                watcher->deleteLater();
+                --m_pendingScans;
+                onReady(std::move(tree)); // hand the owned tree to the caller on the GUI thread
+                updateBusy();
+            });
+    // Scanner::scan is a pure function over QDir/QFileInfo — safe to run concurrently on
+    // a worker thread; the result is moved back via the watcher on the GUI thread.
+    watcher->setFuture(QtConcurrent::run(&core::Scanner::scan, path, depth));
+}
+
+void MainWindow::updateBusy() {
+    if (m_pendingScans > 0) {
+        if (!m_busyActive) {
+            QApplication::setOverrideCursor(Qt::BusyCursor);
+            m_busyActive = true;
+        }
+        m_pathLabel->setText(m_pendingScans == 1
+                                 ? QStringLiteral("Scanning…")
+                                 : QStringLiteral("Scanning %1 folders…").arg(m_pendingScans));
+    } else {
+        if (m_busyActive) {
+            QApplication::restoreOverrideCursor();
+            m_busyActive = false;
+        }
+        updateStatus();
     }
-    m_view->resetTransform();
-    if (m_scene->itemsBoundingRect().isValid())
-        m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
-    updateStatus();
 }
 
 void MainWindow::updateStatus() {
