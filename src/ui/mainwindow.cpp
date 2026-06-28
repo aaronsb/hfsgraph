@@ -79,7 +79,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     fileCombo->addItems({QStringLiteral("Files: Auto"), QStringLiteral("Files: Dots"),
                          QStringLiteral("Files: Icons"), QStringLiteral("Files: Names")});
     fileCombo->setToolTip(QStringLiteral("How files in a cell are drawn: Auto picks by size "
-                                         "(names → icons → dots), or force one"));
+                                         "(names → icons → dots), or force one (a forced rung "
+                                         "is hidden on cells too small to fit it)"));
     connect(fileCombo, &QComboBox::currentIndexChanged, this,
             [this](int i) { m_scene->setFileMode(i); });
     toolbar->addWidget(fileCombo);
