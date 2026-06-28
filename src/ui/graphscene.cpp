@@ -6,6 +6,8 @@
 #include "treemapitem.h"
 
 #include <algorithm>
+#include <cmath>
+#include <vector>
 
 #include <QGraphicsView>
 #include <QRectF>
@@ -22,6 +24,19 @@ constexpr int kMaxLensDepth = 12;
 // view is attached yet. Normally a new base is sized to the viewport (see addBase)
 // so fit-to-view fills the window without letterboxing.
 constexpr qreal kBaseW = 1100.0, kBaseH = 680.0;
+
+// Walk a directory subtree once, accumulating each dir's subtree weight (≈ treemap
+// area, by file count) and its name length. Returns this node's subtree weight.
+double collectDirStats(const core::FsNode &n, std::vector<double> &weights,
+                       std::vector<int> &nameLens) {
+    double w = n.fileCount;
+    for (const auto &c : n.children)
+        w += collectDirStats(*c, weights, nameLens);
+    w = std::max(w, 1.0);
+    weights.push_back(w);
+    nameLens.push_back(static_cast<int>(n.name.size()));
+    return w;
+}
 } // namespace
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
@@ -308,6 +323,42 @@ void GraphScene::setFileMode(int mode) {
     m_fileMode = mode;
     for (FrameItem *f : m_frames)
         f->setFileMode(mode); // live — paint-only, no rebuild
+}
+
+void GraphScene::fitNamesToTypical() {
+    if (views().isEmpty() || !views().first()->viewport())
+        return;
+    const double vpW = views().first()->viewport()->width();
+    if (vpW < 1.0)
+        return;
+    constexpr double kCharPx = 7.0;     // ≈ average char width at the 11px title font
+    constexpr double kPercentile = 0.9; // target a typical name; long outliers still truncate
+    constexpr double kMaxScale = 12.0;  // bound the growth so the map stays navigable
+    for (FrameItem *base : baseFrames()) {
+        const core::FsNode *root = base->sourceRoot();
+        if (!root)
+            continue;
+        std::vector<double> weights;
+        std::vector<int> nameLens;
+        const double rootW = collectDirStats(*root, weights, nameLens);
+        if (weights.empty() || rootW <= 0.0)
+            continue;
+        std::sort(weights.begin(), weights.end());
+        std::sort(nameLens.begin(), nameLens.end());
+        const double medianW = weights[weights.size() / 2];
+        const int pLen = nameLens[static_cast<std::size_t>(kPercentile * (nameLens.size() - 1))];
+        // The median cell occupies ≈ medianW/rootW of the map's area, so on screen it
+        // is ≈ sqrt(fraction) × the map's current on-screen width (≈ the viewport,
+        // post-fit). Grow until that reaches the typical name's pixel width.
+        const double fraction = medianW / rootW;
+        const double cellDeviceW = std::sqrt(fraction) * vpW;
+        const double targetPx = pLen * kCharPx + 12.0; // name + cell insets
+        const double s = std::clamp(targetPx / std::max(1.0, cellDeviceW), 1.0, kMaxScale);
+        const QSizeF cur = base->panelSize();
+        base->resizePanel(cur.width() * s, cur.height() * s); // re-squarifies; no re-fit
+    }
+    updateSceneBounds();
+    refreshCallouts();
 }
 
 void GraphScene::updateSceneBounds() {
