@@ -70,9 +70,18 @@ void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRe
 }
 
 void GraphScene::closeFrame(FrameItem *frame) {
+    // Idempotent: if the frame isn't (or is no longer) tracked, do nothing. The
+    // close is deferred (QTimer) and can also arrive via a parent's cascade or a
+    // double-click, so closeFrame may be invoked more than once for the same frame —
+    // or after rebuild() already cleared it. The membership check is a pointer
+    // compare (no deref), so it is safe even if `frame` is already deleted.
+    const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
+    if (it == m_frames.end())
+        return;
+    m_frames.erase(it); // remove before recursing so a re-entrant call can't re-find it
+
     // Close descendants first (frames opened from within this one), so closing an
-    // upstream frame never leaves its children dangling (depth-first, snapshot the
-    // child list before mutating m_frames).
+    // upstream frame never leaves its children dangling.
     std::vector<FrameItem *> children;
     for (FrameItem *f : m_frames)
         if (f->parentFrame() == frame)
@@ -80,15 +89,12 @@ void GraphScene::closeFrame(FrameItem *frame) {
     for (FrameItem *c : children)
         closeFrame(c);
 
-    const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
-    if (it != m_frames.end())
-        m_frames.erase(it);
     if (CalloutItem *c = frame->callout()) {
         removeItem(c);
-        delete c; // a plain item; not deleted from within its own handler
+        delete c; // a plain item; deferred close means we're never in its own handler
     }
     removeItem(frame);
-    frame->deleteLater(); // safe even when called from the frame's own handler
+    frame->deleteLater();
 }
 
 void GraphScene::raiseFrame(FrameItem *frame) {
