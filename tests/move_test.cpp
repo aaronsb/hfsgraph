@@ -181,6 +181,50 @@ void testDuplicateOpIdempotent() {
     check(pb && pb->children.size() == 1, "duplicate op applied once");
 }
 
+void testCheckMove() {
+    auto root = makeRoot(QStringLiteral("/r"));
+    FsNode *a = addChild(root.get(), QStringLiteral("a"));
+    FsNode *a1 = addChild(a, QStringLiteral("a1"));
+    FsNode *b = addChild(root.get(), QStringLiteral("b"));
+    addChild(b, QStringLiteral("a")); // b already holds a child named 'a'
+
+    using core::checkMove;
+    using core::MoveLegality;
+    check(checkMove(a1, b) == MoveLegality::Ok, "checkMove: a1 under b is legal");
+    check(checkMove(a, a) == MoveLegality::SameNode, "checkMove: self is SameNode");
+    check(checkMove(nullptr, b) == MoveLegality::SameNode, "checkMove: null is SameNode");
+    check(checkMove(root.get(), a) == MoveLegality::SourceIsRoot, "checkMove: root has no parent");
+    check(checkMove(a, a1) == MoveLegality::Cycle, "checkMove: into own descendant is a cycle");
+    check(checkMove(a, b) == MoveLegality::Collision, "checkMove: name clash at dest");
+    check(checkMove(a, root.get()) == MoveLegality::Collision, "checkMove: drop onto own parent");
+}
+
+// The gesture captures move keys from *projected* nodes; identity must survive an
+// earlier move so re-moving an already-moved node resolves (without it, keyFor would
+// return the recomputed path and the op would silently no-op).
+void testChainedMoveIdentity() {
+    auto root = makeRoot(QStringLiteral("/r"));
+    FsNode *a = addChild(root.get(), QStringLiteral("a"));
+    addChild(a, QStringLiteral("leaf"));
+    addChild(root.get(), QStringLiteral("b"));
+    addChild(root.get(), QStringLiteral("c"));
+
+    auto proj1 = core::projectForest({root.get()}, {mv("/r/a/leaf", "/r/b")});
+    const FsNode *movedLeaf = child(child(proj1[0].get(), QStringLiteral("b")), QStringLiteral("leaf"));
+    check(movedLeaf && movedLeaf->path == QStringLiteral("/r/b/leaf"), "chained: first move landed");
+    // keyFor reads identity, pinned to the original key — not the recomputed path.
+    const core::MemberKey leafKey = core::keyFor(*movedLeaf);
+    check(leafKey == QStringLiteral("/r/a/leaf"), "chained: identity survives the move");
+    const core::MemberKey cKey = core::keyFor(*child(proj1[0].get(), QStringLiteral("c")));
+
+    auto proj2 = core::projectForest(
+        {root.get()}, {mv("/r/a/leaf", "/r/b"), MoveOp{leafKey, cKey, QStringLiteral("leaf")}});
+    check(child(child(proj2[0].get(), QStringLiteral("c")), QStringLiteral("leaf")) != nullptr,
+          "chained: re-moved node re-resolves via identity");
+    check(child(child(proj2[0].get(), QStringLiteral("b")), QStringLiteral("leaf")) == nullptr,
+          "chained: left the intermediate parent");
+}
+
 } // namespace
 
 int main() {
@@ -191,6 +235,8 @@ int main() {
     testRootAndUnresolved();
     testCrossRoot();
     testDuplicateOpIdempotent();
+    testCheckMove();
+    testChainedMoveIdentity();
 
     if (g_failures == 0) {
         std::puts("all move-model tests passed");

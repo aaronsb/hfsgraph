@@ -30,6 +30,23 @@ struct MoveOp {
     QString sourceName;   // cached display label for the queue dock (ADR-302)
 };
 
+// Why a re-parent is (il)legal. Drives both the safe-replay floor in projectForest
+// and the live drop feedback of the drag gesture (#10): the same rules, one place.
+// Ok means the move is structurally sound; the rest are the reasons replay would skip
+// it (cross-volume isn't modelled yet — there's no volume identity until ADR-100).
+enum class MoveLegality {
+    Ok,
+    SameNode,     // source and destination are the same node (or no-op self-drop)
+    SourceIsRoot, // a base/root surface can't be re-parented
+    Cycle,        // destination is the source or sits under it
+    Collision,    // destination already has a child of the source's name
+};
+
+// Structural legality of re-parenting `src` under `dst`, evaluated on whatever tree the
+// nodes live in (the live projection for the gesture, the deep copy for replay). Pure:
+// no ownership change, no map lookup — callers resolve identities to nodes first.
+MoveLegality checkMove(const FsNode *src, const FsNode *dst);
+
 // An ordered, replayable changeset (ADR-200/302). Editing model: append on drop,
 // undo/redo pops/pushes the tail, click-a-row sets the preview step. No mid-list
 // reorder (keeps op dependencies linear, per ADR-302). `step` is the scrub pointer:

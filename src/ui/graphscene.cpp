@@ -10,11 +10,97 @@
 #include <vector>
 
 #include <QGraphicsView>
+#include <QLineF>
+#include <QPainter>
+#include <QPen>
+#include <QPolygonF>
 #include <QRectF>
+#include <QTimer>
 #include <QTransform>
 #include <QWidget>
 
+#include "core/move.h"
+
 namespace ui {
+
+// Top-Z scene overlay for the drag-to-move gesture (#10): a connector from the lifted
+// square to the cursor, ending in ▶ (legal drop) or ✕ (illegal), plus a highlight on
+// the target cell. The connector + highlight live in scene space (cosmetic pens →
+// zoom-constant width); the end markers are drawn device-space so they don't scale.
+class MoveDragOverlay : public QGraphicsItem {
+  public:
+    MoveDragOverlay() {
+        setZValue(1e6); // above every frame + callout
+        setAcceptedMouseButtons(Qt::NoButton);
+        setFlag(ItemIsSelectable, false);
+    }
+    void setState(const QPointF &src, const QPointF &cursor, const QRectF &targetScene, bool legal) {
+        prepareGeometryChange();
+        m_src = src;
+        m_cursor = cursor;
+        m_target = targetScene;
+        m_legal = legal;
+        update();
+    }
+    QRectF boundingRect() const override {
+        QRectF r = QRectF(m_src, m_cursor).normalized();
+        if (!m_target.isNull())
+            r = r.united(m_target);
+        return r.adjusted(-40, -40, 40, 40); // slack for the device-space markers
+    }
+    void paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) override {
+        const QColor col = m_legal ? QColor(90, 210, 130) : QColor(235, 95, 85);
+        if (!m_target.isNull()) {
+            QPen tp(col, 2.0);
+            tp.setCosmetic(true);
+            p->setPen(tp);
+            QColor fill = col;
+            fill.setAlpha(55);
+            p->setBrush(fill);
+            p->drawRect(m_target);
+            p->setBrush(Qt::NoBrush);
+        }
+        QPen lp(col, 2.5);
+        lp.setCosmetic(true);
+        p->setPen(lp);
+        p->drawLine(m_src, m_cursor);
+
+        // Device-space end markers (constant screen size regardless of zoom).
+        const QTransform t = p->worldTransform();
+        const QPointF srcDev = t.map(m_src), curDev = t.map(m_cursor);
+        p->setWorldMatrixEnabled(false);
+        drawCross(p, srcDev, 4.0, col); // the "lifted from here" mark
+        if (m_legal)
+            drawArrowHead(p, srcDev, curDev, col); // ▶ at the cursor
+        else
+            drawCross(p, curDev, 6.0, col); // ✕ at the cursor
+        p->setWorldMatrixEnabled(true);
+    }
+
+  private:
+    static void drawCross(QPainter *p, const QPointF &c, qreal r, const QColor &col) {
+        QPen pen(col, 2.0);
+        p->setPen(pen);
+        p->drawLine(c + QPointF(-r, -r), c + QPointF(r, r));
+        p->drawLine(c + QPointF(-r, r), c + QPointF(r, -r));
+    }
+    static void drawArrowHead(QPainter *p, const QPointF &from, const QPointF &tip,
+                              const QColor &col) {
+        const QLineF l(from, tip);
+        const double ang = std::atan2(l.dy(), l.dx());
+        constexpr double spread = 0.5, len = 12.0;
+        const QPointF a = tip - QPointF(std::cos(ang - spread) * len, std::sin(ang - spread) * len);
+        const QPointF b = tip - QPointF(std::cos(ang + spread) * len, std::sin(ang + spread) * len);
+        QPolygonF head;
+        head << tip << a << b;
+        p->setPen(Qt::NoPen);
+        p->setBrush(col);
+        p->drawPolygon(head);
+    }
+    QPointF m_src, m_cursor;
+    QRectF m_target;
+    bool m_legal = false;
+};
 
 namespace {
 // Hard cap on a lens's own scan depth (relative to its root). Lenses deepen with
@@ -152,6 +238,86 @@ void GraphScene::rebuildProjection() {
 void GraphScene::updateGroupOverlay() {
     for (FrameItem *f : m_frames)
         f->update(); // every surface carries the same overlay
+}
+
+std::pair<FrameItem *, const core::FsNode *>
+GraphScene::surfaceCellAt(const QPointF &scenePos) const {
+    FrameItem *bestFrame = nullptr;
+    const core::FsNode *bestNode = nullptr;
+    qreal bestZ = -1e18;
+    for (FrameItem *f : m_frames) {
+        if (!f->isBase()) // bases render the projection; lens drops are #13
+            continue;
+        TreemapItem *t = f->interiorTreemap();
+        if (!t)
+            continue;
+        const QPointF local = t->mapFromScene(scenePos);
+        if (!t->boundingRect().contains(local))
+            continue;
+        if (const core::FsNode *n = t->cellNodeAt(local); n && f->zValue() >= bestZ) {
+            bestFrame = f;
+            bestNode = n;
+            bestZ = f->zValue();
+        }
+    }
+    return {bestFrame, bestNode};
+}
+
+bool GraphScene::beginMoveDrag(const core::FsNode *source, const QPointF &sourceCenterScene) {
+    if (!source)
+        return false;
+    m_dragSource = source;
+    m_dragSourceCenter = sourceCenterScene;
+    m_dragTarget = nullptr;
+    m_dragLegal = false;
+    if (!m_dragOverlay) {
+        m_dragOverlay = new MoveDragOverlay();
+        addItem(m_dragOverlay);
+    }
+    m_dragOverlay->setState(sourceCenterScene, sourceCenterScene, QRectF(), false);
+    return true;
+}
+
+void GraphScene::updateMoveDrag(const QPointF &cursorScene) {
+    if (!m_dragSource || !m_dragOverlay)
+        return;
+    const auto [frame, node] = surfaceCellAt(cursorScene);
+    m_dragTarget = node;
+    m_dragLegal = node && core::checkMove(m_dragSource, node) == core::MoveLegality::Ok;
+    QRectF targetScene;
+    if (frame && node) {
+        const QRectF itemRect = frame->interiorTreemap()->cellRectForNode(node);
+        if (!itemRect.isNull())
+            targetScene = frame->interiorTreemap()->mapToScene(itemRect).boundingRect();
+    }
+    m_dragOverlay->setState(m_dragSourceCenter, cursorScene, targetScene, m_dragLegal);
+}
+
+void GraphScene::endMoveDrag(bool drop) {
+    const bool commit = drop && m_dragLegal && m_dragSource && m_dragTarget;
+    core::MoveOp op;
+    if (commit)
+        op = core::MoveOp{core::keyFor(*m_dragSource), core::keyFor(*m_dragTarget),
+                          m_dragSource->name};
+    // Tear the overlay + state down now — the render nodes may be freed by the rebuild.
+    if (m_dragOverlay) {
+        delete m_dragOverlay;
+        m_dragOverlay = nullptr;
+    }
+    m_dragSource = nullptr;
+    m_dragTarget = nullptr;
+    m_dragLegal = false;
+    if (!commit)
+        return;
+    m_ledger.append(op);
+    // Defer the re-projection: rebuildProjection deletes + recreates the interior
+    // treemaps (FrameItem::setRenderRoot), including the one whose mouseReleaseEvent is
+    // on the stack right now — freeing the live grabber inline is a use-after-free (the
+    // same race the frame-close path defers around).
+    QTimer::singleShot(0, this, [this] {
+        rebuildProjection();
+        Q_EMIT surfacesChanged(); // refresh the dock/status against the new projection
+    });
 }
 
 void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRect,

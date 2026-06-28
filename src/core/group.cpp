@@ -7,7 +7,11 @@
 namespace core {
 
 MemberKey keyFor(const FsNode &node) {
-    return node.path; // TODO(ADR-100): durable id once the scanner stamps one (task #14)
+    // The projection stamps each copy with its original key in `identity`, preserved
+    // even when a move recomputes `path`, so an op/group keyed to a node survives later
+    // moves (ADR-302). A freshly scanned node has no identity yet → fall back to path.
+    // TODO(ADR-100): identity becomes a durable id the scanner stamps (task #14).
+    return node.identity.isEmpty() ? node.path : node.identity;
 }
 
 MemberKey keyForFile(const FsNode &dir, const QString &filename) {

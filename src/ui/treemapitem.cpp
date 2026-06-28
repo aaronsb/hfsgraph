@@ -3,6 +3,7 @@
 #include "core/fsnode.h"
 #include "core/group.h"
 #include "filetypestyle.h"
+#include "frameitem.h"
 #include "graphscene.h"
 #include "squarify.h"
 
@@ -530,14 +531,60 @@ const core::FsNode *TreemapItem::cellAt(const QPointF &p) const {
 }
 
 void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
-    const core::FsNode *n = cellAt(event->pos());
-    if (n) {
-        m_selected = n; // left click = select (drag-to-reparent comes later)
+    // Find the deepest hit cell *and* its rect (the rect anchors the drag arrow's tail).
+    const core::FsNode *hit = nullptr;
+    QRectF hitRect;
+    for (const Cell &c : m_cells)
+        if (c.rect.contains(event->pos())) {
+            hit = c.node;
+            hitRect = c.rect;
+        }
+    if (hit) {
+        m_selected = hit; // left click selects; a movable cell also arms a drag (#10)
         update();
+        // Arm the move drag only for a re-parentable node: not this surface's own root,
+        // and only on a base surface (lens drags are #13). The drag actually begins on
+        // mouseMoveEvent once the cursor passes a small threshold, so plain clicks and
+        // double-clicks still behave.
+        m_pressNode = nullptr;
+        if (hit != m_root && hit->parent && m_ownerFrame && m_ownerFrame->isBase()) {
+            m_pressNode = hit;
+            m_pressScene = event->scenePos();
+            m_pressCenterScene = mapToScene(hitRect).boundingRect().center();
+            m_dragging = false;
+        }
         event->accept();
         return;
     }
     QGraphicsItem::mousePressEvent(event);
+}
+
+void TreemapItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
+    if (m_pressNode && (event->buttons() & Qt::LeftButton)) {
+        constexpr int kDragThreshold = 6; // px in scene space before a press becomes a drag
+        if (!m_dragging &&
+            (event->scenePos() - m_pressScene).manhattanLength() > kDragThreshold && m_scene)
+            m_dragging = m_scene->beginMoveDrag(m_pressNode, m_pressCenterScene);
+        if (m_dragging && m_scene)
+            m_scene->updateMoveDrag(event->scenePos());
+        event->accept();
+        return;
+    }
+    QGraphicsItem::mouseMoveEvent(event);
+}
+
+void TreemapItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
+    if (m_dragging && m_scene) {
+        // Commit a legal drop. endMoveDrag captures the op and defers the re-projection
+        // (which would delete this very item), so `this` stays valid through the return.
+        m_scene->endMoveDrag(true);
+        m_pressNode = nullptr;
+        m_dragging = false;
+        event->accept();
+        return;
+    }
+    m_pressNode = nullptr; // a plain click: nothing to drop
+    QGraphicsItem::mouseReleaseEvent(event);
 }
 
 void TreemapItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
