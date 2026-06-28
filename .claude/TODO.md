@@ -64,7 +64,13 @@ node-link/force machinery is gone; the treemap is the only view.
       higher = farther view distance (contents populate from smaller on-screen sizes). Paint-only
       (`TreemapItem::setLod`), so it updates on drag without a rebuild.
 
-### Follow-ups
+### Follow-ups — build order (slices 1–3 are buildable now on the in-memory tree)
+
+> **1.** Semantic groups (ADR-102) → **2.** Investigation frames (ADR-303) → **3.** Move staging
+> (ADR-302, Commit stubbed) → **4.** Durable identity + JSON persistence (ADR-100/102) → **5.**
+> Real commit engine (ADR-200, eventually Rust ADR-401). Detailed task breakdown lives in the
+> session task list (TaskList) and `.claude/todo-treemap-build.md`.
+
 - [ ] **Semantic groups (ADR-102)** — the decided next build, ahead of drag-to-reparent because
       it defines what moves together. Model: rule-derived groups (first rule = git-worktree:
       anchor = dir with `.git`, members = anchor + all descendants − exclusions, live/move-robust)
@@ -99,6 +105,7 @@ node-link/force machinery is gone; the treemap is the only view.
 
 - [ ] Start the **Rust core** behind the cxx boundary (ADR-401): scanner first, then the
       **ledger → verify → commit** mutation engine (ADR-200) with durable xattr identity
-      (ADR-100), WAL + btrfs snapshot + idempotent replay.
-- [ ] Semantic groups + associations overlay (ADR-101); `user.xdg.tags` interop, daemon-
-      optional (ADR-100/400).
+      (ADR-100), WAL + btrfs snapshot + idempotent replay. This is the real Commit behind the
+      ADR-302 staging UX.
+- [ ] **Associations overlay** (ADR-101's node↔node half, with co-move policy) and `user.xdg.tags`
+      / Baloo export bridge (ADR-100/400). (Groups — the other half — are slice 1 above.)
