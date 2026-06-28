@@ -14,11 +14,15 @@ reveals deeper structure as you zoom in (no fixed render depth), and the content
 directory — its child directories and, at the leaf, its files as icons — populate as cells
 grow large enough on screen.
 
-![hfsgraph rendering ~/Projects as a squarified treemap — each directory a rectangle subdivided among its children, area by file count, coloured by depth (Viridis), with file icons inside leaf directories](screenshots/treemap-overview.png)
+![hfsgraph: a squarified treemap with a git-worktree group highlighted in red (via the left Groups dock), and a floating investigation frame magnifying that subtree — tied back to its origin square by a light dithered "zoom-from" frustum — revealing deeper directories the base view doesn't](screenshots/treemap-overview.png)
 
-*A real, organically-grown `~/Projects` as a treemap: area ∝ subtree file count, colour by
-nesting depth, file icons inside leaf directories. The same tree a node-link graph turned
-into a hairball (see [ADR-301](docs/architecture/ui/)).*
+*The treemap with the semantic layer live: a git-worktree **group** highlighted red from the
+left **Groups** dock (Show / Hi / Focus / Dim), and a floating **investigation frame** —
+a non-destructive lens that magnifies a subtree and scans it deeper than the base — tied to
+its origin square by a dithered "zoom-from" frustum. Area ∝ subtree file count, colour by
+nesting depth, file icons in leaf directories. (Groups: [ADR-102](docs/architecture/core/);
+treemap: [ADR-301](docs/architecture/ui/); frames & lenses: [ADR-303](docs/architecture/ui/),
+[ADR-304](docs/architecture/ui/).)*
 
 ## Where things are
 
