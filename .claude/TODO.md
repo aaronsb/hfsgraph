@@ -65,16 +65,23 @@ node-link/force machinery is gone; the treemap is the only view.
       (`TreemapItem::setLod`), so it updates on drag without a rebuild.
 
 ### Follow-ups
-- [ ] **Drag-to-reparent** — the whole point: drag a square (+ its child contents), highlight the
+- [ ] **Semantic groups (ADR-102)** — the decided next build, ahead of drag-to-reparent because
+      it defines what moves together. Model: rule-derived groups (first rule = git-worktree:
+      anchor = dir with `.git`, members = anchor + all descendants − exclusions, live/move-robust)
+      + manual groups, all keyed on ADR-100 durable ids (files: dir-id + name). Persist as a
+      per-workspace JSON sidecar in XDG data dir. Left dock panel of window-shade group cards
+      (legend + define/edit/colour + visible/highlight/dim/focus/select), depth-ramp legend at
+      the bottom. Group view-state drives a canvas overlay over the treemap.
+- [ ] **Drag-to-reparent** — drag a square (+ its child contents) or a *group*, highlight the
       target square under the cursor, drop = a proposed `mv` (ADR-101/200). Near-term it stages an
-      in-memory move + re-squarify (no disk writes until the mutation engine exists).
+      in-memory move + re-squarify (no disk writes until the mutation engine exists). Moving a
+      group moves its members atomically (the untracked-work safety property, ADR-102).
 - [ ] **Lazy scan = truly unbounded depth** — semantic zoom can only reveal what's scanned; scan a
       subtree the first time you zoom into it, so the Depth control can go away entirely.
 - [ ] **Treemap polish** — breadcrumb for the drill path; hover tooltip (full name + size);
       filenames under icons at the deepest LOD rung; maybe colour-by-value (not just depth).
-- [ ] **Docs drift (freshness)** — README (force-graph screenshot + "graph" prose), `CONCEPT.md`,
-      and **ADR-300** (node-link canvas + snap-to-physics) all now describe the *old* model.
-      ADR-300 needs an amendment/supersede: the treemap *is* its containment view; physics is out.
+- [x] **Docs drift** — README now describes the treemap (force-graph screenshot replaced); ADR-300
+      superseded by ADR-301. *Still stale:* `CONCEPT.md` (roadmap + node-link prose).
 
 ## Then: the actual point of the tool
 
