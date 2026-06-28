@@ -36,7 +36,7 @@ class QueuePanel : public QWidget {
     QPushButton *m_redo = nullptr;
     QPushButton *m_clear = nullptr;
     QPushButton *m_commit = nullptr;
-    QLabel *m_status = nullptr;      // "k of n applied"
+    QLabel *m_status = nullptr;      // "Previewing k of n staged moves"
     bool m_populating = false;       // guard so refresh()'s selection doesn't re-scrub
 };
 
