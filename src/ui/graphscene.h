@@ -93,6 +93,12 @@ class GraphScene : public QGraphicsScene {
     core::Ledger &ledger() { return m_ledger; }
     void rebuildProjection();
 
+    // Grow each base surface (ADR-301/304) so a *typical* directory name renders
+    // untruncated: scale so the median-area dir cell can fit a high-percentile name
+    // length (long-name outliers still truncate, by design), bounded by a hard max.
+    // Leans on the generous sceneRect for the panning room the larger map needs.
+    void fitNamesToTypical();
+
   Q_SIGNALS:
     // Emitted when the set of base surfaces changes (add/remove/clear) so the dock's
     // bases list and group cards can refresh together.

@@ -108,6 +108,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
                  QStringLiteral("Cell size at which contents switch dots → icons → name"),
                  &GraphScene::setDetail);
 
+    QAction *fitNames = toolbar->addAction(QStringLiteral("Fit names"));
+    fitNames->setToolTip(QStringLiteral("Grow the map so typical directory names fit "
+                                        "untruncated (very long names still truncate); "
+                                        "pan the larger canvas to explore"));
+    connect(fitNames, &QAction::triggered, this, [this] { m_scene->fitNamesToTypical(); });
+
     // Left dock: semantic-group legend + controls (ADR-102).
     auto *groupDock = new QDockWidget(QStringLiteral("Groups"), this);
     groupDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
