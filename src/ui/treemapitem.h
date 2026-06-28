@@ -42,6 +42,10 @@ class TreemapItem : public QGraphicsItem {
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
 
+    // Multiplier on the on-screen size at which a cell subdivides: <1 reveals more
+    // detail sooner, >1 holds detail back. Paint-only — no rebuild needed.
+    void setLod(qreal factor);
+
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;       // select
     void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override; // drill in
@@ -64,6 +68,7 @@ class TreemapItem : public QGraphicsItem {
     Ramp m_ramp;
     GraphScene *m_scene;
     const core::FsNode *m_selected = nullptr;
+    qreal m_lod = 1.0;          // detail gate multiplier (view distance); <1 = farther
     mutable bool m_dark = true; // resolved from the palette each paint
 
     mutable std::unordered_map<const core::FsNode *, double> m_weight;

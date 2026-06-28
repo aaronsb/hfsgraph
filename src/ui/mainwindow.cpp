@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QLabel>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QToolBar>
@@ -60,6 +61,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(colorCombo, &QComboBox::currentIndexChanged, this,
             [this](int i) { m_scene->setColorRamp(i); });
     toolbar->addWidget(colorCombo);
+
+    toolbar->addWidget(new QLabel(QStringLiteral(" Detail ")));
+    auto *lodSlider = new QSlider(Qt::Horizontal, this);
+    lodSlider->setRange(0, 100);
+    lodSlider->setValue(50); // mid → factor 1.0 (the baseline thresholds)
+    lodSlider->setFixedWidth(120);
+    lodSlider->setToolTip(QStringLiteral("View distance: higher reveals squares' contents from "
+                                         "farther out (more detail at a given zoom)"));
+    // Higher slider = farther view distance = smaller gates = factor < 1.
+    connect(lodSlider, &QSlider::valueChanged, this,
+            [this](int v) { m_scene->setLod(1.6 - 1.2 * (v / 100.0)); });
+    toolbar->addWidget(lodSlider);
 
     m_pathLabel = new QLabel(this);
     statusBar()->addWidget(m_pathLabel);

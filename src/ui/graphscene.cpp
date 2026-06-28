@@ -43,13 +43,22 @@ void GraphScene::setColorRamp(int ramp) {
     rebuild();
 }
 
+void GraphScene::setLod(double factor) {
+    m_lod = factor;
+    if (m_treemap)
+        m_treemap->setLod(factor); // live — paint-only, no rebuild
+}
+
 void GraphScene::rebuild() {
-    clear();
+    clear(); // deletes all items, including the previous treemap
+    m_treemap = nullptr;
     if (!m_root)
         return;
-    addItem(new TreemapItem(m_root, kCanvasW, kCanvasH,
-                            static_cast<TreemapItem::SizeMetric>(m_sizeMetric),
-                            static_cast<TreemapItem::Ramp>(m_colorRamp), this));
+    m_treemap = new TreemapItem(m_root, kCanvasW, kCanvasH,
+                                static_cast<TreemapItem::SizeMetric>(m_sizeMetric),
+                                static_cast<TreemapItem::Ramp>(m_colorRamp), this);
+    m_treemap->setLod(m_lod);
+    addItem(m_treemap);
     updateSceneBounds();
 }
 

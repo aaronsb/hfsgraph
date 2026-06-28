@@ -60,6 +60,9 @@ node-link/force machinery is gone; the treemap is the only view.
       disk-usage map (large-file dirs dominate, file-count-heavy dirs shrink to slivers).
 - [x] **Colour-ramp selector** — Viridis/Magma/Plasma/Cividis/Turbo (8-stop LUTs) + a categorical
       Spectrum (HSL hue cycle), mapped by nesting depth. Toolbar combo; default Viridis.
+- [x] **Detail (view-distance) slider** — scales every LOD gate (subdivide, title, icons) live;
+      higher = farther view distance (contents populate from smaller on-screen sizes). Paint-only
+      (`TreemapItem::setLod`), so it updates on drag without a rebuild.
 
 ### Follow-ups
 - [ ] **Drag-to-reparent** — the whole point: drag a square (+ its child contents), highlight the

@@ -14,6 +14,8 @@ struct FsNode;
 
 namespace ui {
 
+class TreemapItem;
+
 class GraphScene : public QGraphicsScene {
     Q_OBJECT
   public:
@@ -31,14 +33,17 @@ class GraphScene : public QGraphicsScene {
     // rebuilds the map.
     void setSizeMetric(int metric); // 0 = file count, 1 = bytes
     void setColorRamp(int ramp);    // Viridis/Magma/Plasma/Cividis/Turbo/Spectrum
+    void setLod(double factor);     // detail "view distance" (live; no rebuild)
 
   private:
     void rebuild();
     void updateSceneBounds(); // generous sceneRect so panning works in all directions
 
     const core::FsNode *m_root = nullptr;
-    int m_sizeMetric = 0; // TreemapItem::Files
-    int m_colorRamp = 0;  // TreemapItem::Viridis
+    TreemapItem *m_treemap = nullptr; // current item (for live LOD tuning)
+    int m_sizeMetric = 0;             // TreemapItem::Files
+    int m_colorRamp = 0;              // TreemapItem::Viridis
+    double m_lod = 1.0;               // persists across rebuilds
 };
 
 } // namespace ui
