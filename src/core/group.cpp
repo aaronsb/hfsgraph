@@ -16,6 +16,12 @@ MemberKey keyFor(const FsNode &node) {
 
 MemberKey keyForFile(const FsNode &dir, const QString &filename) {
     // Path-based interim key; ADR-100 will key this as (dir durable id + filename).
+    // ASYMMETRY (track with task #14): keyFor() above is now identity-based — durable
+    // across a staged move — but this is still pure path. Harmless today (file keys are
+    // only resolved over the immutable source tree, where dir.path == its identity), but
+    // these two MUST move to durable ids in lockstep: the moment file membership is
+    // queried on a *projected* (moved) subtree, a moved dir would keep its group tint
+    // while its files silently drop out, because collectSubtree stored their old paths.
     return dir.path.endsWith(QLatin1Char('/')) ? dir.path + filename
                                                : dir.path + QLatin1Char('/') + filename;
 }
