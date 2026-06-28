@@ -35,6 +35,12 @@ struct FsNode {
     qint64 sizeBytes = 0;                          // sum of this dir's regular-file sizes
     bool truncatedDepth = false;                   // children exist on disk but scan stopped
     FsNode *parent = nullptr;
+    // Durable-ish membership key (ADR-102/302), preserved across the staged projection
+    // even when a move recomputes `path`, so an op or group keyed to this node still
+    // resolves after later moves. Empty on a freshly scanned node (keyFor falls back to
+    // `path`); the projection stamps each copy with its original key. ADR-100 (task #14)
+    // swaps this for a real UUID — keyFor() is the single seam.
+    QString identity;
 
     bool isLeaf() const { return children.empty(); }
 };

@@ -23,6 +23,7 @@ namespace ui {
 
 class TreemapItem;
 class FrameItem;
+class MoveDragOverlay;
 
 class GraphScene : public QGraphicsScene {
     Q_OBJECT
@@ -93,6 +94,18 @@ class GraphScene : public QGraphicsScene {
     core::Ledger &ledger() { return m_ledger; }
     void rebuildProjection();
 
+    // Drag-to-move gesture (ADR-302 #10). A base surface's treemap arms a drag on
+    // press; past a small threshold it calls beginMoveDrag (returns false on a null
+    // source so the treemap stays inert — the source's re-parentability is gated at
+    // press-arm time), updateMoveDrag tracks the cursor and lights the legal/illegal
+    // drop target with a ✕———▶ / ✕———✕ overlay, and endMoveDrag(true) commits a legal
+    // drop: append a MoveOp then *defer* the re-projection (it deletes the interior
+    // treemaps, including the one whose release is on the stack). The overlay is a
+    // top-Z scene item, owned here.
+    bool beginMoveDrag(const core::FsNode *source, const QPointF &sourceCenterScene);
+    void updateMoveDrag(const QPointF &cursorScene);
+    void endMoveDrag(bool drop);
+
     // Grow each base surface (ADR-301/304) so a *typical* directory name renders
     // untruncated: scale so the median-area dir cell can fit a high-percentile name
     // length (long-name outliers still truncate, by design), bounded by a hard max.
@@ -108,6 +121,9 @@ class GraphScene : public QGraphicsScene {
     void resolveGroups();     // re-resolve rule groups across every base's tree
     void updateSceneBounds(); // generous sceneRect so panning works in all directions
     void restackFrames();     // reassign z so each callout sits just under its frame
+    // The deepest base-surface cell under a scene point, with the owning base frame —
+    // the move-drag drop target (bases render the projection; lens targets are #13).
+    std::pair<FrameItem *, const core::FsNode *> surfaceCellAt(const QPointF &scenePos) const;
 
     core::GroupStore m_groups;                // semantic groups (ADR-102), owned
     core::Ledger m_ledger;                     // staged move plan (ADR-302), owned
@@ -126,6 +142,12 @@ class GraphScene : public QGraphicsScene {
     bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
     int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
     int m_calloutMode = 0;           // 0 Filled, 1 Lines, 2 Off (ADR-304)
+    // Move-drag gesture state (#10), live only between begin and end.
+    MoveDragOverlay *m_dragOverlay = nullptr;   // top-Z arrow + target highlight, owned
+    const core::FsNode *m_dragSource = nullptr; // node being dragged (a render node)
+    QPointF m_dragSourceCenter;                  // drag-source square centre, scene coords
+    const core::FsNode *m_dragTarget = nullptr; // current drop target, or null
+    bool m_dragLegal = false;                    // is the current target a legal drop?
 };
 
 } // namespace ui

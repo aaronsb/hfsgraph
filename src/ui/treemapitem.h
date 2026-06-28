@@ -85,8 +85,14 @@ class TreemapItem : public QGraphicsItem {
     // tell the scene which frame spawned the new one, for close-cascade lineage.
     void setOwnerFrame(FrameItem *frame) { m_ownerFrame = frame; }
 
+    // The deepest cell under an item-space point, for the scene's move-drag target
+    // hit-testing (#10). Null if no cell is hit. Public wrapper over the hit cache.
+    const core::FsNode *cellNodeAt(const QPointF &itemPos) const { return cellAt(itemPos); }
+
   protected:
-    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;       // select
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;       // select / arm drag
+    void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;        // drive the move drag
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;     // drop / commit
     void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override; // open a frame
 
   private:
@@ -113,6 +119,14 @@ class TreemapItem : public QGraphicsItem {
     FrameItem *m_ownerFrame = nullptr;          // owning frame, or null for the base map
     const core::GroupStore *m_groups = nullptr; // overlay source (ADR-102), not owned
     const core::FsNode *m_selected = nullptr;
+    // Move-drag gesture state (#10). A press on a movable cell arms a drag; once the
+    // cursor leaves a small threshold the scene-level overlay takes over (the scene
+    // owns the arrow + cross-surface target hit-testing, since a drop can land on a
+    // different base). These are cleared on release.
+    const core::FsNode *m_pressNode = nullptr; // cell pressed (candidate drag source)
+    QPointF m_pressScene;                       // press position, scene coords (threshold)
+    QPointF m_pressCenterScene;                 // pressed cell centre, scene coords (arrow tail)
+    bool m_dragging = false;                    // past the threshold: a drag is live
     qreal m_reveal = 1.0;        // subdivision gate multiplier; <1 = subdivide sooner
     qreal m_detail = 1.0;        // contents-crossover gate multiplier; <1 = icons/name sooner
     int m_fileMode = Auto;       // forced file rung, or Auto (size-driven)

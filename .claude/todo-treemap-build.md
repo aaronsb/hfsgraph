@@ -73,9 +73,17 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
       test `tests/move_test.cpp` (ctest) covers ledger + replay; verified end-to-end headlessly
       (a staged move re-squarifies the projection). *No gesture yet (#10); group overlay vs a
       non-empty projection awaits durable ids (#14).*
-- [ ] Drag gesture: pick up square/group → overlay arrow `✕————▶` (legal) / `✕————✕` (illegal),
-      target hitbox lit, legality at drop (cycle / collision / immutable / cross-volume); release
-      appends an op and re-squarifies to the projection.
+- [x] Drag gesture (#10): press a movable base-surface square → past a 6px threshold a scene-Z
+      `MoveDragOverlay` draws `✕————▶` (legal) / `✕————✕` (illegal) with the target cell lit
+      green/red; legality at drop via the new pure `core::checkMove` (SameNode/SourceIsRoot/Cycle/
+      Collision — also the safe-replay floor `projectForest` now shares); release appends a
+      `MoveOp` and re-squarifies the projection. The commit *defers* re-projection
+      (`QTimer::singleShot`) because `setRenderRoot` deletes the interior treemap mid-release
+      (grabber-deletion race). Drag identity is stable across earlier moves via a new
+      `FsNode::identity` (pinned in the projection deep-copy; `keyFor` prefers it — the ADR-100
+      seam), so re-moving an already-moved node resolves. Unit-tested (`checkMove` + chained-move
+      identity); all three states verified headlessly. *Cross-volume legality not modelled (no
+      volume id until ADR-100); lens→ drops are #13. Interactive mouse-path is confirm-debt.*
 - [ ] Bottom **queue dock**: numbered ops + status; click row → preview that step (scrub);
       undo/redo (append + pop tail); **Commit** button (stub until the engine); per-op
       confirmation setting (training wheels, default-on first run).

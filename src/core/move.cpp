@@ -49,6 +49,34 @@ std::vector<MoveOp> Ledger::active() const {
     return std::vector<MoveOp>(m_ops.begin(), m_ops.begin() + m_step);
 }
 
+// ---- Legality -----------------------------------------------------------------
+
+namespace {
+
+// True if `node` is `ancestor` or sits underneath it — i.e. moving `ancestor` under
+// `node` would form a cycle.
+bool isSelfOrDescendant(const FsNode *node, const FsNode *ancestor) {
+    for (const FsNode *p = node; p; p = p->parent)
+        if (p == ancestor)
+            return true;
+    return false;
+}
+
+} // namespace
+
+MoveLegality checkMove(const FsNode *src, const FsNode *dst) {
+    if (!src || !dst || src == dst)
+        return MoveLegality::SameNode;
+    if (!src->parent) // a root surface has no parent to detach from
+        return MoveLegality::SourceIsRoot;
+    if (isSelfOrDescendant(dst, src)) // dest is the source or under it
+        return MoveLegality::Cycle;
+    for (const auto &c : dst->children) // a child of that name already lives at dest
+        if (c->name == src->name)
+            return MoveLegality::Collision; // also catches a no-op drop onto src's own parent
+    return MoveLegality::Ok;
+}
+
 // ---- Projection ---------------------------------------------------------------
 
 namespace {
@@ -66,19 +94,12 @@ std::unique_ptr<FsNode> deepCopy(const FsNode *src, FsNode *parent,
     n->sizeBytes = src->sizeBytes;
     n->truncatedDepth = src->truncatedDepth;
     n->parent = parent;
-    byKey.insert(keyFor(*src), n.get()); // key by the original identity
+    const MemberKey key = keyFor(*src);
+    n->identity = key; // pin the original key so later moves (which recompute path) still resolve
+    byKey.insert(key, n.get());
     for (const auto &c : src->children)
         n->children.push_back(deepCopy(c.get(), n.get(), byKey));
     return n;
-}
-
-// True if `node` is `ancestor` or sits underneath it — i.e. moving `ancestor` under
-// `node` would form a cycle.
-bool isSelfOrDescendant(const FsNode *node, const FsNode *ancestor) {
-    for (const FsNode *p = node; p; p = p->parent)
-        if (p == ancestor)
-            return true;
-    return false;
 }
 
 // Refresh a moved subtree's paths from its new parent down (the node objects and the
@@ -112,18 +133,8 @@ std::vector<std::unique_ptr<FsNode>> projectForest(const std::vector<const FsNod
             continue; // op doesn't resolve against this forest
         FsNode *src = sit.value();
         FsNode *dst = dit.value();
-        if (!src->parent) // can't move a root surface
-            continue;
-        if (isSelfOrDescendant(dst, src)) // cycle: dest is src or under it
-            continue;
-        bool collision = false; // a child of that name already lives at dest
-        for (const auto &c : dst->children)
-            if (c->name == src->name) {
-                collision = true;
-                break;
-            }
-        if (collision)
-            continue;
+        if (checkMove(src, dst) != MoveLegality::Ok)
+            continue; // unresolved-to-illegal ops are skipped — replay never corrupts
 
         // Detach src from its current parent (taking ownership) and re-home it.
         auto &siblings = src->parent->children;
