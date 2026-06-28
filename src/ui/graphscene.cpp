@@ -29,22 +29,6 @@ void GraphScene::setRoot(const core::FsNode *root) {
     rebuild();
 }
 
-void GraphScene::drillInto(const core::FsNode *node) {
-    // Re-root the *view* onto a subtree (parent pointers let drillUp return). Groups
-    // stay resolved against the scan root, so membership is unaffected by drilling.
-    if (node && !node->children.empty()) {
-        m_root = node;
-        rebuild();
-    }
-}
-
-void GraphScene::drillUp() {
-    if (m_root && m_root->parent) {
-        m_root = m_root->parent;
-        rebuild();
-    }
-}
-
 void GraphScene::updateGroupOverlay() {
     if (m_treemap)
         m_treemap->update();
@@ -52,16 +36,20 @@ void GraphScene::updateGroupOverlay() {
         f->update(); // frames carry the same overlay
 }
 
-void GraphScene::openFrame(const core::FsNode *node, const QPointF &originScenePos) {
+void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRect) {
     if (!node)
         return;
     constexpr qreal kFrameW = 520.0, kFrameH = 360.0;
     auto *frame = new FrameItem(node, kFrameW, kFrameH, this);
-    // Offset from the origin so the frame doesn't fully cover its source square.
-    frame->setPos(originScenePos + QPointF(48, 36));
-    frame->setZValue(100.0 + static_cast<qreal>(m_frames.size()));
+    // Float to the lower-right of the origin so it reads as an enlargement of it
+    // without fully covering the source square.
+    frame->setPos(originSceneRect.right() + 60.0, originSceneRect.top() + 30.0);
+    auto *callout = new CalloutItem(originSceneRect, frame);
+    frame->setCallout(callout);
+    addItem(callout);
     addItem(frame);
     m_frames.push_back(frame);
+    restackFrames(); // assign z so each callout sits just under its frame
     updateSceneBounds(); // a frame may extend past the map's edges
 }
 
@@ -69,6 +57,10 @@ void GraphScene::closeFrame(FrameItem *frame) {
     const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
     if (it != m_frames.end())
         m_frames.erase(it);
+    if (CalloutItem *c = frame->callout()) {
+        removeItem(c);
+        delete c; // a plain item; not deleted from within its own handler
+    }
     removeItem(frame);
     frame->deleteLater(); // safe even when called from the frame's own handler
 }
@@ -79,9 +71,19 @@ void GraphScene::raiseFrame(FrameItem *frame) {
         return;
     m_frames.erase(it);
     m_frames.push_back(frame); // front of the stack
+    restackFrames();
+}
+
+void GraphScene::restackFrames() {
+    // Two z-slots per frame: callout just below its frame, frames in stack order,
+    // all above the base map (z 0).
     qreal z = 100.0;
-    for (FrameItem *f : m_frames)
-        f->setZValue(z++);
+    for (FrameItem *f : m_frames) {
+        if (CalloutItem *c = f->callout())
+            c->setZValue(z);
+        f->setZValue(z + 1.0);
+        z += 2.0;
+    }
 }
 
 void GraphScene::setSizeMetric(int metric) {

@@ -373,9 +373,19 @@ void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
 }
 
 void TreemapItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
-    const core::FsNode *n = cellAt(event->pos());
-    if (n && !n->children.empty() && m_scene) {
-        m_scene->drillInto(n);
+    // ADR-303: double-click opens a floating investigation frame on that subtree
+    // (a non-destructive lens) instead of re-rooting the map. Find the deepest cell
+    // under the cursor and hand the scene both the node and its rect (mapped to
+    // scene space) so the frame can anchor its callout lines to the origin square.
+    const core::FsNode *hit = nullptr;
+    QRectF hitRect;
+    for (const Cell &c : m_cells) // pre-order: last match is the deepest
+        if (c.rect.contains(event->pos())) {
+            hit = c.node;
+            hitRect = c.rect;
+        }
+    if (hit && m_scene) {
+        m_scene->openFrame(hit, mapToScene(hitRect).boundingRect());
         event->accept();
         return;
     }

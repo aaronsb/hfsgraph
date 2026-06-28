@@ -41,6 +41,40 @@ QBrush ditherBrush() {
 }
 } // namespace
 
+// ---- CalloutItem --------------------------------------------------------------
+
+CalloutItem::CalloutItem(const QRectF &originSceneRect, FrameItem *frame)
+    : m_origin(originSceneRect), m_frame(frame) {
+    setZValue(0); // set properly by the scene, between the base map and the frame
+}
+
+void CalloutItem::refresh() {
+    prepareGeometryChange();
+    update();
+}
+
+QRectF CalloutItem::boundingRect() const {
+    // Item sits at scene origin (no transform), so local == scene coordinates.
+    QRectF frameRect(m_frame->pos(), m_frame->panelSize());
+    return m_origin.united(frameRect).adjusted(-2, -2, 2, 2);
+}
+
+void CalloutItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) {
+    const QPointF fpos = m_frame->pos();
+    const QSizeF fs = m_frame->panelSize();
+    const QPointF frameUR(fpos.x() + fs.width(), fpos.y());
+    const QPointF frameLL(fpos.x(), fpos.y() + fs.height());
+
+    QPen pen(QColor(150, 170, 210, 200));
+    pen.setCosmetic(true);
+    p->setPen(pen);
+    p->setRenderHint(QPainter::Antialiasing, true); // diagonal hairlines read better smoothed
+    p->drawLine(m_origin.topRight(), frameUR);
+    p->drawLine(m_origin.bottomLeft(), frameLL);
+}
+
+// ---- FrameItem ----------------------------------------------------------------
+
 FrameItem::FrameItem(const core::FsNode *node, qreal width, qreal height, GraphScene *scene)
     : m_node(node), m_w(width), m_h(height), m_scene(scene) {
     setAcceptedMouseButtons(Qt::LeftButton);
@@ -60,6 +94,8 @@ void FrameItem::setLod(qreal factor) {
     if (m_interior)
         m_interior->setLod(factor);
 }
+
+QSizeF FrameItem::panelSize() const { return QSizeF(m_w, m_h); }
 
 QRectF FrameItem::panelRect() const { return QRectF(0, 0, m_w, m_h); }
 QRectF FrameItem::headerRect() const { return QRectF(0, 0, m_w, kHeader); }
@@ -126,6 +162,8 @@ void FrameItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
 void FrameItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
     if (m_dragging) {
         setPos(event->scenePos() - m_dragOffset);
+        if (m_callout)
+            m_callout->refresh(); // the callout anchors to the frame's new position
         event->accept();
         return;
     }

@@ -30,10 +30,6 @@ class GraphScene : public QGraphicsScene {
     void setRoot(const core::FsNode *root);
     const core::FsNode *root() const { return m_root; }
 
-    // Re-root navigation (treemap double-click drills in; the toolbar's Up ascends).
-    void drillInto(const core::FsNode *node); // descend into a child directory
-    void drillUp();                           // ascend to the parent, if any
-
     // Treemap appearance (indices match TreemapItem::SizeMetric / ::Ramp). Each
     // rebuilds the map.
     void setSizeMetric(int metric); // 0 = file count, 1 = bytes
@@ -43,10 +39,11 @@ class GraphScene : public QGraphicsScene {
     int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)
     double lod() const { return m_lod; }            // current LOD factor (for frames)
 
-    // Investigation frames (ADR-303). openFrame floats a new frame rooted at `node`
-    // near `originScenePos` (a non-destructive lens — the base is not re-rooted);
-    // closeFrame removes it; raiseFrame brings it to the front of the frame stack.
-    void openFrame(const core::FsNode *node, const QPointF &originScenePos);
+    // Investigation frames (ADR-303), the replacement for re-root/drill. openFrame
+    // floats a new frame rooted at `node`, anchored to `originSceneRect` via callout
+    // lines (a non-destructive lens — the base is never re-rooted); closeFrame
+    // removes it; raiseFrame brings it to the front of the frame stack.
+    void openFrame(const core::FsNode *node, const QRectF &originSceneRect);
     void closeFrame(FrameItem *frame);
     void raiseFrame(FrameItem *frame);
 
@@ -60,6 +57,7 @@ class GraphScene : public QGraphicsScene {
   private:
     void rebuild();
     void updateSceneBounds(); // generous sceneRect so panning works in all directions
+    void restackFrames();     // reassign z so each callout sits just under its frame
 
     const core::FsNode *m_root = nullptr;     // currently displayed (sub)tree
     const core::FsNode *m_scanRoot = nullptr; // full scanned tree (group resolution)

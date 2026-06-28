@@ -23,6 +23,26 @@ namespace ui {
 
 class GraphScene;
 class TreemapItem;
+class FrameItem;
+
+// The "zoom-into" visual tie between an origin square and its frame (ADR-303):
+// two diagonal hairlines, origin upper-right → frame upper-right and origin
+// lower-left → frame lower-left, drawn just *below* the frame (and above the base
+// map) so the frame reads as an enlargement of that region. Works in scene
+// coordinates (placed at the origin); it reads the frame's live position so it
+// follows the frame as it is dragged.
+class CalloutItem : public QGraphicsItem {
+  public:
+    CalloutItem(const QRectF &originSceneRect, FrameItem *frame);
+    QRectF boundingRect() const override;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
+               QWidget *widget) override;
+    void refresh(); // geometry depends on the frame's position; call when it moves
+
+  private:
+    QRectF m_origin;     // origin square, scene coordinates
+    FrameItem *m_frame;  // the frame this callout points to (not owned)
+};
 
 // QGraphicsObject (not plain QGraphicsItem) so a frame can deleteLater() itself
 // when its × is clicked — safe deletion from within its own event handler.
@@ -37,6 +57,10 @@ class FrameItem : public QGraphicsObject {
 
     const core::FsNode *node() const { return m_node; }
     void setLod(qreal factor); // forward to the interior treemap
+
+    QSizeF panelSize() const; // panel (body) size in item units, for callout anchoring
+    void setCallout(CalloutItem *callout) { m_callout = callout; }
+    CalloutItem *callout() const { return m_callout; }
 
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
@@ -54,6 +78,7 @@ class FrameItem : public QGraphicsObject {
     qreal m_h;
     GraphScene *m_scene;
     TreemapItem *m_interior = nullptr;
+    CalloutItem *m_callout = nullptr; // tie to the origin square (not owned)
     bool m_dragging = false;
     QPointF m_dragOffset; // cursor → item-origin offset while dragging
 };

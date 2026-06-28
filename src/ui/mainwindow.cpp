@@ -42,10 +42,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     });
     toolbar->addWidget(m_depthSpin);
 
-    QAction *upAct = toolbar->addAction(QStringLiteral("Up"));
-    upAct->setToolTip(QStringLiteral("Go up to the parent directory"));
-    connect(upAct, &QAction::triggered, this, [this] { m_scene->drillUp(); });
-
     toolbar->addSeparator();
 
     auto *sizeCombo = new QComboBox(this); // TreemapItem::SizeMetric order
