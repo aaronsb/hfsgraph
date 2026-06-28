@@ -1,13 +1,19 @@
 ---
-status: Accepted
+status: Superseded
 date: 2026-06-27
 deciders:
   - aaronsb
   - claude
-related: [ADR-101, ADR-200, ADR-400]
+related: [ADR-301, ADR-101, ADR-200, ADR-400]
 ---
 
 # ADR-300: Canvas model: collapse/expand containment morph, snap-to-physics layout, and design language
+
+> **Superseded by [ADR-301](ADR-301-treemap-as-the-canvas-squarified-nested-containment-with-semantic-lod-zoom.md).**
+> The node-link depiction, the collapse/expand edge↔nesting morph, and snap-to-physics were
+> built, tried, and replaced by a single squarified treemap with semantic LOD zoom. The
+> design-language and two-coordinate-system (layout vs. structural / arrange vs. rewire) parts
+> below still hold and carry forward into ADR-301.
 
 ## Context
 
