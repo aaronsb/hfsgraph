@@ -28,6 +28,10 @@ using MemberKey = QString;
 
 MemberKey keyFor(const FsNode &node);
 
+// A file has no FsNode of its own (ADR-102 keys it as containing-dir + filename).
+// With path-based keys today this is just the file's absolute path.
+MemberKey keyForFile(const FsNode &dir, const QString &filename);
+
 enum class GroupKind {
     Rule,   // membership is *computed* from a rule over the tree, re-resolved on rescan
     Manual, // membership is an explicit user-curated set
@@ -101,5 +105,21 @@ class GroupStore {
     std::vector<std::unique_ptr<Group>> m_groups;
     int m_nextId = 1;
 };
+
+// ---- Rule engine (task #2) ----------------------------------------------------
+//
+// The only rule today is git-worktree. (Re)resolve all rule groups over the tree:
+//   * Every directory holding a `.git` entry (a subdir *or* a `.git` file, the
+//     latter covering submodules / linked worktrees) is an anchor.
+//   * The anchor's group members = the anchor + all descendant directories and
+//     files (including `.git` itself) − the group's explicit exclusions.
+// Inclusive by design (ADR-102): moving the group never strands untracked work.
+//
+// Idempotent and safe to call on every (re)scan: a rule group is matched to its
+// anchor by `ruleAnchor`; its resolved `members` are recomputed while colour, id,
+// view state, and exclusions are preserved. Anchors that have vanished have their
+// rule groups removed; new anchors get a freshly-coloured rule group. Manual
+// groups are never touched.
+void resolveRuleGroups(const FsNode &root, GroupStore &store);
 
 } // namespace core
