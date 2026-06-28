@@ -6,11 +6,19 @@
 
 namespace ui {
 
+namespace {
+// Lowercase filename extension (without the dot), or empty if none. The single
+// keying rule shared by both the icon and the colour lookups.
+QString extensionOf(const QString &name) {
+    const int dot = name.lastIndexOf(QLatin1Char('.'));
+    return dot > 0 ? name.mid(dot + 1).toLower() : QString();
+}
+} // namespace
+
 QIcon fileTypeIcon(const QString &name) {
     static QMimeDatabase db;
     static QHash<QString, QIcon> cache;
-    const int dot = name.lastIndexOf(QLatin1Char('.'));
-    const QString suffix = dot > 0 ? name.mid(dot + 1).toLower() : QString();
+    const QString suffix = extensionOf(name);
     const auto it = cache.constFind(suffix);
     if (it != cache.constEnd())
         return it.value();
@@ -27,8 +35,7 @@ QIcon fileTypeIcon(const QString &name) {
 QColor fileTypeColor(const QString &name) {
     static QMimeDatabase db;
     static QHash<QString, QColor> cache;
-    const int dot = name.lastIndexOf(QLatin1Char('.'));
-    const QString ext = dot > 0 ? name.mid(dot + 1).toLower() : QString();
+    const QString ext = extensionOf(name);
     const auto hit = cache.constFind(ext);
     if (hit != cache.constEnd())
         return hit.value();

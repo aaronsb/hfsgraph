@@ -30,8 +30,30 @@ constexpr double kLabelW = 42.0;     // room to show a name
 constexpr double kLabelH = 14.0;
 constexpr double kHeaderPx = 16.0;   // device-px label strip atop a subdivided cell
 constexpr double kPadPx = 2.0;       // device-px inset around a child block
-constexpr double kIconStep = 26.0;   // device-px grid pitch for file icons
-constexpr double kIconSize = 18.0;
+
+// Unified per-file glyph layout (ADR-301). Every LOD rung that packs a directory's
+// files into its cell — the icon grid, the finer pixel-dot grid, and eventually
+// filename rows — shares ONE definition of glyph size + gap and one packing helper,
+// so the rungs stay visually consistent and the spacing lives in a single tunable
+// place (a runtime control could drive these later instead of constants).
+struct GlyphGrid {
+    qreal size;                              // glyph edge, device px
+    qreal gap;                               // space between glyphs, device px
+    qreal pitch() const { return size + gap; }
+};
+constexpr GlyphGrid kIconGlyph{18.0, 8.0}; // file icons (pitch 26)
+constexpr GlyphGrid kPixelGlyph{3.0, 2.0}; // pixel-dot density (pitch 5)
+
+// How many columns/rows of `g` fit in `area`, and how many of `count` items to draw
+// (capped to capacity). Last glyph never overflows: (cols-1)*pitch + size <= width.
+struct GridFit {
+    int cols, rows, count;
+};
+GridFit fitGlyphs(const QRectF &area, const GlyphGrid &g, int count) {
+    const int cols = std::max(1, static_cast<int>((area.width() + g.gap) / g.pitch()));
+    const int rows = std::max(1, static_cast<int>((area.height() + g.gap) / g.pitch()));
+    return {cols, rows, std::min(count, cols * rows)};
+}
 
 // Squarified treemap (Bruls/Huizing/van Wijk): lay `weights` into `bounds` with
 // area ∝ weight and aspect ratios kept near 1. Rects returned in input order.
@@ -345,17 +367,15 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
 
     // Leaf: file icons on the contents area (device space, constant screen size).
     if (!node->files.isEmpty() && dev.width() > 70.0 * m_lod &&
-        dev.height() > (kHeaderPx + kIconStep) * m_lod) {
+        dev.height() > (kHeaderPx + kIconGlyph.pitch()) * m_lod) {
         p->setWorldMatrixEnabled(false);
         const QRectF grid = dev.adjusted(4, (hasTitle ? kHeaderPx : 2.0), -2, -2);
-        const int cols = std::max(1, static_cast<int>(grid.width() / kIconStep));
-        const int rows = std::max(1, static_cast<int>(grid.height() / kIconStep));
-        const int nf = std::min(static_cast<int>(node->files.size()), cols * rows);
-        for (int i = 0; i < nf; ++i) {
-            const int r = i / cols, c = i % cols;
-            const QRect ir(static_cast<int>(grid.x() + c * kIconStep),
-                           static_cast<int>(grid.y() + r * kIconStep),
-                           static_cast<int>(kIconSize), static_cast<int>(kIconSize));
+        const GridFit fit = fitGlyphs(grid, kIconGlyph, static_cast<int>(node->files.size()));
+        for (int i = 0; i < fit.count; ++i) {
+            const int r = i / fit.cols, c = i % fit.cols;
+            const QRect ir(static_cast<int>(grid.x() + c * kIconGlyph.pitch()),
+                           static_cast<int>(grid.y() + r * kIconGlyph.pitch()),
+                           static_cast<int>(kIconGlyph.size), static_cast<int>(kIconGlyph.size));
             fileTypeIcon(node->files[i]).paint(p, ir);
         }
         p->setWorldMatrixEnabled(true);
@@ -374,17 +394,15 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
         // Sub-icon LOD rung (ADR-301): too small for icons or a name, so draw each
         // file as a tiny block coloured by its type (the shared fileTypeColor
         // dictionary) — a file-count + type-density cue where the cell would
-        // otherwise be blank. Device space, so the dots stay a constant screen size.
-        constexpr qreal kBlock = 3.0, kPitch = 5.0; // 3px dot + 2px gap, device px
+        // otherwise be blank. Same unified glyph layout as the icon rung, finer.
+        const GlyphGrid &g = kPixelGlyph;
         const QRectF grid = dev.adjusted(2, (hasTitle ? kHeaderPx : 2.0), -2, -2);
-        if (grid.width() >= kBlock && grid.height() >= kBlock) {
+        if (grid.width() >= g.size && grid.height() >= g.size) {
             p->setWorldMatrixEnabled(false);
-            const int cols = std::max(1, static_cast<int>((grid.width() + kPitch - kBlock) / kPitch));
-            const int rows = std::max(1, static_cast<int>((grid.height() + kPitch - kBlock) / kPitch));
-            const int nf = std::min(static_cast<int>(node->files.size()), cols * rows);
-            for (int i = 0; i < nf; ++i) {
-                const int r = i / cols, c = i % cols;
-                p->fillRect(QRectF(grid.x() + c * kPitch, grid.y() + r * kPitch, kBlock, kBlock),
+            const GridFit fit = fitGlyphs(grid, g, static_cast<int>(node->files.size()));
+            for (int i = 0; i < fit.count; ++i) {
+                const int r = i / fit.cols, c = i % fit.cols;
+                p->fillRect(QRectF(grid.x() + c * g.pitch(), grid.y() + r * g.pitch(), g.size, g.size),
                             fileTypeColor(node->files[i]));
             }
             p->setWorldMatrixEnabled(true);
