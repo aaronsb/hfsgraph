@@ -26,7 +26,14 @@ GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
 
 // Out-of-line (fsnode.h is included here) so the unique_ptr<FsNode> projection trees
 // can be freed — the header only forward-declares core::FsNode.
-GraphScene::~GraphScene() = default;
+GraphScene::~GraphScene() {
+    // Delete all items (frames + their interior treemaps) now, while m_projection is
+    // still alive: a base frame's interior holds raw pointers into its projected tree,
+    // and member destruction would otherwise free m_projection before ~QGraphicsScene
+    // deletes those frames — a latent use-after-free if a TreemapItem ever derefs its
+    // root at teardown. Synchronous clear() closes that ordering gap.
+    clear();
+}
 
 std::vector<FrameItem *> GraphScene::baseFrames() const {
     std::vector<FrameItem *> out;
@@ -95,6 +102,9 @@ void GraphScene::rebuildProjection() {
         sources.reserve(bases.size());
         for (FrameItem *b : bases)
             sources.push_back(b->sourceRoot());
+        // projectForest builds the new forest from the (still-live) sources before the
+        // assignment frees the previous m_projection, so new node addresses can't alias
+        // freed ones — keep this order so setRenderRoot's identity guard stays sound.
         m_projection = core::projectForest(sources, active);
         for (std::size_t i = 0; i < bases.size(); ++i)
             bases[i]->setRenderRoot(m_projection[i] ? m_projection[i].get()

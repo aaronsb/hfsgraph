@@ -96,6 +96,9 @@ void recomputePaths(FsNode *n) {
 
 std::vector<std::unique_ptr<FsNode>> projectForest(const std::vector<const FsNode *> &roots,
                                                    const std::vector<MoveOp> &ops) {
+    // NOTE: keys are paths today, so two roots sharing a path (the same folder added
+    // as two bases) alias in byKey and a move can retarget the wrong one. Harmless
+    // (no crash, just surprising) and resolved by ADR-100 durable ids (task #14).
     std::vector<std::unique_ptr<FsNode>> out;
     QHash<MemberKey, FsNode *> byKey;
     out.reserve(roots.size());
