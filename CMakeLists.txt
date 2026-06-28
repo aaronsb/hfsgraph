@@ -29,6 +29,7 @@ add_executable(hfsgraph
     # src/ui/nodeitem.cpp  — parked: the node-link card + file-viewer, kept for a
     #   future click-to-inspect detail panel; not built in the treemap-only canvas.
     src/ui/treemapitem.cpp
+    src/ui/squarify.cpp
     src/ui/filetypestyle.cpp
     src/ui/grouppanel.cpp
     src/ui/frameitem.cpp
@@ -54,3 +55,13 @@ add_executable(move_test
 target_include_directories(move_test PRIVATE src)
 target_link_libraries(move_test PRIVATE Qt6::Core Qt6::Gui) # Gui only for QColor in group.h
 add_test(NAME move_test COMMAND move_test)
+
+# Squarify layout (ADR-301) is now a pure function, so it gets its own unit test.
+# QRectF lives in Qt6::Core — no GUI needed.
+add_executable(squarify_test
+    tests/squarify_test.cpp
+    src/ui/squarify.cpp
+)
+target_include_directories(squarify_test PRIVATE src)
+target_link_libraries(squarify_test PRIVATE Qt6::Core)
+add_test(NAME squarify_test COMMAND squarify_test)
