@@ -382,8 +382,9 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
     dimScrim(); // leaf: dim the whole cell (body + contents) when de-emphasised
 }
 
-// The leaf rung: a cell's files drawn as names, icons, or pixel-dots (or the cell's
-// own name when it has none). The rung is chosen by cell size (Detail LOD) in Auto,
+// The leaf rung: a cell's files drawn as a list (icon+name), icons, or pixel-dots
+// (or the cell's own name when it has none). The rung is chosen by cell size (Detail
+// LOD) in Auto,
 // or forced by m_fileMode. All three colour-match the file type (shared
 // fileTypeColor / fileTypeIcon). Each helper self-guards on room, so a forced rung
 // on a too-small cell simply draws nothing.
@@ -418,22 +419,34 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         }
         p->setWorldMatrixEnabled(true);
     };
-    auto drawNames = [&] {
-        if (area.height() < kNameGlyph.size)
+    auto drawList = [&] {
+        // Multi-column icon + name grid, filled column-major like `ls -a`, so a tall
+        // cell uses its full width instead of one wasteful column. Name colour-matches
+        // the type; the icon is the same theme icon as the Icons rung, just inline.
+        constexpr qreal kIcon = 13.0, kIconGap = 3.0, kColW = 150.0; // device px
+        const qreal rowH = kNameGlyph.pitch();
+        if (area.height() < rowH || area.width() < kIcon + 8.0)
             return;
         p->setWorldMatrixEnabled(false);
         QFont f = p->font();
         f.setPixelSize(10);
         p->setFont(f);
         const QFontMetrics fm(f);
-        const int rows = std::max(1, static_cast<int>((area.height() + kNameGlyph.gap) / kNameGlyph.pitch()));
-        const int nf = std::min(static_cast<int>(node->files.size()), rows);
+        const int cols = std::max(1, static_cast<int>(area.width() / kColW));
+        const int rows = std::max(1, static_cast<int>(area.height() / rowH));
+        const double colW = area.width() / cols; // distribute evenly across the width
+        const int nf = std::min(static_cast<int>(node->files.size()), cols * rows);
         for (int i = 0; i < nf; ++i) {
+            const int col = i / rows, row = i % rows; // column-major, like ls
+            const double x = area.x() + col * colW, y = area.y() + row * rowH;
             const QString &name = node->files[i];
-            p->setPen(fileTypeColor(name)); // a filename's colour matches its type
-            const QRectF row(area.x(), area.y() + i * kNameGlyph.pitch(), area.width(), kNameGlyph.size);
-            p->drawText(row, Qt::AlignVCenter | Qt::AlignLeft,
-                        fm.elidedText(name, Qt::ElideMiddle, static_cast<int>(area.width())));
+            const QRect ir(static_cast<int>(x), static_cast<int>(y + (rowH - kIcon) / 2),
+                           static_cast<int>(kIcon), static_cast<int>(kIcon));
+            fileTypeIcon(name).paint(p, ir);
+            p->setPen(fileTypeColor(name));
+            const QRectF tr(x + kIcon + kIconGap, y, colW - kIcon - kIconGap - 4.0, rowH);
+            p->drawText(tr, Qt::AlignVCenter | Qt::AlignLeft,
+                        fm.elidedText(name, Qt::ElideMiddle, static_cast<int>(tr.width())));
         }
         p->setWorldMatrixEnabled(true);
     };
@@ -451,14 +464,14 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
 
     const bool hasFiles = !node->files.isEmpty();
     const bool forced = m_fileMode != Auto;
-    const bool namesFit = dev.width() > kNameW * m_detail &&
-                          dev.height() > (kHeaderPx + kNameGlyph.pitch() * 2) * m_detail;
+    const bool listFit = dev.width() > kNameW * m_detail &&
+                         dev.height() > (kHeaderPx + kNameGlyph.pitch() * 2) * m_detail;
     const bool iconsFit = dev.width() > 70.0 * m_detail &&
                           dev.height() > (kHeaderPx + kIconGlyph.pitch()) * m_detail;
     const bool labelFits = !hasTitle && dev.width() > kLabelW * m_detail &&
                            dev.height() > kLabelH * m_detail;
-    if (hasFiles && (m_fileMode == Names || (!forced && namesFit)))
-        drawNames();
+    if (hasFiles && (m_fileMode == List || (!forced && listFit)))
+        drawList();
     else if (hasFiles && (m_fileMode == Icons || (!forced && iconsFit)))
         drawIcons();
     else if (hasFiles && m_fileMode == Dots)

@@ -77,7 +77,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     auto *fileCombo = new QComboBox(this); // TreemapItem::FileMode order
     fileCombo->addItems({QStringLiteral("Files: Auto"), QStringLiteral("Files: Dots"),
-                         QStringLiteral("Files: Icons"), QStringLiteral("Files: Names")});
+                         QStringLiteral("Files: Icons"), QStringLiteral("Files: List")});
     fileCombo->setToolTip(QStringLiteral("How files in a cell are drawn: Auto picks by size "
                                          "(names → icons → dots), or force one (a forced rung "
                                          "is hidden on cells too small to fit it)"));

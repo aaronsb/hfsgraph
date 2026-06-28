@@ -38,10 +38,11 @@ class TreemapItem : public QGraphicsItem {
     // categorical HSL hue cycle. Keep in sync with kRampNames in the .cpp.
     enum Ramp { Viridis, Magma, Plasma, Cividis, Turbo, Spectrum };
 
-    // How a cell's files are drawn. Auto picks by cell size (names → icons → dots as
-    // it shrinks); the others force that rung regardless of size (ADR-301). Keep in
-    // sync with the toolbar combo order in MainWindow.
-    enum FileMode { Auto, Dots, Icons, Names };
+    // How a cell's files are drawn. Auto picks by cell size (list → icons → dots as
+    // it shrinks); the others force that rung regardless of size (ADR-301). List is a
+    // multi-column icon+name grid (like `ls -a`). Keep in sync with the toolbar combo
+    // order in MainWindow.
+    enum FileMode { Auto, Dots, Icons, List };
 
     // Identity colour for a nesting depth under a ramp (depth spans 0..6). Shared so
     // the group panel's depth legend matches what the treemap paints.

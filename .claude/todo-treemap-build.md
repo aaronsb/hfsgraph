@@ -82,6 +82,39 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
 - [ ] **Diff overlay**: crosshatch + step-number tag on squares touched by the plan.
 - [ ] **Cross-frame** arrows + hit-testing on a top overlay layer (needs Slice 2 frames).
 
+## UI/UX polish — interactive iteration (ADR-301/304)  [ongoing]
+Ad-hoc rendering/control work from live use, on top of the slices above. All merged
+unless noted; each had a code-reviewer pass.
+- [x] **Groups panel → table** with multi-row select + bulk bar (Hi/No Hi/Show/Hide/Clear,
+      All/None/Invert). Scales past the window-shade cards when many groups resolve.
+- [x] **Viewport-sized base frames** — a new base matches the window aspect so fit-to-view
+      fills it edge to edge (no manual enlarging).
+- [x] **Pixel-icon LOD rung** + **file-type colour dictionary** — sub-icon cells show one
+      tiny type-coloured dot per file; `ui/filetypestyle.{h,cpp}` is the single source of
+      truth (`fileTypeIcon` + `fileTypeColor`), shared by dots / icons / names.
+- [x] **Larger bounded canvas** — `updateSceneBounds` grows with content (4000px floor) to
+      an 80000px cap, so exploring several bases doesn't hit the edge.
+- [x] **Unified glyph spacing** — one `GlyphGrid {size,gap}` + `fitGlyphs` packer for the
+      icon and dot (and list) rungs.
+- [x] **Split LOD controls** — independent **Reveal** (subdivision/nesting) and **Detail**
+      (contents crossover) toolbar sliders; they no longer fight.
+- [x] **Forced file mode** (toolbar **Files**: Auto / Dots / Icons / List) overriding the
+      size-driven rung; helpers self-guard so a forced rung hides on too-small cells.
+- [x] **Fit names** — grow the map so a *typical* dir name renders untruncated: median-cell
+      area × p90 name length, metric-aware, clamped 12×, idempotent (fit×N ≡ fit×1).
+- [x] **Multi-column List rung** (`ls -a`): icon + type-coloured name, column-major, wraps
+      into as many columns as fit (replaced the wasteful single-column names).
+- [ ] **Details (`ls -l`) file mode** — one file per row with metadata (perms/size/mtime/
+      name/symlink). Needs a scanner extension: `FsNode::files` (QStringList) → a `FileEntry`
+      {name,size,mtime,perms,symlink,linkTarget} vector (QFileInfo already in the scanner);
+      ripples to `group.cpp` (keyForFile/isWorktreeAnchor use `.name`), `treemapitem`
+      (`files[i].name`), `move.cpp` (files copy). *Next up.*
+- [ ] **Tech-debt:** extract the pure `squarify()` algorithm into its own layout module —
+      `treemapitem.cpp` is ~543 lines (over the 500 soft flag) and squarify is the clean seam.
+- [ ] **Interactive-confirm debt (this session):** every new control's mouse path — groups
+      table row-select + bulk buttons, the two LOD sliders, the Files combo, Fit names, base
+      drag/resize/close/remove, panning the grown canvas. A real-session click-through.
+
 ## Slice 4 — Durable identity + persistence (ADR-100 / 102)
 - [ ] ADR-100 durable directory identity (UUID in xattr + inode fingerprint) in the scanner.
 - [ ] JSON group store persistence (XDG data dir, keyed by workspace durable id, id-keyed
