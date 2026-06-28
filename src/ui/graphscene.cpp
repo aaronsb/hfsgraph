@@ -36,11 +36,13 @@ void GraphScene::updateGroupOverlay() {
         f->update(); // frames carry the same overlay
 }
 
-void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRect) {
+void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRect,
+                           FrameItem *parentFrame) {
     if (!node)
         return;
     constexpr qreal kFrameW = 520.0, kFrameH = 360.0;
     auto *frame = new FrameItem(node, kFrameW, kFrameH, this);
+    frame->setParentFrame(parentFrame); // lineage for the close-cascade
     // Float to the lower-right of the origin so it reads as an enlargement of it
     // without fully covering the source square.
     frame->setPos(originSceneRect.right() + 60.0, originSceneRect.top() + 30.0);
@@ -54,6 +56,16 @@ void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRe
 }
 
 void GraphScene::closeFrame(FrameItem *frame) {
+    // Close descendants first (frames opened from within this one), so closing an
+    // upstream frame never leaves its children dangling (depth-first, snapshot the
+    // child list before mutating m_frames).
+    std::vector<FrameItem *> children;
+    for (FrameItem *f : m_frames)
+        if (f->parentFrame() == frame)
+            children.push_back(f);
+    for (FrameItem *c : children)
+        closeFrame(c);
+
     const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
     if (it != m_frames.end())
         m_frames.erase(it);

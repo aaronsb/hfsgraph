@@ -62,10 +62,19 @@ class FrameItem : public QGraphicsObject {
     void setCallout(CalloutItem *callout) { m_callout = callout; }
     CalloutItem *callout() const { return m_callout; }
 
+    // The frame this one was opened from (null for a top-level frame). Closing a
+    // frame cascade-closes its descendants so none are left dangling (ADR-303).
+    void setParentFrame(FrameItem *parent) { m_parentFrame = parent; }
+    FrameItem *parentFrame() const { return m_parentFrame; }
+
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
+    // Click-to-raise: a press anywhere in the frame (including its interior treemap,
+    // a child item) brings the frame to the front, without swallowing the event so
+    // the interior still selects / double-clicks (which opens a recursive frame).
+    bool sceneEventFilter(QGraphicsItem *watched, QEvent *event) override;
 
   private:
     QRectF panelRect() const;    // the frame body (excludes the shadow margin)
@@ -78,7 +87,8 @@ class FrameItem : public QGraphicsObject {
     qreal m_h;
     GraphScene *m_scene;
     TreemapItem *m_interior = nullptr;
-    CalloutItem *m_callout = nullptr; // tie to the origin square (not owned)
+    CalloutItem *m_callout = nullptr;     // tie to the origin square (not owned)
+    FrameItem *m_parentFrame = nullptr;   // frame that spawned this one (not owned)
     bool m_dragging = false;
     QPointF m_dragOffset; // cursor → item-origin offset while dragging
 };

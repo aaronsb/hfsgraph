@@ -43,8 +43,9 @@ class GraphScene : public QGraphicsScene {
     // floats a new frame rooted at `node`, anchored to `originSceneRect` via callout
     // lines (a non-destructive lens — the base is never re-rooted); closeFrame
     // removes it; raiseFrame brings it to the front of the frame stack.
-    void openFrame(const core::FsNode *node, const QRectF &originSceneRect);
-    void closeFrame(FrameItem *frame);
+    void openFrame(const core::FsNode *node, const QRectF &originSceneRect,
+                   FrameItem *parentFrame = nullptr);
+    void closeFrame(FrameItem *frame); // also closes frames opened from within it
     void raiseFrame(FrameItem *frame);
 
     // Semantic groups (ADR-102). The store is resolved against the *scan* root on

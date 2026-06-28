@@ -384,8 +384,11 @@ void TreemapItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
             hit = c.node;
             hitRect = c.rect;
         }
-    if (hit && m_scene) {
-        m_scene->openFrame(hit, mapToScene(hitRect).boundingRect());
+    // Open only for a node strictly *deeper* than this treemap's own root: never the
+    // root itself (that re-opens the same subtree, stacking identical frames), and
+    // only when there are deeper levels to show — otherwise ignore the double-click.
+    if (hit && hit != m_root && !hit->children.empty() && m_scene) {
+        m_scene->openFrame(hit, mapToScene(hitRect).boundingRect(), m_ownerFrame);
         event->accept();
         return;
     }

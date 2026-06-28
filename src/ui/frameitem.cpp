@@ -4,8 +4,11 @@
 #include "graphscene.h"
 #include "treemapitem.h"
 
+#include <algorithm>
+
 #include <QApplication>
 #include <QBrush>
+#include <QEvent>
 #include <QFont>
 #include <QFontMetrics>
 #include <QGraphicsSceneMouseEvent>
@@ -13,13 +16,14 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
+#include <QTransform>
 
 namespace ui {
 
 namespace {
 constexpr qreal kHeader = 22.0; // title-strip height (item units)
 constexpr qreal kPad = 3.0;     // inset between panel edge and interior
-constexpr qreal kShadow = 9.0;  // dither drop-shadow offset
+constexpr qreal kShadow = 18.0; // dither drop-shadow offset (deep, retro look)
 constexpr qreal kCloseW = 22.0; // close-box width at the header's right
 
 // An ordered-dither (Bayer 4×4, ~50%) tile of translucent black — the project's
@@ -79,6 +83,7 @@ FrameItem::FrameItem(const core::FsNode *node, qreal width, qreal height, GraphS
     : m_node(node), m_w(width), m_h(height), m_scene(scene) {
     setAcceptedMouseButtons(Qt::LeftButton);
     setFlag(ItemClipsChildrenToShape, true); // keep the interior treemap inside the panel
+    setFiltersChildEvents(true);             // see sceneEventFilter (click-to-raise)
 
     const QRectF in = interiorRect();
     m_interior = new TreemapItem(node, in.width(), in.height(),
@@ -86,6 +91,7 @@ FrameItem::FrameItem(const core::FsNode *node, qreal width, qreal height, GraphS
                                  static_cast<TreemapItem::Ramp>(m_scene->colorRamp()), m_scene);
     m_interior->setLod(m_scene->lod());
     m_interior->setGroupStore(&m_scene->groups());
+    m_interior->setOwnerFrame(this); // so its double-clicks record this as the parent
     m_interior->setParentItem(this);
     m_interior->setPos(in.topLeft());
 }
@@ -111,27 +117,45 @@ QRectF FrameItem::boundingRect() const {
 void FrameItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) {
     p->setRenderHint(QPainter::Antialiasing, false);
     const bool dark = qApp && qApp->palette().color(QPalette::Window).lightness() < 128;
+    const QTransform tf = p->worldTransform();
+    const qreal zoom = tf.m11();
 
-    // Ordered-dither drop shadow, offset down-right behind the panel.
-    p->fillRect(QRectF(kShadow, kShadow, m_w, m_h), ditherBrush());
+    // Ordered-dither drop shadow. The shadow's surface AREA scales with the frame
+    // (so it reads as getting closer on zoom-in), but the dither tile stays
+    // pixel-perfect — painted in device space, so the 4×4 pattern tiles *more*
+    // rather than stretching.
+    {
+        const QRectF devShadow = tf.mapRect(QRectF(kShadow, kShadow, m_w, m_h));
+        p->setWorldMatrixEnabled(false);
+        p->fillRect(devShadow, ditherBrush());
+        p->setWorldMatrixEnabled(true);
+    }
 
-    // Panel body + header strip (the interior treemap paints itself as a child).
+    // Panel body + header band (the interior treemap paints itself as a child).
     const QColor body = dark ? QColor(38, 40, 46) : QColor(238, 238, 240);
     const QColor head = dark ? QColor(70, 78, 96) : QColor(120, 134, 160);
     p->fillRect(panelRect(), body);
     p->fillRect(headerRect(), head);
 
-    // Title (elided) + a × close affordance.
-    p->setPen(head.lightness() < 140 ? QColor(238, 238, 238) : QColor(18, 18, 18));
+    // Header chrome — title + × — drawn in device space at a CONSTANT screen size,
+    // exactly like the base canvas labels (vertically centred in the header band).
+    const QPointF devTL = tf.map(QPointF(0, 0));
+    const qreal devW = m_w * zoom;
+    const qreal devHdr = kHeader * zoom;
+    constexpr qreal closeDevW = 22.0;
+    p->setWorldMatrixEnabled(false);
     QFont f = p->font();
     f.setPixelSize(12);
     f.setBold(true);
     p->setFont(f);
-    const QRectF tr = headerRect().adjusted(6, 0, -kCloseW, 0);
-    p->drawText(tr, Qt::AlignVCenter | Qt::AlignLeft,
+    p->setPen(head.lightness() < 140 ? QColor(238, 238, 238) : QColor(18, 18, 18));
+    const QRectF devTitle(devTL.x() + 6, devTL.y(), devW - 6 - closeDevW, devHdr);
+    p->drawText(devTitle, Qt::AlignVCenter | Qt::AlignLeft,
                 QFontMetrics(f).elidedText(m_node->name, Qt::ElideMiddle,
-                                           static_cast<int>(tr.width())));
-    p->drawText(closeRect(), Qt::AlignCenter, QStringLiteral("×"));
+                                           static_cast<int>(std::max<qreal>(8.0, devTitle.width()))));
+    p->drawText(QRectF(devTL.x() + devW - closeDevW, devTL.y(), closeDevW, devHdr),
+                Qt::AlignCenter, QStringLiteral("×"));
+    p->setWorldMatrixEnabled(true);
 
     // Panel border.
     QPen border(dark ? QColor(0, 0, 0, 200) : QColor(0, 0, 0, 140));
@@ -168,6 +192,12 @@ void FrameItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
         return;
     }
     QGraphicsItem::mouseMoveEvent(event);
+}
+
+bool FrameItem::sceneEventFilter(QGraphicsItem *, QEvent *event) {
+    if (event->type() == QEvent::GraphicsSceneMousePress && m_scene)
+        m_scene->raiseFrame(this); // bring forward, then let the child handle it
+    return false;                  // never swallow — interior select/double-click stays live
 }
 
 void FrameItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
