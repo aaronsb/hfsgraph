@@ -75,6 +75,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             [this](int i) { m_scene->setCalloutMode(i); });
     toolbar->addWidget(calloutCombo);
 
+    auto *fileCombo = new QComboBox(this); // TreemapItem::FileMode order
+    fileCombo->addItems({QStringLiteral("Files: Auto"), QStringLiteral("Files: Dots"),
+                         QStringLiteral("Files: Icons"), QStringLiteral("Files: Names")});
+    fileCombo->setToolTip(QStringLiteral("How files in a cell are drawn: Auto picks by size "
+                                         "(names → icons → dots), or force one (a forced rung "
+                                         "is hidden on cells too small to fit it)"));
+    connect(fileCombo, &QComboBox::currentIndexChanged, this,
+            [this](int i) { m_scene->setFileMode(i); });
+    toolbar->addWidget(fileCombo);
+
     // Two independent LOD sliders (ADR-301): Reveal = how deep nesting subdivides;
     // Detail = at what cell size contents switch pixel-dots → icons → name. Same
     // mapping (mid = factor 1.0; higher = smaller gates = appears sooner). They were

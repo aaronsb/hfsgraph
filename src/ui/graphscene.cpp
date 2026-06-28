@@ -304,6 +304,12 @@ void GraphScene::setDetail(double factor) {
         f->setDetail(factor); // live — paint-only, no rebuild
 }
 
+void GraphScene::setFileMode(int mode) {
+    m_fileMode = mode;
+    for (FrameItem *f : m_frames)
+        f->setFileMode(mode); // live — paint-only, no rebuild
+}
+
 void GraphScene::updateSceneBounds() {
     // Generous panning room so exploring (dragging frames far, several bases side by
     // side) never butts up against the canvas edge: a large floor plus a margin that
