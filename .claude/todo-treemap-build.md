@@ -33,6 +33,26 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
       click-to-raise (child-event filter) + close-cascade (closing a frame closes descendants).
       *Debt: drag / × / raise / recursion are interactive-confirm.*
 
+## Slice 2.5 — Frames as the universal surface (ADR-304)  [partial]
+- [x] **Resizable frames** — corner `ResizeGrip` (device-constant) → `TreemapItem::setSize`
+      re-squarifies into larger bounds; constant-size labels elide less (magnifying lens).
+- [x] **Per-level lens depth** — each lens scans its *own* subtree to `baseDepth + level`
+      (capped `kMaxLensDepth=12`), independent of the base tree, owned by `FrameItem`
+      (`unique_ptr<FsNode>`, explicit `~FrameItem` frees it — no shared-tree mutation, no leak).
+- [x] **Cardinality 1** (default) — re-opening a node raises its existing frame
+      (`setUniqueFrames` flag, match by path). Re-point updates callout origin + lineage.
+- [x] **Zoom-from frustum callout** — convex hull of origin square ∪ frame, both rects
+      subtracted (vertex occlusion), light device-tiled dither. Dynamic origin via
+      `TreemapItem::cellRectForNode` (squarify replay, zoom-matched insets) → re-anchors on
+      move/resize; scoped `refreshCalloutsFor` (affected chain only). Mode toolbar: On/Lines/Off.
+- [x] **Crash fixes** — idempotent `closeFrame`; close on *release* not press (grabber-deletion
+      race); `QPointer` deferred-close guard; `~FrameItem` deletes interior before owned tree.
+- [ ] **(task #19) Level 0 as a root frame** — base becomes a `FrameItem` (title, resize, no
+      callout, removable); frames are the single abstraction.
+- [ ] **(task #19) Multiple base surfaces** — several root frames (e.g. two volumes); multi-root
+      group resolution; the ADR-302 ledger spans all surfaces.
+- [ ] **(task #19) "Add base folder"** terminology (not "root"); remove a base; bases list in dock.
+
 ## Slice 3 — Move staging (ADR-302)  [no new deps; Commit stubbed]
 - [ ] Move-op + **ledger** (ordered list) + **projection** = base tree with ops[0..k] replayed.
 - [ ] Drag gesture: pick up square/group → overlay arrow `✕————▶` (legal) / `✕————✕` (illegal),

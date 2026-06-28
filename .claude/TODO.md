@@ -100,6 +100,16 @@ node-link/force machinery is gone; the treemap is the only view.
       frame cascade-closes its descendants; self-open guard (only nodes deeper than the root).
       *Frames not yet identity-pinned across moves/queue-scrub (needs Slice 3 ledger). Drag / × /
       raise / recursion are interactive-confirm.*
+- [~] **Frames as the universal surface (ADR-304)** — PARTIAL (Slice 2.5). Shipped: resizable
+      frames (corner grip → `TreemapItem::setSize`, magnifying lens); per-level lens depth (each
+      lens scans its own subtree to `baseDepth+level`, capped 12, independent + `unique_ptr`-owned,
+      no shared-tree mutation/leak); cardinality-1 (raise existing, `setUniqueFrames` flag);
+      zoom-from frustum callout (convex-hull − rects, light dither, dynamic origin via
+      `cellRectForNode` replay, scoped refresh, On/Lines/Off toolbar mode); and a run of crash
+      fixes (idempotent `closeFrame`, close-on-release, `QPointer` deferred-close, `~FrameItem`
+      deletes interior before owned tree). **Remaining (task #19):** level 0 becomes a root
+      `FrameItem`; multiple base surfaces (multi-root group resolution; ledger spans them);
+      "Add base folder" terminology + removable bases + bases list in the dock.
 - [ ] **Lazy scan = truly unbounded depth** — semantic zoom can only reveal what's scanned; scan a
       subtree the first time you zoom into it, so the Depth control can go away entirely.
 - [ ] **Treemap polish** — breadcrumb for the drill path; hover tooltip (full name + size);
