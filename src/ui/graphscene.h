@@ -94,6 +94,15 @@ class GraphScene : public QGraphicsScene {
     core::Ledger &ledger() { return m_ledger; }
     void rebuildProjection();
 
+    // Ledger editing from the queue dock (ADR-302 #11). Each mutates the plan, re-
+    // projects every base, and emits ledgerChanged() so the dock refreshes. scrubTo
+    // previews the state after `step` ops (0 = the un-staged base); clearMoves drops
+    // the whole plan. (Append happens via the drag gesture, not here.)
+    void undoMove();         // pop the tail op onto the redo stack
+    void redoMove();         // restore the last undone op
+    void clearMoves();       // drop all staged ops + redo history
+    void scrubTo(int step);  // preview ops [0, step); clamps to [0, size]
+
     // Drag-to-move gesture (ADR-302 #10). A base surface's treemap arms a drag on
     // press; past a small threshold it calls beginMoveDrag (returns false on a null
     // source so the treemap stays inert — the source's re-parentability is gated at
@@ -116,6 +125,9 @@ class GraphScene : public QGraphicsScene {
     // Emitted when the set of base surfaces changes (add/remove/clear) so the dock's
     // bases list and group cards can refresh together.
     void surfacesChanged();
+    // Emitted when the staged move plan changes (append / undo / redo / scrub / clear)
+    // so the queue dock (ADR-302 #11) can re-list the ops and update its step pointer.
+    void ledgerChanged();
 
   private:
     void resolveGroups();     // re-resolve rule groups across every base's tree

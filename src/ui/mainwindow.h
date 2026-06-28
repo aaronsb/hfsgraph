@@ -15,6 +15,7 @@ namespace ui {
 class CanvasView;
 class GraphScene;
 class GroupPanel;
+class QueuePanel;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -33,6 +34,7 @@ class MainWindow : public QMainWindow {
     CanvasView *m_view;
     GraphScene *m_scene;
     GroupPanel *m_groupPanel;
+    QueuePanel *m_queuePanel;
     QLabel *m_pathLabel;
     QSpinBox *m_depthSpin;
     QString m_currentPath; // last folder added, for the file dialog's start dir

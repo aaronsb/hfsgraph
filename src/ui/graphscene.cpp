@@ -316,8 +316,39 @@ void GraphScene::endMoveDrag(bool drop) {
     // same race the frame-close path defers around).
     QTimer::singleShot(0, this, [this] {
         rebuildProjection();
+        Q_EMIT ledgerChanged();   // the queue dock re-lists the staged ops
         Q_EMIT surfacesChanged(); // refresh the dock/status against the new projection
     });
+}
+
+void GraphScene::undoMove() {
+    if (m_ledger.undo()) {
+        rebuildProjection();
+        Q_EMIT ledgerChanged();
+    }
+}
+
+void GraphScene::redoMove() {
+    if (m_ledger.redo()) {
+        rebuildProjection();
+        Q_EMIT ledgerChanged();
+    }
+}
+
+void GraphScene::clearMoves() {
+    if (m_ledger.empty())
+        return;
+    m_ledger.clear();
+    rebuildProjection();
+    Q_EMIT ledgerChanged();
+}
+
+void GraphScene::scrubTo(int step) {
+    if (step == m_ledger.step())
+        return;
+    m_ledger.setStep(step);
+    rebuildProjection();
+    Q_EMIT ledgerChanged();
 }
 
 void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRect,
