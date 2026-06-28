@@ -19,6 +19,7 @@
 #include <QPainterPath>
 #include <QPalette>
 #include <QPixmap>
+#include <QPointer>
 #include <QPolygonF>
 #include <QTimer>
 #include <QTransform>
@@ -192,7 +193,14 @@ FrameItem::FrameItem(const core::FsNode *node, qreal width, qreal height, GraphS
 
 // Out-of-line so unique_ptr<core::FsNode> sees the complete type here (fsnode.h is
 // included) — this is where the frame's own deep-scanned subtree is reclaimed.
-FrameItem::~FrameItem() = default;
+FrameItem::~FrameItem() {
+    // Destroy the interior treemap *before* m_ownTree is freed: the interior holds
+    // raw pointers into that tree, and otherwise the base ~QGraphicsObject would
+    // delete it only after this object's members (incl. m_ownTree) are gone — a
+    // latent use-after-free in the owned-tree model.
+    delete m_interior;
+    m_interior = nullptr;
+}
 
 void FrameItem::adoptTree(std::unique_ptr<core::FsNode> tree) {
     m_ownTree = std::move(tree); // sole owner; freed when this frame is destroyed
@@ -389,8 +397,11 @@ void FrameItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
         // the next tick so the scene finishes releasing the grab before we delete.
         if (m_scene && closeRect().contains(event->pos())) {
             GraphScene *scene = m_scene;
-            FrameItem *self = this;
-            QTimer::singleShot(0, scene, [scene, self] { scene->closeFrame(self); });
+            QPointer<FrameItem> self = this; // nulls out if destroyed before the tick
+            QTimer::singleShot(0, scene, [scene, self] {
+                if (self)
+                    scene->closeFrame(self);
+            });
         }
         return;
     }
