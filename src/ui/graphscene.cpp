@@ -292,10 +292,16 @@ void GraphScene::setColorRamp(int ramp) {
     refreshCallouts();
 }
 
-void GraphScene::setLod(double factor) {
-    m_lod = factor;
+void GraphScene::setReveal(double factor) {
+    m_reveal = factor;
     for (FrameItem *f : m_frames)
-        f->setLod(factor); // live — paint-only, no rebuild
+        f->setReveal(factor); // live — paint-only, no rebuild
+}
+
+void GraphScene::setDetail(double factor) {
+    m_detail = factor;
+    for (FrameItem *f : m_frames)
+        f->setDetail(factor); // live — paint-only, no rebuild
 }
 
 void GraphScene::updateSceneBounds() {

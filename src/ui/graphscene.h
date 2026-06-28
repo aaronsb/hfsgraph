@@ -45,10 +45,12 @@ class GraphScene : public QGraphicsScene {
     // rebuilds every surface's interior in place (frames survive).
     void setSizeMetric(int metric); // 0 = file count, 1 = bytes
     void setColorRamp(int ramp);    // Viridis/Magma/Plasma/Cividis/Turbo/Spectrum
-    void setLod(double factor);     // detail "view distance" (live; no rebuild)
+    void setReveal(double factor);  // subdivision/nesting LOD (live; no rebuild)
+    void setDetail(double factor);  // contents-crossover LOD (live; no rebuild)
 
     int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)
-    double lod() const { return m_lod; }            // current LOD factor (for frames)
+    double reveal() const { return m_reveal; }      // current reveal LOD (for frames)
+    double detail() const { return m_detail; }      // current detail LOD (for frames)
 
     // The base scan depth (toolbar Depth). A level-N lens scans its own subtree to
     // baseDepth + N (capped), so deeper lenses reveal more detail (ADR-304).
@@ -110,7 +112,8 @@ class GraphScene : public QGraphicsScene {
     std::vector<FrameItem *> m_frames;
     int m_sizeMetric = 0;             // TreemapItem::Files
     int m_colorRamp = 0;              // TreemapItem::Viridis
-    double m_lod = 1.0;               // persists across rebuilds
+    double m_reveal = 1.0;            // subdivision LOD, persists across rebuilds
+    double m_detail = 1.0;            // contents-crossover LOD, persists across rebuilds
     bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
     int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
     int m_calloutMode = 0;           // 0 Filled, 1 Lines, 2 Off (ADR-304)

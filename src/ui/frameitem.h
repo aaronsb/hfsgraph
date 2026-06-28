@@ -95,7 +95,8 @@ class FrameItem : public QGraphicsObject {
     // rebuild it. No-op if unchanged; the owned scanned tree is untouched.
     void setRenderRoot(const core::FsNode *root);
 
-    void setLod(qreal factor); // forward to the interior treemap
+    void setReveal(qreal factor); // forward to the interior treemap (subdivision LOD)
+    void setDetail(qreal factor); // forward to the interior treemap (contents LOD)
 
     // Resize the panel + re-squarify the interior (ADR-304), clamped to a minimum.
     // Driven by the corner ResizeGrip; gives every cell more room for its label.

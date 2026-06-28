@@ -48,9 +48,13 @@ class TreemapItem : public QGraphicsItem {
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
 
-    // Multiplier on the on-screen size at which a cell subdivides: <1 reveals more
-    // detail sooner, >1 holds detail back. Paint-only — no rebuild needed.
-    void setLod(qreal factor);
+    // Two independent level-of-detail multipliers on the on-screen sizes at which
+    // things appear (ADR-301). They were one knob, but they fought: "Reveal" gates
+    // how deep cells *subdivide* (nesting shown), while "Detail" gates the *contents
+    // crossover* — at what cell size a leaf switches pixel-dots → icons → name. <1
+    // triggers sooner (more), >1 holds back. Paint-only — no rebuild needed.
+    void setReveal(qreal factor); // subdivision / nesting depth
+    void setDetail(qreal factor); // contents rung crossover (dots/icons/name)
 
     // Re-squarify into new bounds (ADR-304). Larger bounds give each cell more
     // scene-space area, so constant-size labels elide less — the resize/magnify
@@ -95,7 +99,8 @@ class TreemapItem : public QGraphicsItem {
     FrameItem *m_ownerFrame = nullptr;          // owning frame, or null for the base map
     const core::GroupStore *m_groups = nullptr; // overlay source (ADR-102), not owned
     const core::FsNode *m_selected = nullptr;
-    qreal m_lod = 1.0;            // detail gate multiplier (view distance); <1 = farther
+    qreal m_reveal = 1.0;        // subdivision gate multiplier; <1 = subdivide sooner
+    qreal m_detail = 1.0;        // contents-crossover gate multiplier; <1 = icons/name sooner
     mutable bool m_dark = true;   // resolved from the palette each paint
     mutable bool m_anyFocus = false; // any visible group in focus mode (resolved each paint)
     mutable qreal m_lastZoom = 1.0;  // view zoom from the last paint (for cellRectForNode)
