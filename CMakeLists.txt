@@ -29,6 +29,7 @@ add_executable(hfsgraph
     # src/ui/nodeitem.cpp  — parked: the node-link card + file-viewer, kept for a
     #   future click-to-inspect detail panel; not built in the treemap-only canvas.
     src/ui/treemapitem.cpp
+    src/ui/filetypestyle.cpp
     src/ui/grouppanel.cpp
     src/ui/frameitem.cpp
     src/ui/graphscene.cpp

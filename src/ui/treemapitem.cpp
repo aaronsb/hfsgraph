@@ -2,19 +2,17 @@
 
 #include "core/fsnode.h"
 #include "core/group.h"
+#include "filetypestyle.h"
 #include "graphscene.h"
 
 #include <algorithm>
 #include <vector>
 
 #include <QApplication>
+#include <QColor>
 #include <QFont>
 #include <QFontMetrics>
 #include <QGraphicsSceneMouseEvent>
-#include <QHash>
-#include <QIcon>
-#include <QMimeDatabase>
-#include <QMimeType>
 #include <QPainter>
 #include <QPalette>
 #include <QStyleOptionGraphicsItem>
@@ -142,25 +140,6 @@ QColor textColorFor(const QColor &bg) {
     return bg.lightness() < 140 ? QColor(238, 238, 238) : QColor(18, 18, 18);
 }
 
-// File-type icon by name suffix, cached. MatchExtension keeps it name-only (no stat),
-// and these are the same theme icons the file managers show.
-QIcon iconForName(const QString &name) {
-    static QMimeDatabase db;
-    static QHash<QString, QIcon> cache;
-    const int dot = name.lastIndexOf('.');
-    const QString suffix = dot > 0 ? name.mid(dot + 1).toLower() : QString();
-    const auto it = cache.constFind(suffix);
-    if (it != cache.constEnd())
-        return it.value();
-    const QMimeType mt = db.mimeTypeForFile(name, QMimeDatabase::MatchExtension);
-    QIcon icon = QIcon::fromTheme(mt.iconName());
-    if (icon.isNull())
-        icon = QIcon::fromTheme(mt.genericIconName());
-    if (icon.isNull())
-        icon = QIcon::fromTheme(QStringLiteral("text-x-generic"));
-    cache.insert(suffix, icon);
-    return icon;
-}
 } // namespace
 
 TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, SizeMetric metric,
@@ -377,7 +356,7 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
             const QRect ir(static_cast<int>(grid.x() + c * kIconStep),
                            static_cast<int>(grid.y() + r * kIconStep),
                            static_cast<int>(kIconSize), static_cast<int>(kIconSize));
-            iconForName(node->files[i]).paint(p, ir);
+            fileTypeIcon(node->files[i]).paint(p, ir);
         }
         p->setWorldMatrixEnabled(true);
     } else if (!hasTitle && dev.width() > kLabelW * m_lod && dev.height() > kLabelH * m_lod) {
@@ -391,8 +370,27 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
                     QFontMetrics(f).elidedText(node->name, Qt::ElideMiddle,
                                                static_cast<int>(dev.width() - 6)));
         p->setWorldMatrixEnabled(true);
+    } else if (!node->files.isEmpty()) {
+        // Sub-icon LOD rung (ADR-301): too small for icons or a name, so draw each
+        // file as a tiny block coloured by its type (the shared fileTypeColor
+        // dictionary) — a file-count + type-density cue where the cell would
+        // otherwise be blank. Device space, so the dots stay a constant screen size.
+        constexpr qreal kBlock = 3.0, kPitch = 4.0; // 3px dot + 1px gap, device px
+        const QRectF grid = dev.adjusted(2, (hasTitle ? kHeaderPx : 2.0), -2, -2);
+        if (grid.width() >= kBlock && grid.height() >= kBlock) {
+            p->setWorldMatrixEnabled(false);
+            const int cols = std::max(1, static_cast<int>((grid.width() + kPitch - kBlock) / kPitch));
+            const int rows = std::max(1, static_cast<int>((grid.height() + kPitch - kBlock) / kPitch));
+            const int nf = std::min(static_cast<int>(node->files.size()), cols * rows);
+            for (int i = 0; i < nf; ++i) {
+                const int r = i / cols, c = i % cols;
+                p->fillRect(QRectF(grid.x() + c * kPitch, grid.y() + r * kPitch, kBlock, kBlock),
+                            fileTypeColor(node->files[i]));
+            }
+            p->setWorldMatrixEnabled(true);
+        }
     }
-    dimScrim(); // leaf: dim the whole cell (body + icons) when de-emphasised
+    dimScrim(); // leaf: dim the whole cell (body + icons / dots) when de-emphasised
 }
 
 void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) {
