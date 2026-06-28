@@ -13,7 +13,7 @@ set(CMAKE_AUTOUIC ON)
 find_package(ECM REQUIRED NO_MODULE)
 list(APPEND CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Concurrent)
 find_package(KF6 REQUIRED COMPONENTS CoreAddons)
 # Engine / OS-facility components are added as the code lands (see ADRs):
 #   KF6::Solid       — mount/device detection for volume descriptors (ADR-200)
@@ -39,7 +39,7 @@ add_executable(hfsgraph
     src/ui/mainwindow.cpp
 )
 target_include_directories(hfsgraph PRIVATE src)
-target_link_libraries(hfsgraph PRIVATE Qt6::Widgets KF6::CoreAddons)
+target_link_libraries(hfsgraph PRIVATE Qt6::Widgets Qt6::Concurrent KF6::CoreAddons)
 
 include(GNUInstallDirs)
 install(TARGETS hfsgraph DESTINATION ${CMAKE_INSTALL_BINDIR})
