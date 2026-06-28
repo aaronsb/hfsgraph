@@ -71,13 +71,16 @@ node-link/force machinery is gone; the treemap is the only view.
 > Real commit engine (ADR-200, eventually Rust ADR-401). Detailed task breakdown lives in the
 > session task list (TaskList) and `.claude/todo-treemap-build.md`.
 
-- [ ] **Semantic groups (ADR-102)** — the decided next build, ahead of drag-to-reparent because
-      it defines what moves together. Model: rule-derived groups (first rule = git-worktree:
-      anchor = dir with `.git`, members = anchor + all descendants − exclusions, live/move-robust)
-      + manual groups, all keyed on ADR-100 durable ids (files: dir-id + name). Persist as a
-      per-workspace JSON sidecar in XDG data dir. Left dock panel of window-shade group cards
-      (legend + define/edit/colour + visible/highlight/dim/focus/select), depth-ramp legend at
-      the bottom. Group view-state drives a canvas overlay over the treemap.
+- [x] **Semantic groups (ADR-102)** — SHIPPED (Slice 1). `core::Group`/`GroupStore` model;
+      `resolveRuleGroups` git-worktree rule (anchor = dir with `.git` subdir or file; members =
+      anchor + all descendants − exclusions; idempotent re-resolve, exclusions/colour/id kept);
+      `ui::GroupPanel` left dock of window-shade cards (swatch/name/count/▾ + Show/Hi/Focus/Dim)
+      with a depth-ramp legend; `TreemapItem` overlay (highlight tint+border, focus dims
+      non-members, dim de-emphasises members). `GraphScene` owns the store, resolves on the scan
+      root (drill doesn't disturb membership), repaints via `updateGroupOverlay()`.
+      *Still keyed by path, not ADR-100 durable id (Slice 4 / task #14); no JSON persistence yet
+      (Slice 4 / task #15). Manual groups + add/remove UI deferred. Checkbox→overlay click path
+      needs an interactive confirm.*
 - [ ] **Move staging UX (ADR-302)** — drag a square or a *group*: overlay arrow (`✕————▶`
       legal / `✕————✕` illegal), no relayout during drag, target hitbox lit, release appends to a
       **queue**. Bottom dock lists numbered ops; the treemap shows the **projection** at the

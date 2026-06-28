@@ -19,6 +19,7 @@
 
 namespace core {
 struct FsNode;
+class GroupStore;
 }
 
 namespace ui {
@@ -36,6 +37,10 @@ class TreemapItem : public QGraphicsItem {
     // categorical HSL hue cycle. Keep in sync with kRampNames in the .cpp.
     enum Ramp { Viridis, Magma, Plasma, Cividis, Turbo, Spectrum };
 
+    // Identity colour for a nesting depth under a ramp (depth spans 0..6). Shared so
+    // the group panel's depth legend matches what the treemap paints.
+    static QColor depthColor(Ramp ramp, int depth);
+
     TreemapItem(const core::FsNode *root, qreal width, qreal height, SizeMetric metric, Ramp ramp,
                 GraphScene *scene);
 
@@ -45,6 +50,11 @@ class TreemapItem : public QGraphicsItem {
     // Multiplier on the on-screen size at which a cell subdivides: <1 reveals more
     // detail sooner, >1 holds detail back. Paint-only — no rebuild needed.
     void setLod(qreal factor);
+
+    // The semantic-group overlay source (ADR-102), not owned. Per-cell membership
+    // drives highlight (tint + group-colour border), focus (dim non-members), and
+    // dim (de-emphasise members). Null = no overlay. Paint-only.
+    void setGroupStore(const core::GroupStore *store);
 
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;       // select
@@ -67,9 +77,11 @@ class TreemapItem : public QGraphicsItem {
     SizeMetric m_metric;
     Ramp m_ramp;
     GraphScene *m_scene;
+    const core::GroupStore *m_groups = nullptr; // overlay source (ADR-102), not owned
     const core::FsNode *m_selected = nullptr;
-    qreal m_lod = 1.0;          // detail gate multiplier (view distance); <1 = farther
-    mutable bool m_dark = true; // resolved from the palette each paint
+    qreal m_lod = 1.0;            // detail gate multiplier (view distance); <1 = farther
+    mutable bool m_dark = true;   // resolved from the palette each paint
+    mutable bool m_anyFocus = false; // any visible group in focus mode (resolved each paint)
 
     mutable std::unordered_map<const core::FsNode *, double> m_weight;
     mutable std::vector<Cell> m_cells; // from the last paint, for hit-testing

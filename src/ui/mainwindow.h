@@ -13,6 +13,7 @@ namespace ui {
 
 class CanvasView;
 class GraphScene;
+class GroupPanel;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -27,6 +28,7 @@ class MainWindow : public QMainWindow {
 
     CanvasView *m_view;
     GraphScene *m_scene;
+    GroupPanel *m_groupPanel;
     QLabel *m_pathLabel;
     QSpinBox *m_depthSpin;
     QString m_currentPath;

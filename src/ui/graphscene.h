@@ -8,6 +8,8 @@
 
 #include <QGraphicsScene>
 
+#include "core/group.h"
+
 namespace core {
 struct FsNode;
 }
@@ -35,12 +37,21 @@ class GraphScene : public QGraphicsScene {
     void setColorRamp(int ramp);    // Viridis/Magma/Plasma/Cividis/Turbo/Spectrum
     void setLod(double factor);     // detail "view distance" (live; no rebuild)
 
+    // Semantic groups (ADR-102). The store is resolved against the *scan* root on
+    // setRoot (so drill navigation doesn't disturb membership) and owned here; the
+    // panel reads/edits it and calls updateGroupOverlay() to repaint the treemap.
+    core::GroupStore &groups() { return m_groups; }
+    void updateGroupOverlay(); // repaint the overlay after a group view-state change
+    int colorRamp() const { return m_colorRamp; } // current ramp (for the depth legend)
+
   private:
     void rebuild();
     void updateSceneBounds(); // generous sceneRect so panning works in all directions
 
-    const core::FsNode *m_root = nullptr;
-    TreemapItem *m_treemap = nullptr; // current item (for live LOD tuning)
+    const core::FsNode *m_root = nullptr;     // currently displayed (sub)tree
+    const core::FsNode *m_scanRoot = nullptr; // full scanned tree (group resolution)
+    core::GroupStore m_groups;                // semantic groups (ADR-102), owned
+    TreemapItem *m_treemap = nullptr;         // current item (for live LOD tuning)
     int m_sizeMetric = 0;             // TreemapItem::Files
     int m_colorRamp = 0;              // TreemapItem::Viridis
     double m_lod = 1.0;               // persists across rebuilds

@@ -1,6 +1,7 @@
 #include "treemapitem.h"
 
 #include "core/fsnode.h"
+#include "core/group.h"
 #include "graphscene.h"
 
 #include <algorithm>
@@ -168,6 +169,10 @@ TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, Si
     setAcceptedMouseButtons(Qt::LeftButton);
 }
 
+QColor TreemapItem::depthColor(Ramp ramp, int depth) {
+    return rampColor(static_cast<int>(ramp), depth);
+}
+
 double TreemapItem::weight(const core::FsNode *n) const {
     const auto it = m_weight.find(n);
     if (it != m_weight.end())
@@ -183,6 +188,11 @@ double TreemapItem::weight(const core::FsNode *n) const {
 void TreemapItem::setLod(qreal factor) {
     m_lod = std::max<qreal>(0.05, factor);
     update(); // detail is decided in paint(), so a repaint is all it takes
+}
+
+void TreemapItem::setGroupStore(const core::GroupStore *store) {
+    m_groups = store;
+    update(); // overlay is decided in paint()
 }
 
 QRectF TreemapItem::boundingRect() const {
@@ -211,7 +221,44 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
     const QColor body = m_dark ? title.darker(235) : title.lighter(168);
     const bool hasTitle = dev.width() > kLabelW * m_lod && dev.height() > kHeaderPx * 1.5 * m_lod;
 
+    // Semantic-group overlay (ADR-102): highlight tints + borders a group's cells;
+    // focus dims non-members; dim de-emphasises a group's own members.
+    bool ovHighlight = false;
+    QColor ovColor;
+    bool ovDim = false;
+    if (m_groups && !m_groups->empty()) {
+        // Hot path: drawCell runs for every visible cell every frame, so iterate the
+        // groups directly (no per-cell allocation — groupsContaining() would heap a
+        // vector here). g->contains() is two QSet lookups.
+        const core::MemberKey key = core::keyFor(*node);
+        bool focusMember = false, dimMember = false;
+        for (const auto &g : m_groups->groups()) {
+            if (!g->view.visible || !g->contains(key))
+                continue;
+            // First highlighted group in store order wins the tint/border colour;
+            // others contribute nothing — deterministic, no blending by design.
+            if (g->view.highlight && !ovHighlight) {
+                ovHighlight = true;
+                ovColor = g->color;
+            }
+            focusMember = focusMember || g->view.focus;
+            dimMember = dimMember || g->view.dim;
+        }
+        ovDim = dimMember || (m_anyFocus && !focusMember);
+    }
+    // Drawn over this cell's own area after its content; children overdraw the inner
+    // region and dim themselves, so members stay bright while non-members recede.
+    auto dimScrim = [&] {
+        if (ovDim)
+            p->fillRect(rect, m_dark ? QColor(0, 0, 0, 150) : QColor(255, 255, 255, 150));
+    };
+
     p->fillRect(rect, body);
+    if (ovHighlight) {
+        QColor tint = ovColor;
+        tint.setAlpha(90);
+        p->fillRect(rect, tint);
+    }
     if (hasTitle) {
         p->fillRect(QRectF(rect.x(), rect.y(), rect.width(), kHeaderPx / zoom), title);
         p->setWorldMatrixEnabled(false);
@@ -226,8 +273,9 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
         p->setWorldMatrixEnabled(true);
     }
 
-    QPen border(QColor(0, 0, 0, 160));
-    border.setCosmetic(true); // constant 1px frame regardless of zoom
+    // Highlighted cells get a thicker group-colour frame; others the plain hairline.
+    QPen border = ovHighlight ? QPen(ovColor, 2.0) : QPen(QColor(0, 0, 0, 160));
+    border.setCosmetic(true); // constant width regardless of zoom
     p->setPen(border);
     p->setBrush(Qt::NoBrush);
     p->drawRect(rect);
@@ -252,6 +300,7 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
         for (const auto *k : kids)
             ws.push_back(weight(k));
         const std::vector<QRectF> rects = squarify(ws, inner);
+        dimScrim(); // dim this cell's chrome; children overdraw the inner and self-dim
         for (size_t k = 0; k < kids.size(); ++k)
             drawCell(p, kids[k], rects[k], depth + 1, toDevice, exposed);
         return;
@@ -285,12 +334,20 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
                                                static_cast<int>(dev.width() - 6)));
         p->setWorldMatrixEnabled(true);
     }
+    dimScrim(); // leaf: dim the whole cell (body + icons) when de-emphasised
 }
 
 void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) {
     painter->setRenderHint(QPainter::Antialiasing, false); // crisp rectangle edges
     m_cells.clear();
     m_dark = qApp && qApp->palette().color(QPalette::Window).lightness() < 128;
+    m_anyFocus = false; // focus mode dims every non-member; resolve it once per paint
+    if (m_groups)
+        for (const auto &g : m_groups->groups())
+            if (g->view.visible && g->view.focus) {
+                m_anyFocus = true;
+                break;
+            }
     const QTransform toDevice = painter->worldTransform();
     const QRectF exposed = option ? option->exposedRect : QRectF(0, 0, m_w, m_h);
     drawCell(painter, m_root, QRectF(0, 0, m_w, m_h), 0, toDevice, exposed);
