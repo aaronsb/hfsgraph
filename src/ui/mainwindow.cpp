@@ -143,6 +143,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     resize(1200, 800);
 }
 
+MainWindow::~MainWindow() {
+    // A scan could still be in flight at shutdown; balance the override cursor we pushed
+    // so it isn't left on QApplication's global stack.
+    if (m_busyActive)
+        QApplication::restoreOverrideCursor();
+}
+
 void MainWindow::addBaseFolder() {
     const QString dir = QFileDialog::getExistingDirectory(
         this, QStringLiteral("Add a base folder to the canvas"),
@@ -169,18 +176,22 @@ void MainWindow::addBaseAtPath(const QString &path, int depth) {
         }
         m_scene->addBase(std::move(tree)); // the base frame takes ownership of the scan
         // The panel refreshes itself via GraphScene::surfacesChanged.
-        m_view->resetTransform();
-        if (m_scene->itemsBoundingRect().isValid())
-            m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
-        updateStatus();
+        fitToContentIfIdle();
     });
 }
 
 void MainWindow::rescanAllBases(int depth) {
-    // Depth changed: re-scan every base at the new depth. Snapshot the current base
-    // paths (the scene owns the trees), drop all surfaces, then re-add each freshly
-    // scanned (off-thread). Open lenses don't survive a depth change (they're rooted in
-    // the old trees) — same as the pre-ADR-304 reload behaviour, generalised to N bases.
+    // Depth changed: re-scan every base at the new depth. The scan is async, so a second
+    // depth change can arrive while a batch is still in flight — at which point
+    // baseFrames() is transiently empty (cleared, not yet repopulated). Serialize:
+    // remember the latest requested depth and apply it when the current batch finishes
+    // (see updateBusy), so a rapid 2→3→4 never drops a depth or re-adds a stale/partial
+    // base set. Open lenses don't survive a depth change (they're rooted in the old
+    // trees) — same as the pre-ADR-304 reload behaviour, generalised to N bases.
+    if (m_pendingScans > 0) {
+        m_queuedDepth = depth;
+        return;
+    }
     QStringList paths;
     for (FrameItem *b : m_scene->baseFrames())
         paths << b->sourceRoot()->path; // the immutable scanned path, not a projected one
@@ -193,10 +204,7 @@ void MainWindow::rescanAllBases(int depth) {
             if (!tree)
                 return;
             m_scene->addBase(std::move(tree));
-            m_view->resetTransform();
-            if (m_scene->itemsBoundingRect().isValid())
-                m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
-            updateStatus();
+            fitToContentIfIdle();
         });
 }
 
@@ -227,13 +235,29 @@ void MainWindow::updateBusy() {
         m_pathLabel->setText(m_pendingScans == 1
                                  ? QStringLiteral("Scanning…")
                                  : QStringLiteral("Scanning %1 folders…").arg(m_pendingScans));
-    } else {
-        if (m_busyActive) {
-            QApplication::restoreOverrideCursor();
-            m_busyActive = false;
-        }
-        updateStatus();
+        return;
     }
+    if (m_busyActive) {
+        QApplication::restoreOverrideCursor();
+        m_busyActive = false;
+    }
+    // A depth change arrived mid-scan — now that the batch is done, apply the latest one
+    // against the freshly repopulated scene (the serialization in rescanAllBases).
+    if (m_queuedDepth >= 0) {
+        const int d = m_queuedDepth;
+        m_queuedDepth = -1;
+        rescanAllBases(d); // re-enters scanAsync → drives its own busy state
+        return;
+    }
+    updateStatus();
+}
+
+void MainWindow::fitToContentIfIdle() {
+    if (m_pendingScans != 0)
+        return; // fit once, after the last base of a batch lands — not on every arrival
+    m_view->resetTransform();
+    if (m_scene->itemsBoundingRect().isValid())
+        m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
 }
 
 void MainWindow::updateStatus() {

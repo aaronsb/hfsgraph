@@ -28,6 +28,7 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
   public:
     explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override; // restore any override cursor left by an in-flight scan
 
     // Scan `path` to `depth` (read-only) and add it as a base surface.
     void load(const QString &path, int depth);
@@ -44,7 +45,8 @@ class MainWindow : public QMainWindow {
     // indicator. The FsNode tree has no Qt-GUI deps, so building it off-thread is safe.
     void scanAsync(const QString &path, int depth,
                    std::function<void(std::unique_ptr<core::FsNode>)> onReady);
-    void updateBusy(); // wait-cursor + status while any scan is in flight
+    void updateBusy();         // wait-cursor + status while any scan is in flight
+    void fitToContentIfIdle(); // reset+fit the view, but only once the batch is done
 
     CanvasView *m_view;
     GraphScene *m_scene;
@@ -55,6 +57,7 @@ class MainWindow : public QMainWindow {
     QString m_currentPath; // last folder added, for the file dialog's start dir
     int m_pendingScans = 0; // in-flight async scans (drives the busy indicator)
     bool m_busyActive = false; // whether we've pushed an override cursor
+    int m_queuedDepth = -1; // a depth change requested mid-scan; applied when idle (-1 = none)
 };
 
 } // namespace ui
