@@ -11,6 +11,7 @@
 
 #include <QGraphicsView>
 #include <QRectF>
+#include <QTransform>
 #include <QWidget>
 
 namespace ui {
@@ -26,15 +27,20 @@ constexpr int kMaxLensDepth = 12;
 constexpr qreal kBaseW = 1100.0, kBaseH = 680.0;
 
 // Walk a directory subtree once, accumulating each dir's subtree weight (≈ treemap
-// area, by file count) and its name length. Returns this node's subtree weight.
-double collectDirStats(const core::FsNode &n, std::vector<double> &weights,
-                       std::vector<int> &nameLens) {
-    double w = n.fileCount;
+// area — by bytes or file count, matching the active size metric) and its name
+// length. Returns this node's subtree weight. The root is excluded from the
+// distributions (`isRoot`): it's the panel, not a child cell, and would always be
+// the max-weight element, skewing the median/percentile.
+double collectDirStats(const core::FsNode &n, bool byBytes, bool isRoot,
+                       std::vector<double> &weights, std::vector<int> &nameLens) {
+    double w = byBytes ? static_cast<double>(n.sizeBytes) : static_cast<double>(n.fileCount);
     for (const auto &c : n.children)
-        w += collectDirStats(*c, weights, nameLens);
+        w += collectDirStats(*c, byBytes, false, weights, nameLens);
     w = std::max(w, 1.0);
-    weights.push_back(w);
-    nameLens.push_back(static_cast<int>(n.name.size()));
+    if (!isRoot) {
+        weights.push_back(w);
+        nameLens.push_back(static_cast<int>(n.name.size()));
+    }
     return w;
 }
 } // namespace
@@ -326,33 +332,37 @@ void GraphScene::setFileMode(int mode) {
 }
 
 void GraphScene::fitNamesToTypical() {
-    if (views().isEmpty() || !views().first()->viewport())
+    if (views().isEmpty())
         return;
-    const double vpW = views().first()->viewport()->width();
-    if (vpW < 1.0)
+    const double z = views().first()->transform().m11(); // device px per scene unit
+    if (z <= 0.0)
         return;
+    const bool byBytes = m_sizeMetric != 0; // match the active area metric (TreemapItem::Bytes)
     constexpr double kCharPx = 7.0;     // ≈ average char width at the 11px title font
+    constexpr double kInsetPx = 8.0;    // title text inset (renderer elides to width − 6)
     constexpr double kPercentile = 0.9; // target a typical name; long outliers still truncate
-    constexpr double kMaxScale = 12.0;  // bound the growth so the map stays navigable
+    constexpr double kMaxScale = 12.0;  // bound a single grow step so the map stays navigable
     for (FrameItem *base : baseFrames()) {
         const core::FsNode *root = base->sourceRoot();
         if (!root)
             continue;
         std::vector<double> weights;
         std::vector<int> nameLens;
-        const double rootW = collectDirStats(*root, weights, nameLens);
+        const double rootW = collectDirStats(*root, byBytes, true, weights, nameLens);
         if (weights.empty() || rootW <= 0.0)
             continue;
         std::sort(weights.begin(), weights.end());
         std::sort(nameLens.begin(), nameLens.end());
         const double medianW = weights[weights.size() / 2];
         const int pLen = nameLens[static_cast<std::size_t>(kPercentile * (nameLens.size() - 1))];
-        // The median cell occupies ≈ medianW/rootW of the map's area, so on screen it
-        // is ≈ sqrt(fraction) × the map's current on-screen width (≈ the viewport,
-        // post-fit). Grow until that reaches the typical name's pixel width.
+        // The median cell occupies ≈ medianW/rootW of the map's area, so its *current*
+        // on-screen width is ≈ sqrt(fraction) × the base's current scene width × the
+        // view scale. Grow only the shortfall to the typical name's pixel width — using
+        // the actual current size (not the viewport) makes repeat clicks converge
+        // rather than multiply.
         const double fraction = medianW / rootW;
-        const double cellDeviceW = std::sqrt(fraction) * vpW;
-        const double targetPx = pLen * kCharPx + 12.0; // name + cell insets
+        const double cellDeviceW = std::sqrt(fraction) * base->panelSize().width() * z;
+        const double targetPx = pLen * kCharPx + kInsetPx;
         const double s = std::clamp(targetPx / std::max(1.0, cellDeviceW), 1.0, kMaxScale);
         const QSizeF cur = base->panelSize();
         base->resizePanel(cur.width() * s, cur.height() * s); // re-squarifies; no re-fit
