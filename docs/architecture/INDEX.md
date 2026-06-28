@@ -35,7 +35,8 @@ _Canvas, rendering, layout, visualization modes, interaction_
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-300](./ui/ADR-300-canvas-model-collapse-expand-containment-morph-and-snap-to-physics-layout.md) | Canvas model: collapse/expand containment morph, snap-to-physics layout, and design language | Accepted |
+| [ADR-300](./ui/ADR-300-canvas-model-collapse-expand-containment-morph-and-snap-to-physics-layout.md) | Canvas model: collapse/expand containment morph, snap-to-physics layout, and design language | Superseded |
+| [ADR-301](./ui/ADR-301-treemap-as-the-canvas-squarified-nested-containment-with-semantic-lod-zoom.md) | Treemap as the canvas: squarified nested-containment with semantic LOD zoom | Accepted |
 
 ## Platform
 _Tech stack & toolkit, build/packaging, OS facilities, xattr/Baloo interop_
