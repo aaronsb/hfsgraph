@@ -85,7 +85,8 @@ QString permString(const core::FileEntry &fe) {
 }
 
 // The fixed-width metadata column for a Details row: "perms  size  mtime", with size
-// human-readable and right-padded so columns line up under a monospace font. mtime 0
+// human-readable and right-aligned (left-padded) so columns line up under a monospace
+// font. Width 10 covers the widest traditional sub-KiB form ("1023 bytes"). mtime 0
 // (unknown) renders as dashes.
 QString detailMeta(const core::FileEntry &fe) {
     const QString size = QLocale::system().formattedDataSize(
@@ -93,7 +94,7 @@ QString detailMeta(const core::FileEntry &fe) {
     const QString when =
         fe.mtime ? QDateTime::fromSecsSinceEpoch(fe.mtime).toString(QStringLiteral("yyyy-MM-dd HH:mm"))
                  : QStringLiteral("     -          ");
-    return QStringLiteral("%1 %2 %3  ").arg(permString(fe)).arg(size, 9).arg(when);
+    return QStringLiteral("%1 %2 %3  ").arg(permString(fe)).arg(size, 10).arg(when);
 }
 
 // Squarified treemap (Bruls/Huizing/van Wijk): lay `weights` into `bounds` with
@@ -494,15 +495,24 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         // (perms · size · mtime) then the type-coloured icon + name. A monospace font
         // keeps the meta columns aligned across rows; needs the most width of any rung.
         const qreal rowH = kNameGlyph.pitch();
-        if (area.height() < rowH || area.width() < 130.0)
+        if (area.height() < rowH)
             return;
         p->setWorldMatrixEnabled(false);
         QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         f.setPixelSize(10);
         p->setFont(f);
         const QFontMetrics fm(f);
-        const double metaW = fm.horizontalAdvance(detailMeta(core::FileEntry{}));
-        constexpr qreal kIcon = 12.0, kGap = 4.0;
+        // Measure the meta column from a worst-case sample (4-digit byte size + a real
+        // mtime) so it never under-measures vs. a default FileEntry; gate on it *after*
+        // measuring — nothing here clips to the cell, so a too-narrow cell must draw
+        // nothing rather than bleed perms/name over its neighbours.
+        constexpr qreal kIcon = 12.0, kGap = 4.0, kMinName = 24.0;
+        core::FileEntry sample;
+        sample.sizeBytes = 1023; // widest sub-KiB form: "1023 bytes"
+        sample.mtime = 1; // force a rendered datetime, not the dashes placeholder
+        const double metaW = fm.horizontalAdvance(detailMeta(sample));
+        if (area.width() < metaW + kIcon + kGap + kMinName)
+            return;
         QColor metaCol = textColorFor(body);
         metaCol.setAlpha(160); // de-emphasised next to the file name
         const int rows = std::max(1, static_cast<int>(area.height() / rowH));
