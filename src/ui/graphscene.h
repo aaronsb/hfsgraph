@@ -50,6 +50,12 @@ class GraphScene : public QGraphicsScene {
     void raiseFrame(FrameItem *frame); // raises the frame and its descendants
     void refreshCallouts();            // re-anchor callout lines after a view change
 
+    // Cardinality: when true (default), a node may have at most one open frame —
+    // re-opening it raises the existing one instead of stacking a duplicate. A
+    // future UI toggle can flip this to allow multiple frames per node.
+    void setUniqueFrames(bool unique) { m_uniqueFrames = unique; }
+    bool uniqueFrames() const { return m_uniqueFrames; }
+
     // Semantic groups (ADR-102). The store is resolved against the *scan* root on
     // setRoot and owned here; the panel reads/edits it and calls updateGroupOverlay()
     // to repaint the treemap.
@@ -70,6 +76,7 @@ class GraphScene : public QGraphicsScene {
     int m_sizeMetric = 0;             // TreemapItem::Files
     int m_colorRamp = 0;              // TreemapItem::Viridis
     double m_lod = 1.0;               // persists across rebuilds
+    bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
 };
 
 } // namespace ui

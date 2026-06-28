@@ -52,6 +52,11 @@ class TreemapItem : public QGraphicsItem {
     // detail sooner, >1 holds detail back. Paint-only — no rebuild needed.
     void setLod(qreal factor);
 
+    // Re-squarify into new bounds (ADR-304). Larger bounds give each cell more
+    // scene-space area, so constant-size labels elide less — the resize/magnify
+    // capability. Paint-time layout, so this is just a geometry change + repaint.
+    void setSize(qreal width, qreal height);
+
     // The semantic-group overlay source (ADR-102), not owned. Per-cell membership
     // drives highlight (tint + group-colour border), focus (dim non-members), and
     // dim (de-emphasise members). Null = no overlay. Paint-only.
