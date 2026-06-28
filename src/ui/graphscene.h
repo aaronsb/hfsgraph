@@ -36,7 +36,7 @@ class GraphScene : public QGraphicsScene {
     FrameItem *addBase(std::unique_ptr<core::FsNode> tree);
     void removeBase(FrameItem *base);
     void clearBases();
-    bool hasBases() const { return !m_frames.empty(); }
+    bool hasBases() const { return !baseFrames().empty(); }
     std::vector<FrameItem *> baseFrames() const; // the level-0 frames, for the dock list
 
     // Treemap appearance (indices match TreemapItem::SizeMetric / ::Ramp). Each

@@ -132,7 +132,7 @@ void GraphScene::closeFrame(FrameItem *frame) {
     // Idempotent: if the frame isn't (or is no longer) tracked, do nothing. The
     // close is deferred (QTimer) and can also arrive via a parent's cascade or a
     // double-click, so closeFrame may be invoked more than once for the same frame —
-    // or after rebuild() already cleared it. The membership check is a pointer
+    // or after clearBases() already removed it. The membership check is a pointer
     // compare (no deref), so it is safe even if `frame` is already deleted.
     const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
     if (it == m_frames.end())

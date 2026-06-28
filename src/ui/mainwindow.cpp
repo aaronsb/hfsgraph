@@ -97,6 +97,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_pathLabel = new QLabel(this);
     statusBar()->addWidget(m_pathLabel);
 
+    // Keep the status bar / title in step when a base is removed (dock × or frame ×).
+    connect(m_scene, &GraphScene::surfacesChanged, this, &MainWindow::updateStatus);
+
     setWindowTitle(QStringLiteral("hfsgraph"));
     resize(1200, 800);
 }
@@ -157,14 +160,18 @@ void MainWindow::rescanAllBases(int depth) {
 }
 
 void MainWindow::updateStatus() {
-    const int n = static_cast<int>(m_scene->baseFrames().size());
+    const std::vector<FrameItem *> bases = m_scene->baseFrames();
+    const int n = static_cast<int>(bases.size());
     const int depth = m_depthSpin->value();
     if (n == 0) {
         m_pathLabel->clear();
         setWindowTitle(QStringLiteral("hfsgraph"));
     } else if (n == 1) {
-        m_pathLabel->setText(QStringLiteral("%1   (depth %2)").arg(m_currentPath).arg(depth));
-        setWindowTitle(QStringLiteral("hfsgraph — %1").arg(m_currentPath));
+        // The surviving base, not m_currentPath — which may name a base that was
+        // just removed (status refreshes via GraphScene::surfacesChanged).
+        const QString path = bases.front()->node() ? bases.front()->node()->path : QString();
+        m_pathLabel->setText(QStringLiteral("%1   (depth %2)").arg(path).arg(depth));
+        setWindowTitle(QStringLiteral("hfsgraph — %1").arg(path));
     } else {
         m_pathLabel->setText(QStringLiteral("%1 bases   (depth %2)").arg(n).arg(depth));
         setWindowTitle(QStringLiteral("hfsgraph — %1 bases").arg(n));
