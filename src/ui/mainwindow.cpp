@@ -80,7 +80,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // mapping (mid = factor 1.0; higher = smaller gates = appears sooner). They were
     // one knob, but it forced a trade — revealing deeper nesting also promoted small
     // squares from dots to icons, and vice versa.
-    auto detailSlider = [this, toolbar](const QString &label, const QString &tip, auto setter) {
+    auto addLodSlider = [this, toolbar](const QString &label, const QString &tip, auto setter) {
         toolbar->addWidget(new QLabel(label));
         auto *s = new QSlider(Qt::Horizontal, this);
         s->setRange(0, 100);
@@ -91,10 +91,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
                 [this, setter](int v) { (m_scene->*setter)(1.6 - 1.2 * (v / 100.0)); });
         toolbar->addWidget(s);
     };
-    detailSlider(QStringLiteral(" Reveal "),
+    addLodSlider(QStringLiteral(" Reveal "),
                  QStringLiteral("How deep nesting subdivides on screen"),
                  &GraphScene::setReveal);
-    detailSlider(QStringLiteral(" Detail "),
+    addLodSlider(QStringLiteral(" Detail "),
                  QStringLiteral("Cell size at which contents switch dots → icons → name"),
                  &GraphScene::setDetail);
 
