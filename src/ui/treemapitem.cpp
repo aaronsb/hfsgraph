@@ -195,6 +195,15 @@ void TreemapItem::setGroupStore(const core::GroupStore *store) {
     update(); // overlay is decided in paint()
 }
 
+void TreemapItem::setSize(qreal width, qreal height) {
+    if (width <= 0 || height <= 0 || (qFuzzyCompare(width, m_w) && qFuzzyCompare(height, m_h)))
+        return;
+    prepareGeometryChange();
+    m_w = width;
+    m_h = height;
+    update(); // squarify happens in paint() against m_w/m_h
+}
+
 QRectF TreemapItem::boundingRect() const {
     return QRectF(0, 0, m_w, m_h);
 }

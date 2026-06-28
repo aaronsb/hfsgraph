@@ -40,6 +40,15 @@ void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRe
                            FrameItem *parentFrame) {
     if (!node)
         return;
+    // Cardinality 1 (default): a node has at most one frame — re-opening raises the
+    // existing one instead of stacking a duplicate (ADR-304).
+    if (m_uniqueFrames) {
+        for (FrameItem *f : m_frames)
+            if (f->node() == node) {
+                raiseFrame(f);
+                return;
+            }
+    }
     constexpr qreal kFrameW = 520.0, kFrameH = 360.0;
     auto *frame = new FrameItem(node, kFrameW, kFrameH, this);
     frame->setParentFrame(parentFrame); // lineage for the close-cascade

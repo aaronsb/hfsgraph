@@ -24,6 +24,7 @@ namespace ui {
 class GraphScene;
 class TreemapItem;
 class FrameItem;
+class ResizeGrip;
 
 // The "zoom-into" visual tie between an origin square and its frame (ADR-303):
 // two diagonal hairlines, origin upper-right → frame upper-right and origin
@@ -58,6 +59,10 @@ class FrameItem : public QGraphicsObject {
     const core::FsNode *node() const { return m_node; }
     void setLod(qreal factor); // forward to the interior treemap
 
+    // Resize the panel + re-squarify the interior (ADR-304), clamped to a minimum.
+    // Driven by the corner ResizeGrip; gives every cell more room for its label.
+    void resizePanel(qreal width, qreal height);
+
     QSizeF panelSize() const; // panel (body) size in item units, for callout anchoring
     void setCallout(CalloutItem *callout) { m_callout = callout; }
     CalloutItem *callout() const { return m_callout; }
@@ -89,8 +94,31 @@ class FrameItem : public QGraphicsObject {
     TreemapItem *m_interior = nullptr;
     CalloutItem *m_callout = nullptr;     // tie to the origin square (not owned)
     FrameItem *m_parentFrame = nullptr;   // frame that spawned this one (not owned)
+    ResizeGrip *m_grip = nullptr;         // bottom-right resize handle (child item)
     bool m_dragging = false;
     QPointF m_dragOffset; // cursor → item-origin offset while dragging
+};
+
+// Bottom-right corner handle that resizes its frame. A child item (so it grabs the
+// mouse cleanly, above the interior treemap) drawn at a constant screen size
+// (ItemIgnoresTransformations) anchored at the panel's corner.
+class ResizeGrip : public QGraphicsItem {
+  public:
+    explicit ResizeGrip(FrameItem *frame);
+    QRectF boundingRect() const override;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
+               QWidget *widget) override;
+
+  protected:
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
+
+  private:
+    FrameItem *m_frame;
+    QPointF m_startScene;
+    QSizeF m_startSize;
+    bool m_active = false;
 };
 
 } // namespace ui

@@ -8,6 +8,7 @@
 
 #include <QApplication>
 #include <QBrush>
+#include <QCursor>
 #include <QEvent>
 #include <QFont>
 #include <QFontMetrics>
@@ -95,6 +96,27 @@ FrameItem::FrameItem(const core::FsNode *node, qreal width, qreal height, GraphS
     m_interior->setOwnerFrame(this); // so its double-clicks record this as the parent
     m_interior->setParentItem(this);
     m_interior->setPos(in.topLeft());
+
+    m_grip = new ResizeGrip(this); // child; anchors to the bottom-right corner
+    m_grip->setPos(m_w, m_h);
+}
+
+void FrameItem::resizePanel(qreal width, qreal height) {
+    constexpr qreal kMinW = 200.0, kMinH = 140.0;
+    const qreal w = std::max(kMinW, width), h = std::max(kMinH, height);
+    if (qFuzzyCompare(w, m_w) && qFuzzyCompare(h, m_h))
+        return;
+    prepareGeometryChange();
+    m_w = w;
+    m_h = h;
+    const QRectF in = interiorRect();
+    if (m_interior)
+        m_interior->setSize(in.width(), in.height()); // re-squarify → more text room
+    if (m_grip)
+        m_grip->setPos(m_w, m_h);
+    if (m_callout)
+        m_callout->refresh();
+    update();
 }
 
 void FrameItem::setLod(qreal factor) {
@@ -194,6 +216,51 @@ void FrameItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
         return;
     }
     QGraphicsItem::mouseMoveEvent(event);
+}
+
+// ---- ResizeGrip ---------------------------------------------------------------
+
+ResizeGrip::ResizeGrip(FrameItem *frame) : m_frame(frame) {
+    setParentItem(frame);
+    setFlag(ItemIgnoresTransformations, true); // constant screen size at the corner
+    setAcceptedMouseButtons(Qt::LeftButton);
+    setCursor(Qt::SizeFDiagCursor);
+    setZValue(10); // above the interior treemap so the corner is always grabbable
+}
+
+QRectF ResizeGrip::boundingRect() const {
+    return QRectF(-16, -16, 16, 16); // device px (ignores view transform), up-left of the corner
+}
+
+void ResizeGrip::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) {
+    QPen pen(QColor(210, 210, 220, 210), 1.5);
+    p->setPen(pen);
+    p->setRenderHint(QPainter::Antialiasing, true);
+    p->drawLine(QPointF(-12, -2), QPointF(-2, -12)); // three-rung corner grip glyph
+    p->drawLine(QPointF(-9, -2), QPointF(-2, -9));
+    p->drawLine(QPointF(-6, -2), QPointF(-2, -6));
+}
+
+void ResizeGrip::mousePressEvent(QGraphicsSceneMouseEvent *event) {
+    m_active = true;
+    m_startScene = event->scenePos();
+    m_startSize = m_frame->panelSize();
+    event->accept();
+}
+
+void ResizeGrip::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
+    if (!m_active) {
+        QGraphicsItem::mouseMoveEvent(event);
+        return;
+    }
+    const QPointF d = event->scenePos() - m_startScene; // scene units → intuitive at any zoom
+    m_frame->resizePanel(m_startSize.width() + d.x(), m_startSize.height() + d.y());
+    event->accept();
+}
+
+void ResizeGrip::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
+    m_active = false;
+    event->accept();
 }
 
 bool FrameItem::sceneEventFilter(QGraphicsItem *, QEvent *event) {
