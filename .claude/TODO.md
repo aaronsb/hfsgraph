@@ -82,6 +82,12 @@ node-link/force machinery is gone; the treemap is the only view.
       default-on first run. Groups follow for free (ADR-102 id-keying). The staging UX is
       buildable on the in-memory projection now; Commit stubs until the ADR-200 engine
       (eventually Rust, ADR-401) lands.
+- [ ] **Investigation frames (ADR-303)** — double-click opens a floating focused treemap of that
+      subtree *over* the canvas (no re-root; removes the Up/drill). Same scene, recursive (L0 base
+      → L1 → L2…), draggable header, ordered-dither drop shadow, diagonal callout lines (origin
+      UR→frame UR, origin LL→frame LL; over parent, under child). Frames root on node identity, so
+      moves and queue-scrub re-render base + all frames; the move arrow and one shared ledger span
+      base and frames for free. (Revises ADR-301 double-click.)
 - [ ] **Lazy scan = truly unbounded depth** — semantic zoom can only reveal what's scanned; scan a
       subtree the first time you zoom into it, so the Depth control can go away entirely.
 - [ ] **Treemap polish** — breadcrumb for the drill path; hover tooltip (full name + size);
