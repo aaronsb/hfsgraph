@@ -7,7 +7,9 @@
 
 #include <algorithm>
 
+#include <QGraphicsView>
 #include <QRectF>
+#include <QWidget>
 
 namespace ui {
 
@@ -16,9 +18,9 @@ namespace {
 // nesting (baseDepth + level); this bounds the recursion/work no matter how deep
 // you stack them — "we are talking C++ here".
 constexpr int kMaxLensDepth = 12;
-// Default size of a base (level-0) root frame, in scene units — roomier than a lens
-// (520×360) since it stands in for the whole map. Generous bounds give cells more
-// area, so constant-size labels elide less (the ADR-304 magnify-by-resize idea).
+// Fallback size of a base (level-0) root frame, in scene units, used only when no
+// view is attached yet. Normally a new base is sized to the viewport (see addBase)
+// so fit-to-view fills the window without letterboxing.
 constexpr qreal kBaseW = 1100.0, kBaseH = 680.0;
 } // namespace
 
@@ -47,7 +49,19 @@ FrameItem *GraphScene::addBase(std::unique_ptr<core::FsNode> tree) {
     if (!tree)
         return nullptr;
     const core::FsNode *render = tree.get();
-    auto *base = new FrameItem(render, kBaseW, kBaseH, this);
+    // Size the base to the current viewport so fit-to-view fills the window edge to
+    // edge: a fixed aspect would letterbox against the real window and shrink cells,
+    // which is why a fixed default always felt too small. Fall back to kBaseW/H when
+    // no view is attached yet.
+    qreal w = kBaseW, h = kBaseH;
+    if (!views().isEmpty() && views().first()->viewport()) {
+        const QSize vp = views().first()->viewport()->size();
+        if (vp.width() > 1 && vp.height() > 1) {
+            w = vp.width();
+            h = vp.height();
+        }
+    }
+    auto *base = new FrameItem(render, w, h, this);
     base->adoptTree(std::move(tree)); // the base frame is the sole owner of its scan
     base->setLevel(0);                // a root frame: no parent, no callout, removable
     // Cascade new bases down-right so two opened back-to-back don't sit exactly atop
