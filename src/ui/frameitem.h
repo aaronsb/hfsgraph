@@ -38,7 +38,8 @@ class CalloutItem : public QGraphicsItem {
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                QWidget *widget) override;
-    void refresh(); // geometry depends on the frame's position; call when it moves
+    void refresh();                            // call when the frame moves
+    void setOrigin(const QRectF &originSceneRect); // re-point at a new origin square
 
   private:
     QRectF m_origin;     // origin square, scene coordinates
@@ -96,7 +97,8 @@ class FrameItem : public QGraphicsObject {
     FrameItem *m_parentFrame = nullptr;   // frame that spawned this one (not owned)
     ResizeGrip *m_grip = nullptr;         // bottom-right resize handle (child item)
     bool m_dragging = false;
-    QPointF m_dragOffset; // cursor → item-origin offset while dragging
+    QPointF m_dragOffset;   // cursor → item-origin offset while dragging
+    qreal m_lastZoom = 1.0; // view zoom from the last paint (for device-aligned closeRect)
 };
 
 // Bottom-right corner handle that resizes its frame. A child item (so it grabs the

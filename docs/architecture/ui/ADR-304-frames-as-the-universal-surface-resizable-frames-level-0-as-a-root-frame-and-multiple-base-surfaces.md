@@ -47,6 +47,18 @@ levels 1..n are unchanged. One class, one render path, top to bottom.
   free: the ledger replays over *all* surfaces, so a move can cross surfaces and
   the projection considers everything on the canvas.
 
+- **Frame cardinality.** By default a node has at most one open frame: re-opening it
+  raises (and re-anchors) the existing one rather than stacking duplicates. A flag
+  (`GraphScene::setUniqueFrames`) leaves room for a future toggle to allow multiples.
+
+- **Callout as a filled "zoom-from" frustum.** Instead of two diagonal hairlines
+  (which overlap into visual spaghetti when several frames are open), the callout is
+  the **convex hull** of the origin square and the frame, with both rectangles
+  subtracted out (so only the connecting cone is filled, not the boxes). It is
+  flood-filled with the *light* variant of the ordered-dither texture (the drop
+  shadow's dark variant inverted), in device space so the tile stays pixel-perfect
+  while the cone's area scales — reusing one dither function for both.
+
 - **Root vs. lens frames.** A root frame has a title header and resize grip like any
   frame, but **no callout lines** (it has no origin square) and is removable rather
   than "closed into" a parent. Lens frames keep their callout to the origin square

@@ -13,11 +13,16 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QGraphicsSceneMouseEvent>
+#include <QHash>
 #include <QImage>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPalette>
 #include <QPixmap>
+#include <QPolygonF>
+#include <QTimer>
 #include <QTransform>
+#include <QVector>
 
 namespace ui {
 
@@ -27,22 +32,55 @@ constexpr qreal kPad = 3.0;     // inset between panel edge and interior
 constexpr qreal kShadow = 18.0; // dither drop-shadow offset (deep, retro look)
 constexpr qreal kCloseW = 22.0; // close-box width at the header's right
 
-// An ordered-dither (Bayer 4×4, ~50%) tile of translucent black — the project's
-// future-retro shadow texture. Built once and reused as a brush.
-QBrush ditherBrush() {
-    static QBrush brush = [] {
-        static const int bayer[4][4] = {
-            {0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
-        QImage img(4, 4, QImage::Format_ARGB32_Premultiplied);
-        img.fill(Qt::transparent);
-        const QColor ink(0, 0, 0, 150);
-        for (int y = 0; y < 4; ++y)
-            for (int x = 0; x < 4; ++x)
-                if (bayer[y][x] < 8) // half the cells set → 50% coverage
-                    img.setPixelColor(x, y, ink);
-        return QBrush(QPixmap::fromImage(img));
-    }();
+// An ordered-dither (Bayer 4×4, ~50%) tile of `ink`, cached per colour. The
+// project's future-retro texture: dark for drop shadows, light for the callout
+// "zoom-from" frustum. Used in device space so it stays pixel-perfect at any zoom.
+QBrush ditherBrush(const QColor &ink) {
+    static QHash<QRgb, QBrush> cache;
+    const QRgb key = ink.rgba();
+    const auto it = cache.constFind(key);
+    if (it != cache.constEnd())
+        return it.value();
+    static const int bayer[4][4] = {
+        {0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    QImage img(4, 4, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    for (int y = 0; y < 4; ++y)
+        for (int x = 0; x < 4; ++x)
+            if (bayer[y][x] < 8) // half the cells set → 50% coverage
+                img.setPixelColor(x, y, ink);
+    QBrush brush(QPixmap::fromImage(img));
+    cache.insert(key, brush);
     return brush;
+}
+
+// Convex hull (monotone chain) of a small point set — used to wrap the origin
+// square and the frame into one "zoom-from" polygon that auto-picks the nearest
+// corners.
+QPolygonF convexHull(QVector<QPointF> pts) {
+    std::sort(pts.begin(), pts.end(), [](const QPointF &a, const QPointF &b) {
+        return a.x() < b.x() || (a.x() == b.x() && a.y() < b.y());
+    });
+    const int n = pts.size();
+    if (n < 3)
+        return QPolygonF(pts);
+    auto cross = [](const QPointF &o, const QPointF &a, const QPointF &b) {
+        return (a.x() - o.x()) * (b.y() - o.y()) - (a.y() - o.y()) * (b.x() - o.x());
+    };
+    QVector<QPointF> hull(2 * n);
+    int k = 0;
+    for (int i = 0; i < n; ++i) { // lower hull
+        while (k >= 2 && cross(hull[k - 2], hull[k - 1], pts[i]) <= 0)
+            --k;
+        hull[k++] = pts[i];
+    }
+    for (int i = n - 2, lower = k + 1; i >= 0; --i) { // upper hull
+        while (k >= lower && cross(hull[k - 2], hull[k - 1], pts[i]) <= 0)
+            --k;
+        hull[k++] = pts[i];
+    }
+    hull.resize(k - 1);
+    return QPolygonF(hull);
 }
 } // namespace
 
@@ -65,18 +103,38 @@ QRectF CalloutItem::boundingRect() const {
     return m_origin.united(frameRect).adjusted(-3, -3, 3, 3); // margin for the AA stroke
 }
 
-void CalloutItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) {
-    const QPointF fpos = m_frame->pos();
-    const QSizeF fs = m_frame->panelSize();
-    const QPointF frameUR(fpos.x() + fs.width(), fpos.y());
-    const QPointF frameLL(fpos.x(), fpos.y() + fs.height());
+void CalloutItem::setOrigin(const QRectF &originSceneRect) {
+    if (m_origin == originSceneRect)
+        return;
+    prepareGeometryChange();
+    m_origin = originSceneRect;
+    update();
+}
 
-    QPen pen(QColor(150, 170, 210, 200));
-    pen.setCosmetic(true);
-    p->setPen(pen);
-    p->setRenderHint(QPainter::Antialiasing, true); // diagonal hairlines read better smoothed
-    p->drawLine(m_origin.topRight(), frameUR);
-    p->drawLine(m_origin.bottomLeft(), frameLL);
+void CalloutItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) {
+    const QRectF frameRect(m_frame->pos(), m_frame->panelSize());
+
+    // "Zoom-from" frustum: the convex hull of the origin square and the frame, with
+    // both rectangles subtracted out (vertex occlusion) so only the connecting cone
+    // is filled — not the boxes themselves. A filled, light-dithered shape reads far
+    // better than crossing hairlines when several frames are open.
+    const QVector<QPointF> pts = {
+        m_origin.topLeft(),  m_origin.topRight(),  m_origin.bottomRight(),  m_origin.bottomLeft(),
+        frameRect.topLeft(), frameRect.topRight(), frameRect.bottomRight(), frameRect.bottomLeft()};
+    QPainterPath hull;
+    hull.addPolygon(convexHull(pts));
+    hull.closeSubpath();
+    QPainterPath cut;
+    cut.addRect(m_origin);
+    cut.addRect(frameRect);
+    const QPainterPath cone = hull.subtracted(cut);
+
+    // Device-space light dither: surface area scales with the frames, the tile stays
+    // pixel-perfect (same language as the drop shadow, lighter colour).
+    const QTransform tf = p->worldTransform();
+    p->setWorldMatrixEnabled(false);
+    p->fillPath(tf.map(cone), ditherBrush(QColor(206, 210, 222, 120)));
+    p->setWorldMatrixEnabled(true);
 }
 
 // ---- FrameItem ----------------------------------------------------------------
@@ -128,7 +186,13 @@ QSizeF FrameItem::panelSize() const { return QSizeF(m_w, m_h); }
 
 QRectF FrameItem::panelRect() const { return QRectF(0, 0, m_w, m_h); }
 QRectF FrameItem::headerRect() const { return QRectF(0, 0, m_w, kHeader); }
-QRectF FrameItem::closeRect() const { return QRectF(m_w - kCloseW, 0, kCloseW, kHeader); }
+QRectF FrameItem::closeRect() const {
+    // The × is drawn in device space at a constant 22px; size the hit-rect to match
+    // (item units = device / zoom) so the clickable area lines up with the glyph
+    // instead of extending left of it at zoom > 1.
+    const qreal w = kCloseW / (m_lastZoom > 0 ? m_lastZoom : 1.0);
+    return QRectF(m_w - w, 0, w, kHeader);
+}
 QRectF FrameItem::interiorRect() const {
     return QRectF(kPad, kHeader, m_w - 2 * kPad, m_h - kHeader - kPad);
 }
@@ -142,6 +206,7 @@ void FrameItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) 
     const bool dark = qApp && qApp->palette().color(QPalette::Window).lightness() < 128;
     const QTransform tf = p->worldTransform();
     const qreal zoom = tf.m11();
+    m_lastZoom = zoom; // so closeRect()'s hit area matches the device-drawn ×
 
     // Ordered-dither drop shadow. The shadow's surface AREA scales with the frame
     // (so it reads as getting closer on zoom-in), but the dither tile stays
@@ -150,7 +215,7 @@ void FrameItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) 
     {
         const QRectF devShadow = tf.mapRect(QRectF(kShadow, kShadow, m_w, m_h));
         p->setWorldMatrixEnabled(false);
-        p->fillRect(devShadow, ditherBrush());
+        p->fillRect(devShadow, ditherBrush(QColor(0, 0, 0, 150)));
         p->setWorldMatrixEnabled(true);
     }
 
@@ -191,9 +256,16 @@ void FrameItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) 
 void FrameItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
     const QPointF pos = event->pos();
     if (closeRect().contains(pos)) {
-        event->accept(); // consume before deletion, else it falls through to the base map
-        if (m_scene)
-            m_scene->closeFrame(this); // deletes this item
+        event->accept(); // consume so it doesn't fall through to the base map
+        // Defer the close to the next event-loop tick: removing/deleting this item
+        // synchronously inside its own mousePressEvent leaves QGraphicsScene's press
+        // handling holding a dangling pointer (segfault). The frame stays alive for
+        // the rest of this event; closeFrame runs once the scene is done with it.
+        if (m_scene) {
+            GraphScene *scene = m_scene;
+            FrameItem *self = this;
+            QTimer::singleShot(0, scene, [scene, self] { scene->closeFrame(self); });
+        }
         return;
     }
     if (headerRect().contains(pos)) {

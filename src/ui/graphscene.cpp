@@ -45,6 +45,11 @@ void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRe
     if (m_uniqueFrames) {
         for (FrameItem *f : m_frames)
             if (f->node() == node) {
+                // Re-point the existing frame at the new origin/lineage so its callout
+                // and close-cascade stay accurate when re-opened from a different cell.
+                if (CalloutItem *c = f->callout())
+                    c->setOrigin(originSceneRect);
+                f->setParentFrame(parentFrame);
                 raiseFrame(f);
                 return;
             }
