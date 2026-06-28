@@ -15,6 +15,8 @@
 #include <QPointF>
 #include <QRectF>
 
+#include <memory>
+
 namespace core {
 struct FsNode;
 }
@@ -52,6 +54,15 @@ class FrameItem : public QGraphicsObject {
     Q_OBJECT
   public:
     FrameItem(const core::FsNode *node, qreal width, qreal height, GraphScene *scene);
+    ~FrameItem() override; // defined in the .cpp so the unique_ptr<FsNode> can free it
+
+    // Take ownership of the deep-scanned subtree this frame renders (ADR-304 /
+    // per-level depth). The frame is the sole owner — RAII frees it on close/rebuild,
+    // so the independent per-lens scan never leaks.
+    void adoptTree(std::unique_ptr<core::FsNode> tree);
+
+    int level() const { return m_level; }   // 1 for a top lens, +1 per nesting
+    void setLevel(int level) { m_level = level; }
 
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
@@ -99,6 +110,8 @@ class FrameItem : public QGraphicsObject {
     bool m_dragging = false;
     QPointF m_dragOffset;   // cursor → item-origin offset while dragging
     qreal m_lastZoom = 1.0; // view zoom from the last paint (for device-aligned closeRect)
+    int m_level = 1;        // lens nesting level (1 = top lens); deepens the scan
+    std::unique_ptr<core::FsNode> m_ownTree; // the frame's own deep scan (owned; RAII)
 };
 
 // Bottom-right corner handle that resizes its frame. A child item (so it grabs the

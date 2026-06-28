@@ -110,6 +110,7 @@ void MainWindow::load(const QString &path, int depth) {
         m_groupPanel->refresh(); // store was cleared — keep the panel in step
         return;
     }
+    m_scene->setBaseDepth(depth); // lenses scan baseDepth + their level (ADR-304)
     m_scene->setRoot(m_root.get());
     m_groupPanel->refresh(); // rule groups were re-resolved against the new tree
     m_view->resetTransform();

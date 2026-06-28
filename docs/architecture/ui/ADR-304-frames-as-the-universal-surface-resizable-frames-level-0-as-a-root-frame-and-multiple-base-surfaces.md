@@ -47,6 +47,16 @@ levels 1..n are unchanged. One class, one render path, top to bottom.
   free: the ledger replays over *all* surfaces, so a move can cross surfaces and
   the projection considers everything on the canvas.
 
+- **Per-level lens depth.** Each lens scans its *own* subtree to `baseDepth + level`
+  (level 1 for a top lens, +1 per nesting), capped by a global max so deep stacks
+  can't run away ("we are talking C++ here"). This is what makes a lens *useful*: a
+  plain lens over the shared base tree would show only as much as the base scan
+  reached, so deep subtrees looked empty. Crucially the lens scan is **independent**
+  — a fresh scan rooted at the node, owned by the FrameItem (`std::unique_ptr`,
+  RAII) — never a mutation of the shared base tree. That avoids the dangling-pointer
+  hazard of editing a tree other items hold, and reclaims the per-lens memory
+  deterministically on close/rebuild.
+
 - **Frame cardinality.** By default a node has at most one open frame: re-opening it
   raises (and re-anchors) the existing one rather than stacking duplicates. A flag
   (`GraphScene::setUniqueFrames`) leaves room for a future toggle to allow multiples.

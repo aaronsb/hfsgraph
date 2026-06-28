@@ -40,6 +40,10 @@ class GraphScene : public QGraphicsScene {
     int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)
     double lod() const { return m_lod; }            // current LOD factor (for frames)
 
+    // The base scan depth (toolbar Depth). A level-N lens scans its own subtree to
+    // baseDepth + N (capped), so deeper lenses reveal more detail (ADR-304).
+    void setBaseDepth(int depth) { m_baseDepth = depth; }
+
     // Investigation frames (ADR-303), the replacement for re-root/drill. openFrame
     // floats a new frame rooted at `node`, anchored to `originSceneRect` via callout
     // lines (a non-destructive lens — the base is never re-rooted); closeFrame
@@ -77,6 +81,7 @@ class GraphScene : public QGraphicsScene {
     int m_colorRamp = 0;              // TreemapItem::Viridis
     double m_lod = 1.0;               // persists across rebuilds
     bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
+    int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
 };
 
 } // namespace ui

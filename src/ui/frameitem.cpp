@@ -159,6 +159,14 @@ FrameItem::FrameItem(const core::FsNode *node, qreal width, qreal height, GraphS
     m_grip->setPos(m_w, m_h);
 }
 
+// Out-of-line so unique_ptr<core::FsNode> sees the complete type here (fsnode.h is
+// included) — this is where the frame's own deep-scanned subtree is reclaimed.
+FrameItem::~FrameItem() = default;
+
+void FrameItem::adoptTree(std::unique_ptr<core::FsNode> tree) {
+    m_ownTree = std::move(tree); // sole owner; freed when this frame is destroyed
+}
+
 void FrameItem::resizePanel(qreal width, qreal height) {
     constexpr qreal kMinW = 200.0, kMinH = 140.0;
     const qreal w = std::max(kMinW, width), h = std::max(kMinH, height);
