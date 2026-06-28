@@ -1,6 +1,7 @@
 #include "graphscene.h"
 
 #include "core/fsnode.h"
+#include "core/scanner.h"
 #include "frameitem.h"
 #include "treemapitem.h"
 
@@ -15,6 +16,10 @@ namespace {
 // view zoom decides on-screen scale — but a 16:10 frame reads well.
 constexpr qreal kCanvasW = 1600.0;
 constexpr qreal kCanvasH = 1000.0;
+// Hard cap on a lens's own scan depth (relative to its root). Lenses deepen with
+// nesting (baseDepth + level); this bounds the recursion/work no matter how deep
+// you stack them — "we are talking C++ here".
+constexpr int kMaxLensDepth = 12;
 } // namespace
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
@@ -40,30 +45,46 @@ void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRe
                            FrameItem *parentFrame) {
     if (!node)
         return;
+    const int level = parentFrame ? parentFrame->level() + 1 : 1;
+
     // Cardinality 1 (default): a node has at most one frame — re-opening raises the
-    // existing one instead of stacking a duplicate (ADR-304).
+    // existing one instead of stacking a duplicate (ADR-304). Match by path so it
+    // works across the base tree and the lenses' own (independently-scanned) trees.
     if (m_uniqueFrames) {
         for (FrameItem *f : m_frames)
-            if (f->node() == node) {
+            if (f->node() && f->node()->path == node->path) {
                 // Re-point the existing frame at the new origin/lineage so its callout
                 // and close-cascade stay accurate when re-opened from a different cell.
-                if (CalloutItem *c = f->callout())
-                    c->setOrigin(originSceneRect);
                 f->setParentFrame(parentFrame);
+                if (CalloutItem *c = f->callout())
+                    c->setSource(node, parentFrame);
                 raiseFrame(f);
                 return;
             }
     }
+
+    // A lens scans its OWN subtree deeper than the base (baseDepth + level, capped),
+    // so deeper lenses reveal more detail. The scan is independent of the shared base
+    // tree (no mutation → no dangling), and the frame owns it (RAII, no leak).
+    const int depth = std::clamp(m_baseDepth + level, 1, kMaxLensDepth);
+    std::unique_ptr<core::FsNode> tree = core::Scanner::scan(node->path, depth);
+    const core::FsNode *render = tree ? tree.get() : node; // fall back to the shallow node
+
     constexpr qreal kFrameW = 520.0, kFrameH = 360.0;
-    auto *frame = new FrameItem(node, kFrameW, kFrameH, this);
+    auto *frame = new FrameItem(render, kFrameW, kFrameH, this);
+    frame->adoptTree(std::move(tree)); // sole owner of the deep scan
+    frame->setLevel(level);
     frame->setParentFrame(parentFrame); // lineage for the close-cascade
     // Float to the lower-right of the origin so it reads as an enlargement of it
     // without fully covering the source square.
     frame->setPos(originSceneRect.right() + 60.0, originSceneRect.top() + 30.0);
-    auto *callout = new CalloutItem(originSceneRect, frame);
+    // The callout's origin is the source node in the source surface (parentFrame's
+    // interior, or the base map when parentFrame is null) — tracked dynamically.
+    auto *callout = new CalloutItem(node, parentFrame, frame);
     frame->setCallout(callout);
     addItem(callout);
     addItem(frame);
+    callout->refresh(); // compute the origin now that it's in the scene
     m_frames.push_back(frame);
     restackFrames(); // assign z so each callout sits just under its frame
     updateSceneBounds(); // a frame may extend past the map's edges
@@ -119,12 +140,27 @@ void GraphScene::raiseFrame(FrameItem *frame) {
 }
 
 void GraphScene::refreshCallouts() {
-    // Callout geometry is derived from live frame positions; force the items to
-    // recompute + repaint after any view change (zoom/pan) so the lines never go
-    // stale.
+    // Every callout — for a view change (zoom/pan), where all of them shift.
     for (FrameItem *f : m_frames)
         if (CalloutItem *c = f->callout())
             c->refresh();
+}
+
+void GraphScene::refreshCalloutsFor(FrameItem *frame) {
+    // Only the callouts a move/resize of `frame` affects: its own (its frame-end
+    // moved) and any whose origin lives inside it (child lenses sourced from it).
+    // Grandchildren are sourced from unmoved frames, so they need no refresh.
+    if (CalloutItem *c = frame->callout())
+        c->refresh();
+    for (FrameItem *g : m_frames)
+        if (CalloutItem *c = g->callout())
+            if (c->sourceFrame() == frame)
+                c->refresh();
+}
+
+void GraphScene::setCalloutMode(int mode) {
+    m_calloutMode = mode;
+    refreshCallouts(); // repaint all in the new mode
 }
 
 void GraphScene::restackFrames() {

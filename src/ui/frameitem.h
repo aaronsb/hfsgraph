@@ -15,6 +15,8 @@
 #include <QPointF>
 #include <QRectF>
 
+#include <memory>
+
 namespace core {
 struct FsNode;
 }
@@ -26,24 +28,34 @@ class TreemapItem;
 class FrameItem;
 class ResizeGrip;
 
-// The "zoom-into" visual tie between an origin square and its frame (ADR-303):
-// two diagonal hairlines, origin upper-right → frame upper-right and origin
-// lower-left → frame lower-left, drawn just *below* the frame (and above the base
-// map) so the frame reads as an enlargement of that region. Works in scene
-// coordinates (placed at the origin); it reads the frame's live position so it
-// follows the frame as it is dragged.
+// How the callout / "zoom-from" link is drawn (ADR-303/304), configurable per the
+// toolbar: Filled = the light-dithered frustum; Lines = just the two diagonal
+// hairlines (no fill); Off = nothing.
+enum class CalloutMode { Filled, Lines, Off };
+
+// The "zoom-into" visual tie between an origin square and its frame (ADR-303/304).
+// The origin is *dynamic*: it tracks a source node inside a source surface (a frame's
+// interior treemap, or the base map when sourceFrame is null), recomputed from the
+// current layout — so it re-anchors when the source frame is moved or resized. Drawn
+// just below the frame and above the base map.
 class CalloutItem : public QGraphicsItem {
   public:
-    CalloutItem(const QRectF &originSceneRect, FrameItem *frame);
+    CalloutItem(const core::FsNode *originNode, FrameItem *sourceFrame, FrameItem *frame);
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                QWidget *widget) override;
-    void refresh();                            // call when the frame moves
-    void setOrigin(const QRectF &originSceneRect); // re-point at a new origin square
+
+    void refresh();    // recompute the origin from the source layout + repaint
+    FrameItem *sourceFrame() const { return m_sourceFrame; } // frame holding the origin (or null=base)
+    void setSource(const core::FsNode *originNode, FrameItem *sourceFrame);
 
   private:
-    QRectF m_origin;     // origin square, scene coordinates
-    FrameItem *m_frame;  // the frame this callout points to (not owned)
+    void recomputeOrigin(); // origin rect from the source treemap's current layout
+
+    const core::FsNode *m_originNode; // the source square's node
+    FrameItem *m_sourceFrame;         // surface holding the origin (null = base map)
+    FrameItem *m_frame;               // the frame this callout points to (not owned)
+    QRectF m_origin;                  // last computed origin rect, scene coordinates
 };
 
 // QGraphicsObject (not plain QGraphicsItem) so a frame can deleteLater() itself
@@ -52,6 +64,15 @@ class FrameItem : public QGraphicsObject {
     Q_OBJECT
   public:
     FrameItem(const core::FsNode *node, qreal width, qreal height, GraphScene *scene);
+    ~FrameItem() override; // defined in the .cpp so the unique_ptr<FsNode> can free it
+
+    // Take ownership of the deep-scanned subtree this frame renders (ADR-304 /
+    // per-level depth). The frame is the sole owner — RAII frees it on close/rebuild,
+    // so the independent per-lens scan never leaks.
+    void adoptTree(std::unique_ptr<core::FsNode> tree);
+
+    int level() const { return m_level; }   // 1 for a top lens, +1 per nesting
+    void setLevel(int level) { m_level = level; }
 
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
@@ -67,6 +88,7 @@ class FrameItem : public QGraphicsObject {
     QSizeF panelSize() const; // panel (body) size in item units, for callout anchoring
     void setCallout(CalloutItem *callout) { m_callout = callout; }
     CalloutItem *callout() const { return m_callout; }
+    TreemapItem *interiorTreemap() const { return m_interior; } // for callout origin replay
 
     // The frame this one was opened from (null for a top-level frame). Closing a
     // frame cascade-closes its descendants so none are left dangling (ADR-303).
@@ -97,8 +119,11 @@ class FrameItem : public QGraphicsObject {
     FrameItem *m_parentFrame = nullptr;   // frame that spawned this one (not owned)
     ResizeGrip *m_grip = nullptr;         // bottom-right resize handle (child item)
     bool m_dragging = false;
+    bool m_pendingClose = false; // × pressed; the close fires on release (avoids a grab race)
     QPointF m_dragOffset;   // cursor → item-origin offset while dragging
     qreal m_lastZoom = 1.0; // view zoom from the last paint (for device-aligned closeRect)
+    int m_level = 1;        // lens nesting level (1 = top lens); deepens the scan
+    std::unique_ptr<core::FsNode> m_ownTree; // the frame's own deep scan (owned; RAII)
 };
 
 // Bottom-right corner handle that resizes its frame. A child item (so it grabs the
