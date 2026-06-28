@@ -98,6 +98,7 @@ class TreemapItem : public QGraphicsItem {
     qreal m_lod = 1.0;            // detail gate multiplier (view distance); <1 = farther
     mutable bool m_dark = true;   // resolved from the palette each paint
     mutable bool m_anyFocus = false; // any visible group in focus mode (resolved each paint)
+    mutable qreal m_lastZoom = 1.0;  // view zoom from the last paint (for cellRectForNode)
 
     mutable std::unordered_map<const core::FsNode *, double> m_weight;
     mutable std::vector<Cell> m_cells; // from the last paint, for hit-testing

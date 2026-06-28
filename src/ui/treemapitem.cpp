@@ -222,7 +222,10 @@ QRectF TreemapItem::cellRectForNode(const core::FsNode *target) const {
         std::sort(kids.begin(), kids.end(), [this](const core::FsNode *a, const core::FsNode *b) {
             return weight(a) > weight(b);
         });
-        const QRectF inner = rect.adjusted(kPadPx, kHeaderPx, -kPadPx, -kPadPx);
+        // Match drawCell's device-space insets (kHeaderPx/zoom, kPadPx/zoom) so the
+        // replayed rect lines up with the actually-drawn square at the current zoom.
+        const qreal hdr = kHeaderPx / m_lastZoom, pad = kPadPx / m_lastZoom;
+        const QRectF inner = rect.adjusted(pad, hdr, -pad, -pad);
         std::vector<double> ws;
         ws.reserve(kids.size());
         for (const auto *k : kids)
@@ -404,6 +407,7 @@ void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *optio
                 break;
             }
     const QTransform toDevice = painter->worldTransform();
+    m_lastZoom = toDevice.m11() > 0 ? toDevice.m11() : 1.0; // for cellRectForNode insets
     const QRectF exposed = option ? option->exposedRect : QRectF(0, 0, m_w, m_h);
     drawCell(painter, m_root, QRectF(0, 0, m_w, m_h), 0, toDevice, exposed);
 }
