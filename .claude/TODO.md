@@ -72,10 +72,16 @@ node-link/force machinery is gone; the treemap is the only view.
       per-workspace JSON sidecar in XDG data dir. Left dock panel of window-shade group cards
       (legend + define/edit/colour + visible/highlight/dim/focus/select), depth-ramp legend at
       the bottom. Group view-state drives a canvas overlay over the treemap.
-- [ ] **Drag-to-reparent** — drag a square (+ its child contents) or a *group*, highlight the
-      target square under the cursor, drop = a proposed `mv` (ADR-101/200). Near-term it stages an
-      in-memory move + re-squarify (no disk writes until the mutation engine exists). Moving a
-      group moves its members atomically (the untracked-work safety property, ADR-102).
+- [ ] **Move staging UX (ADR-302)** — drag a square or a *group*: overlay arrow (`✕————▶`
+      legal / `✕————✕` illegal), no relayout during drag, target hitbox lit, release appends to a
+      **queue**. Bottom dock lists numbered ops; the treemap shows the **projection** at the
+      selected step (replay ops[0..k] = ADR-200 idempotent replay); scrub to animate the plan;
+      touched squares get a crosshatch + step-number tag. **Commit** = verify whole queue vs
+      disk, snapshot, apply atomically, rollback on failure (ADR-200). Queue editing = append +
+      undo/redo + click-to-preview (no mid-list reorder). Per-op confirmation configurable,
+      default-on first run. Groups follow for free (ADR-102 id-keying). The staging UX is
+      buildable on the in-memory projection now; Commit stubs until the ADR-200 engine
+      (eventually Rust, ADR-401) lands.
 - [ ] **Lazy scan = truly unbounded depth** — semantic zoom can only reveal what's scanned; scan a
       subtree the first time you zoom into it, so the Depth control can go away entirely.
 - [ ] **Treemap polish** — breadcrumb for the drill path; hover tooltip (full name + size);
