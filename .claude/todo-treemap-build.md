@@ -104,11 +104,15 @@ unless noted; each had a code-reviewer pass.
       area × p90 name length, metric-aware, clamped 12×, idempotent (fit×N ≡ fit×1).
 - [x] **Multi-column List rung** (`ls -a`): icon + type-coloured name, column-major, wraps
       into as many columns as fit (replaced the wasteful single-column names).
-- [ ] **Details (`ls -l`) file mode** — one file per row with metadata (perms/size/mtime/
-      name/symlink). Needs a scanner extension: `FsNode::files` (QStringList) → a `FileEntry`
-      {name,size,mtime,perms,symlink,linkTarget} vector (QFileInfo already in the scanner);
-      ripples to `group.cpp` (keyForFile/isWorktreeAnchor use `.name`), `treemapitem`
-      (`files[i].name`), `move.cpp` (files copy). *Next up.*
+- [x] **Details (`ls -l`) file mode** — one file per row with metadata (perms/size/mtime/
+      name/symlink). Scanner extended: `FsNode::files` (QStringList) → a `core::FileEntry`
+      {name,sizeBytes,mtime,perms,isSymlink,linkTarget} vector (QFileInfo+QDateTime in the
+      scanner); rippled to `group.cpp` (keyForFile/isWorktreeAnchor use `.name`),
+      `treemapitem` (`files[i].name`, `.empty()`), `move.cpp` (vector copy, unchanged).
+      Render: a force-only `Details` rung (toolbar **Files: Details**) — monospace meta
+      column (perms via QFileDevice bits, human size via QLocale::formattedDataSize, mtime)
+      + type-coloured icon + name; self-guards on width like the other rungs (verified
+      headlessly: src/ cell shows aligned `ls -l` rows incl. a symlink's leading `l`).
 - [ ] **Tech-debt:** extract the pure `squarify()` algorithm into its own layout module —
       `treemapitem.cpp` is ~543 lines (over the 500 soft flag) and squarify is the clean seam.
 - [ ] **Interactive-confirm debt (this session):** every new control's mouse path — groups

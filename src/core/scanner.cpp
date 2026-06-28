@@ -1,5 +1,6 @@
 #include "scanner.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 
@@ -30,7 +31,15 @@ std::unique_ptr<FsNode> scanDir(const QFileInfo &dirInfo, int depth, int maxDept
         } else {
             node->fileCount++;
             node->sizeBytes += entry.size();
-            node->files.push_back(entry.fileName());
+            FileEntry fe;
+            fe.name = entry.fileName();
+            fe.sizeBytes = entry.size();
+            fe.mtime = entry.lastModified().toSecsSinceEpoch();
+            fe.perms = static_cast<uint>(entry.permissions());
+            fe.isSymlink = entry.isSymLink();
+            if (fe.isSymlink)
+                fe.linkTarget = entry.symLinkTarget();
+            node->files.push_back(std::move(fe));
         }
     }
 
