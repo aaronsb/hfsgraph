@@ -25,6 +25,7 @@ class GroupStore;
 namespace ui {
 
 class GraphScene;
+class FrameItem;
 
 class TreemapItem : public QGraphicsItem {
   public:
@@ -56,9 +57,13 @@ class TreemapItem : public QGraphicsItem {
     // dim (de-emphasise members). Null = no overlay. Paint-only.
     void setGroupStore(const core::GroupStore *store);
 
+    // The frame that owns this treemap (null for the base map). Lets a double-click
+    // tell the scene which frame spawned the new one, for close-cascade lineage.
+    void setOwnerFrame(FrameItem *frame) { m_ownerFrame = frame; }
+
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;       // select
-    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override; // drill in
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override; // open a frame
 
   private:
     struct Cell {
@@ -77,6 +82,7 @@ class TreemapItem : public QGraphicsItem {
     SizeMetric m_metric;
     Ramp m_ramp;
     GraphScene *m_scene;
+    FrameItem *m_ownerFrame = nullptr;          // owning frame, or null for the base map
     const core::GroupStore *m_groups = nullptr; // overlay source (ADR-102), not owned
     const core::FsNode *m_selected = nullptr;
     qreal m_lod = 1.0;            // detail gate multiplier (view distance); <1 = farther

@@ -1,6 +1,7 @@
 #include "graphscene.h"
 
 #include "core/fsnode.h"
+#include "frameitem.h"
 #include "treemapitem.h"
 
 #include <algorithm>
@@ -28,25 +29,94 @@ void GraphScene::setRoot(const core::FsNode *root) {
     rebuild();
 }
 
-void GraphScene::drillInto(const core::FsNode *node) {
-    // Re-root the *view* onto a subtree (parent pointers let drillUp return). Groups
-    // stay resolved against the scan root, so membership is unaffected by drilling.
-    if (node && !node->children.empty()) {
-        m_root = node;
-        rebuild();
-    }
-}
-
-void GraphScene::drillUp() {
-    if (m_root && m_root->parent) {
-        m_root = m_root->parent;
-        rebuild();
-    }
-}
-
 void GraphScene::updateGroupOverlay() {
     if (m_treemap)
         m_treemap->update();
+    for (FrameItem *f : m_frames)
+        f->update(); // frames carry the same overlay
+}
+
+void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRect,
+                           FrameItem *parentFrame) {
+    if (!node)
+        return;
+    constexpr qreal kFrameW = 520.0, kFrameH = 360.0;
+    auto *frame = new FrameItem(node, kFrameW, kFrameH, this);
+    frame->setParentFrame(parentFrame); // lineage for the close-cascade
+    // Float to the lower-right of the origin so it reads as an enlargement of it
+    // without fully covering the source square.
+    frame->setPos(originSceneRect.right() + 60.0, originSceneRect.top() + 30.0);
+    auto *callout = new CalloutItem(originSceneRect, frame);
+    frame->setCallout(callout);
+    addItem(callout);
+    addItem(frame);
+    m_frames.push_back(frame);
+    restackFrames(); // assign z so each callout sits just under its frame
+    updateSceneBounds(); // a frame may extend past the map's edges
+}
+
+void GraphScene::closeFrame(FrameItem *frame) {
+    // Close descendants first (frames opened from within this one), so closing an
+    // upstream frame never leaves its children dangling (depth-first, snapshot the
+    // child list before mutating m_frames).
+    std::vector<FrameItem *> children;
+    for (FrameItem *f : m_frames)
+        if (f->parentFrame() == frame)
+            children.push_back(f);
+    for (FrameItem *c : children)
+        closeFrame(c);
+
+    const auto it = std::find(m_frames.begin(), m_frames.end(), frame);
+    if (it != m_frames.end())
+        m_frames.erase(it);
+    if (CalloutItem *c = frame->callout()) {
+        removeItem(c);
+        delete c; // a plain item; not deleted from within its own handler
+    }
+    removeItem(frame);
+    frame->deleteLater(); // safe even when called from the frame's own handler
+}
+
+void GraphScene::raiseFrame(FrameItem *frame) {
+    if (std::find(m_frames.begin(), m_frames.end(), frame) == m_frames.end())
+        return;
+    // Raise the frame *and its descendants* together, preserving their relative
+    // order (a child is always created after its parent, so the order already has
+    // ancestors before descendants). Raising the whole subtree keeps child frames —
+    // and their × — above the frame the user clicked, never buried beneath it.
+    auto inSubtree = [&](FrameItem *f) {
+        for (FrameItem *p = f; p; p = p->parentFrame())
+            if (p == frame)
+                return true;
+        return false;
+    };
+    std::vector<FrameItem *> rest, sub;
+    for (FrameItem *f : m_frames)
+        (inSubtree(f) ? sub : rest).push_back(f);
+    m_frames = std::move(rest);
+    m_frames.insert(m_frames.end(), sub.begin(), sub.end());
+    restackFrames();
+}
+
+void GraphScene::refreshCallouts() {
+    // Callout geometry is derived from live frame positions; force the items to
+    // recompute + repaint after any view change (zoom/pan) so the lines never go
+    // stale.
+    for (FrameItem *f : m_frames)
+        if (CalloutItem *c = f->callout())
+            c->refresh();
+}
+
+void GraphScene::restackFrames() {
+    // Two z-slots per frame: callout just below its frame, frames in stack order,
+    // all above the base map (z 0).
+    qreal z = 100.0;
+    for (FrameItem *f : m_frames) {
+        if (CalloutItem *c = f->callout())
+            c->setZValue(z);
+        f->setZValue(z + 1.0);
+        z += 2.0;
+    }
 }
 
 void GraphScene::setSizeMetric(int metric) {
@@ -63,11 +133,14 @@ void GraphScene::setLod(double factor) {
     m_lod = factor;
     if (m_treemap)
         m_treemap->setLod(factor); // live — paint-only, no rebuild
+    for (FrameItem *f : m_frames)
+        f->setLod(factor);
 }
 
 void GraphScene::rebuild() {
-    clear(); // deletes all items, including the previous treemap
+    clear(); // deletes all items, including the previous treemap and any frames
     m_treemap = nullptr;
+    m_frames.clear(); // the FrameItems were just deleted by clear()
     if (!m_root)
         return;
     m_treemap = new TreemapItem(m_root, kCanvasW, kCanvasH,

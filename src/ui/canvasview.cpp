@@ -1,5 +1,7 @@
 #include "canvasview.h"
 
+#include "graphscene.h"
+
 #include <cmath>
 
 #include <QMouseEvent>
@@ -34,6 +36,8 @@ void CanvasView::wheelEvent(QWheelEvent *event) {
     constexpr double step = 1.15;
     const double factor = event->angleDelta().y() > 0 ? step : 1.0 / step;
     scale(factor, factor);
+    if (auto *gs = qobject_cast<GraphScene *>(scene()))
+        gs->refreshCallouts(); // keep investigation-frame callouts anchored on zoom
 }
 
 void CanvasView::mousePressEvent(QMouseEvent *event) {
@@ -53,6 +57,8 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
         m_panLast = event->pos();
         horizontalScrollBar()->setValue(horizontalScrollBar()->value() - d.x());
         verticalScrollBar()->setValue(verticalScrollBar()->value() - d.y());
+        if (auto *gs = qobject_cast<GraphScene *>(scene()))
+            gs->refreshCallouts(); // keep callouts anchored while panning
         event->accept();
         return;
     }
