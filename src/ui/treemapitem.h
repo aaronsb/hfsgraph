@@ -40,9 +40,10 @@ class TreemapItem : public QGraphicsItem {
 
     // How a cell's files are drawn. Auto picks by cell size (list → icons → dots as
     // it shrinks); the others force that rung regardless of size (ADR-301). List is a
-    // multi-column icon+name grid (like `ls -a`). Keep in sync with the toolbar combo
-    // order in MainWindow.
-    enum FileMode { Auto, Dots, Icons, List };
+    // multi-column icon+name grid (like `ls -a`); Details is one file per row with
+    // metadata (perms/size/mtime), like `ls -l` (force-only — never auto-picked, it
+    // needs the most room). Keep in sync with the toolbar combo order in MainWindow.
+    enum FileMode { Auto, Dots, Icons, List, Details };
 
     // Identity colour for a nesting depth under a ramp (depth spans 0..6). Shared so
     // the group panel's depth legend matches what the treemap paints.

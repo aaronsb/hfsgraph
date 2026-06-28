@@ -10,9 +10,13 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QDateTime>
+#include <QFileDevice>
 #include <QFont>
+#include <QFontDatabase>
 #include <QFontMetrics>
 #include <QGraphicsSceneMouseEvent>
+#include <QLocale>
 #include <QPainter>
 #include <QPalette>
 #include <QStyleOptionGraphicsItem>
@@ -55,6 +59,42 @@ GridFit fitGlyphs(const QRectF &area, const GlyphGrid &g, int count) {
     const int cols = std::max(1, static_cast<int>((area.width() + g.gap) / g.pitch()));
     const int rows = std::max(1, static_cast<int>((area.height() + g.gap) / g.pitch()));
     return {cols, rows, std::min(count, cols * rows)};
+}
+
+// `ls -l`-style permission string for a file entry: a 10-char "lrwxr-xr-x" — leading
+// type char ('l' symlink, else '-'), then owner/group/other rwx triples decoded from
+// the stored QFileDevice::Permissions bits.
+QString permString(const core::FileEntry &fe) {
+    const QFileDevice::Permissions p(QFlag(static_cast<int>(fe.perms)));
+    auto bit = [&](QFileDevice::Permission b, char c) {
+        return (p & b) ? QLatin1Char(c) : QLatin1Char('-');
+    };
+    QString s;
+    s.reserve(10);
+    s += fe.isSymlink ? QLatin1Char('l') : QLatin1Char('-');
+    s += bit(QFileDevice::ReadOwner, 'r');
+    s += bit(QFileDevice::WriteOwner, 'w');
+    s += bit(QFileDevice::ExeOwner, 'x');
+    s += bit(QFileDevice::ReadGroup, 'r');
+    s += bit(QFileDevice::WriteGroup, 'w');
+    s += bit(QFileDevice::ExeGroup, 'x');
+    s += bit(QFileDevice::ReadOther, 'r');
+    s += bit(QFileDevice::WriteOther, 'w');
+    s += bit(QFileDevice::ExeOther, 'x');
+    return s;
+}
+
+// The fixed-width metadata column for a Details row: "perms  size  mtime", with size
+// human-readable and right-aligned (left-padded) so columns line up under a monospace
+// font. Width 10 covers the widest traditional sub-KiB form ("1023 bytes"). mtime 0
+// (unknown) renders as dashes.
+QString detailMeta(const core::FileEntry &fe) {
+    const QString size = QLocale::system().formattedDataSize(
+        fe.sizeBytes, 1, QLocale::DataSizeTraditionalFormat);
+    const QString when =
+        fe.mtime ? QDateTime::fromSecsSinceEpoch(fe.mtime).toString(QStringLiteral("yyyy-MM-dd HH:mm"))
+                 : QStringLiteral("     -          ");
+    return QStringLiteral("%1 %2 %3  ").arg(permString(fe)).arg(size, 10).arg(when);
 }
 
 // Squarified treemap (Bruls/Huizing/van Wijk): lay `weights` into `bounds` with
@@ -402,7 +442,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
             const QRect ir(static_cast<int>(area.x() + c * kIconGlyph.pitch()),
                            static_cast<int>(area.y() + r * kIconGlyph.pitch()),
                            static_cast<int>(kIconGlyph.size), static_cast<int>(kIconGlyph.size));
-            fileTypeIcon(node->files[i]).paint(p, ir);
+            fileTypeIcon(node->files[i].name).paint(p, ir);
         }
         p->setWorldMatrixEnabled(true);
     };
@@ -415,7 +455,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         for (int i = 0; i < fit.count; ++i) {
             const int r = i / fit.cols, c = i % fit.cols;
             p->fillRect(QRectF(area.x() + c * g.pitch(), area.y() + r * g.pitch(), g.size, g.size),
-                        fileTypeColor(node->files[i]));
+                        fileTypeColor(node->files[i].name));
         }
         p->setWorldMatrixEnabled(true);
     };
@@ -439,7 +479,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         for (int i = 0; i < nf; ++i) {
             const int col = i / rows, row = i % rows; // column-major, like ls
             const double x = area.x() + col * colW, y = area.y() + row * rowH;
-            const QString &name = node->files[i];
+            const QString &name = node->files[i].name;
             const QRect ir(static_cast<int>(x), static_cast<int>(y + (rowH - kIcon) / 2),
                            static_cast<int>(kIcon), static_cast<int>(kIcon));
             fileTypeIcon(name).paint(p, ir);
@@ -447,6 +487,51 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
             const QRectF tr(x + kIcon + kIconGap, y, colW - kIcon - kIconGap - 4.0, rowH);
             p->drawText(tr, Qt::AlignVCenter | Qt::AlignLeft,
                         fm.elidedText(name, Qt::ElideMiddle, static_cast<int>(tr.width())));
+        }
+        p->setWorldMatrixEnabled(true);
+    };
+    auto drawDetails = [&] {
+        // One file per row with metadata, like `ls -l`: a muted fixed-width meta column
+        // (perms · size · mtime) then the type-coloured icon + name. A monospace font
+        // keeps the meta columns aligned across rows; needs the most width of any rung.
+        const qreal rowH = kNameGlyph.pitch();
+        if (area.height() < rowH)
+            return;
+        p->setWorldMatrixEnabled(false);
+        QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        f.setPixelSize(10);
+        p->setFont(f);
+        const QFontMetrics fm(f);
+        // Measure the meta column from a worst-case sample (4-digit byte size + a real
+        // mtime) so it never under-measures vs. a default FileEntry; gate on it *after*
+        // measuring — nothing here clips to the cell, so a too-narrow cell must draw
+        // nothing rather than bleed perms/name over its neighbours.
+        constexpr qreal kIcon = 12.0, kGap = 4.0, kMinName = 24.0;
+        core::FileEntry sample;
+        sample.sizeBytes = 1023; // widest sub-KiB form: "1023 bytes"
+        sample.mtime = 1; // force a rendered datetime, not the dashes placeholder
+        const double metaW = fm.horizontalAdvance(detailMeta(sample));
+        if (area.width() < metaW + kIcon + kGap + kMinName)
+            return;
+        QColor metaCol = textColorFor(body);
+        metaCol.setAlpha(160); // de-emphasised next to the file name
+        const int rows = std::max(1, static_cast<int>(area.height() / rowH));
+        const int nf = std::min(static_cast<int>(node->files.size()), rows);
+        for (int i = 0; i < nf; ++i) {
+            const core::FileEntry &fe = node->files[i];
+            const double y = area.y() + i * rowH;
+            p->setPen(metaCol);
+            p->drawText(QRectF(area.x(), y, metaW, rowH), Qt::AlignVCenter | Qt::AlignLeft,
+                        detailMeta(fe));
+            const double nx = area.x() + metaW;
+            const QRect ir(static_cast<int>(nx), static_cast<int>(y + (rowH - kIcon) / 2),
+                           static_cast<int>(kIcon), static_cast<int>(kIcon));
+            fileTypeIcon(fe.name).paint(p, ir);
+            p->setPen(fileTypeColor(fe.name));
+            const QRectF tr(nx + kIcon + kGap, y, area.right() - (nx + kIcon + kGap), rowH);
+            if (tr.width() > 8.0)
+                p->drawText(tr, Qt::AlignVCenter | Qt::AlignLeft,
+                            fm.elidedText(fe.name, Qt::ElideMiddle, static_cast<int>(tr.width())));
         }
         p->setWorldMatrixEnabled(true);
     };
@@ -462,7 +547,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         p->setWorldMatrixEnabled(true);
     };
 
-    const bool hasFiles = !node->files.isEmpty();
+    const bool hasFiles = !node->files.empty();
     const bool forced = m_fileMode != Auto;
     const bool listFit = dev.width() > kNameW * m_detail &&
                          dev.height() > (kHeaderPx + kNameGlyph.pitch() * 2) * m_detail;
@@ -470,7 +555,9 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
                           dev.height() > (kHeaderPx + kIconGlyph.pitch()) * m_detail;
     const bool labelFits = !hasTitle && dev.width() > kLabelW * m_detail &&
                            dev.height() > kLabelH * m_detail;
-    if (hasFiles && (m_fileMode == List || (!forced && listFit)))
+    if (hasFiles && m_fileMode == Details)
+        drawDetails(); // force-only: never auto-picked (needs the most room)
+    else if (hasFiles && (m_fileMode == List || (!forced && listFit)))
         drawList();
     else if (hasFiles && (m_fileMode == Icons || (!forced && iconsFit)))
         drawIcons();

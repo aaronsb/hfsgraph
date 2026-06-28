@@ -70,8 +70,8 @@ bool isWorktreeAnchor(const FsNode &node) {
     for (const auto &c : node.children)
         if (c->name == kGit)
             return true;
-    for (const QString &f : node.files)
-        if (f == kGit)
+    for (const auto &f : node.files)
+        if (f.name == kGit)
             return true;
     return false;
 }
@@ -87,8 +87,8 @@ void findAnchors(const FsNode &node, std::vector<const FsNode *> &out) {
 // Group::contains, not here, so the resolved set stays complete).
 void collectSubtree(const FsNode &node, QSet<MemberKey> &out) {
     out.insert(keyFor(node));
-    for (const QString &f : node.files)
-        out.insert(keyForFile(node, f));
+    for (const auto &f : node.files)
+        out.insert(keyForFile(node, f.name));
     for (const auto &c : node.children)
         collectSubtree(*c, out);
 }
