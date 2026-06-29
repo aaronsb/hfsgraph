@@ -99,7 +99,16 @@ ADR-200 (changeset engine), ADR-301 (treemap), ADR-302 (move staging), ADR-303 (
       cells on top (incl. over a moved dir's children); it tracks scrub/undo/redo since those
       re-project + repaint. Amber sits outside the depth ramps and group hues so it never reads
       as either. Verified headlessly (full plan badges 1+2; scrub to step 1 marks only op 1).
-- [ ] **Cross-frame** arrows + hit-testing on a top overlay layer (needs Slice 2 frames).
+- [x] **Cross-frame** arrows + hit-testing (#13): the drag gesture now arms inside *any*
+      surface (base or lens, not just bases) and the drop target is found on the **topmost**
+      surface under the cursor (`surfaceCellAt` dropped its base-only filter; z-tiebreak picks
+      the lens over the base where they overlap). The top-Z `MoveDragOverlay` already spanned
+      the scene, so the ✕———▶ arrow stretches between frames. Lens node keys resolve against
+      the base their subtree belongs to, so a lens drop stages correctly — the base + queue +
+      diff overlay reflect it. *Known: a lens shows a static deep scan and does not itself
+      re-flow after a staged move (the base is the authoritative staging surface); live lens
+      projection would be a later enhancement.* Verified headlessly (base→lens legal arrow +
+      commit; occluded-target correctly resolves to the topmost lens cell).
 
 ## UI/UX polish — interactive iteration (ADR-301/304)  [ongoing]
 Ad-hoc rendering/control work from live use, on top of the slices above. All merged

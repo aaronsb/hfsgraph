@@ -12,6 +12,8 @@
 #include "core/group.h"
 #include "core/move.h"
 
+#include <QHash>
+
 #include <memory>
 #include <vector>
 
@@ -103,14 +105,15 @@ class GraphScene : public QGraphicsScene {
     void clearMoves();       // drop all staged ops + redo history
     void scrubTo(int step);  // preview ops [0, step); clamps to [0, size]
 
-    // Drag-to-move gesture (ADR-302 #10). A base surface's treemap arms a drag on
-    // press; past a small threshold it calls beginMoveDrag (returns false on a null
-    // source so the treemap stays inert — the source's re-parentability is gated at
-    // press-arm time), updateMoveDrag tracks the cursor and lights the legal/illegal
-    // drop target with a ✕———▶ / ✕———✕ overlay, and endMoveDrag(true) commits a legal
-    // drop: append a MoveOp then *defer* the re-projection (it deletes the interior
-    // treemaps, including the one whose release is on the stack). The overlay is a
-    // top-Z scene item, owned here.
+    // Drag-to-move gesture (ADR-302 #10, cross-frame in #13). Any surface's treemap —
+    // a base or a lens — arms a drag on press; past a small threshold it calls
+    // beginMoveDrag (returns false on a null source so the treemap stays inert — the
+    // source's re-parentability is gated at press-arm time), updateMoveDrag tracks the
+    // cursor and lights the legal/illegal drop target (on the topmost surface under it)
+    // with a ✕———▶ / ✕———✕ overlay, and endMoveDrag(true) commits a legal drop: append a
+    // MoveOp then *defer* the re-projection (it deletes the interior treemaps, including
+    // the one whose release is on the stack). The overlay is a top-Z scene item, owned
+    // here, so the arrow spans frames.
     bool beginMoveDrag(const core::FsNode *source, const QPointF &sourceCenterScene);
     void updateMoveDrag(const QPointF &cursorScene);
     void endMoveDrag(bool drop);
@@ -160,6 +163,11 @@ class GraphScene : public QGraphicsScene {
     QPointF m_dragSourceCenter;                  // drag-source square centre, scene coords
     const core::FsNode *m_dragTarget = nullptr; // current drop target, or null
     bool m_dragLegal = false;                    // is the current target a legal drop?
+    // key → node in the base projection, built at drag start (the projection is fixed
+    // for the drag's duration). Lets updateMoveDrag resolve a dragged/target node — which
+    // may live in a lens's independent tree — to the base node replay will actually move,
+    // so legality matches the result instead of comparing across separate trees (#13).
+    QHash<core::MemberKey, const core::FsNode *> m_dragKeyIndex;
 };
 
 } // namespace ui
