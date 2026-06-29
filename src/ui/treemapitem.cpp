@@ -602,11 +602,12 @@ void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
         m_selected = hit; // left click selects; a movable cell also arms a drag (#10)
         update();
         // Arm the move drag only for a re-parentable node: not this surface's own root,
-        // and only on a base surface (lens drags are #13). The drag actually begins on
-        // mouseMoveEvent once the cursor passes a small threshold, so plain clicks and
-        // double-clicks still behave.
+        // and only inside a frame (base or lens — ADR-302 #13). The drag actually begins
+        // on mouseMoveEvent once the cursor passes a small threshold, so plain clicks and
+        // double-clicks still behave. A drop from a lens stages against the base its
+        // subtree belongs to (keys resolve by identity); the base + queue reflect it.
         m_pressNode = nullptr;
-        if (hit != m_root && hit->parent && m_ownerFrame && m_ownerFrame->isBase()) {
+        if (hit != m_root && hit->parent && m_ownerFrame) {
             m_pressNode = hit;
             m_pressScene = event->scenePos();
             m_pressCenterScene = mapToScene(hitRect).boundingRect().center();

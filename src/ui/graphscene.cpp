@@ -242,12 +242,15 @@ void GraphScene::updateGroupOverlay() {
 
 std::pair<FrameItem *, const core::FsNode *>
 GraphScene::surfaceCellAt(const QPointF &scenePos) const {
+    // Any surface — base or lens (ADR-302 #13) — can be a drop target. Frames overlap,
+    // so pick the topmost (highest z) whose interior holds a cell under the point, which
+    // matches what the user sees on top. A lens shows a static deep scan of a base
+    // subtree, but its node keys still resolve against that base, so a drop there stages
+    // correctly (the base + queue reflect it; the lens snapshot itself doesn't re-flow).
     FrameItem *bestFrame = nullptr;
     const core::FsNode *bestNode = nullptr;
     qreal bestZ = -1e18;
     for (FrameItem *f : m_frames) {
-        if (!f->isBase()) // bases render the projection; lens drops are #13
-            continue;
         TreemapItem *t = f->interiorTreemap();
         if (!t)
             continue;

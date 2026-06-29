@@ -103,14 +103,15 @@ class GraphScene : public QGraphicsScene {
     void clearMoves();       // drop all staged ops + redo history
     void scrubTo(int step);  // preview ops [0, step); clamps to [0, size]
 
-    // Drag-to-move gesture (ADR-302 #10). A base surface's treemap arms a drag on
-    // press; past a small threshold it calls beginMoveDrag (returns false on a null
-    // source so the treemap stays inert — the source's re-parentability is gated at
-    // press-arm time), updateMoveDrag tracks the cursor and lights the legal/illegal
-    // drop target with a ✕———▶ / ✕———✕ overlay, and endMoveDrag(true) commits a legal
-    // drop: append a MoveOp then *defer* the re-projection (it deletes the interior
-    // treemaps, including the one whose release is on the stack). The overlay is a
-    // top-Z scene item, owned here.
+    // Drag-to-move gesture (ADR-302 #10, cross-frame in #13). Any surface's treemap —
+    // a base or a lens — arms a drag on press; past a small threshold it calls
+    // beginMoveDrag (returns false on a null source so the treemap stays inert — the
+    // source's re-parentability is gated at press-arm time), updateMoveDrag tracks the
+    // cursor and lights the legal/illegal drop target (on the topmost surface under it)
+    // with a ✕———▶ / ✕———✕ overlay, and endMoveDrag(true) commits a legal drop: append a
+    // MoveOp then *defer* the re-projection (it deletes the interior treemaps, including
+    // the one whose release is on the stack). The overlay is a top-Z scene item, owned
+    // here, so the arrow spans frames.
     bool beginMoveDrag(const core::FsNode *source, const QPointF &sourceCenterScene);
     void updateMoveDrag(const QPointF &cursorScene);
     void endMoveDrag(bool drop);
