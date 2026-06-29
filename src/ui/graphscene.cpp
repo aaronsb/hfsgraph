@@ -245,8 +245,9 @@ GraphScene::surfaceCellAt(const QPointF &scenePos) const {
     // Any surface — base or lens (ADR-302 #13) — can be a drop target. Frames overlap,
     // so pick the topmost (highest z) whose interior holds a cell under the point, which
     // matches what the user sees on top. A lens shows a static deep scan of a base
-    // subtree, but its node keys still resolve against that base, so a drop there stages
-    // correctly (the base + queue reflect it; the lens snapshot itself doesn't re-flow).
+    // subtree; a drop onto a lens cell that the base scan also contains stages against the
+    // base (base + queue reflect it; the lens snapshot itself doesn't re-flow), while a
+    // cell deeper than the base scan won't resolve — updateMoveDrag reads it red.
     FrameItem *bestFrame = nullptr;
     const core::FsNode *bestNode = nullptr;
     qreal bestZ = -1e18;
@@ -266,6 +267,18 @@ GraphScene::surfaceCellAt(const QPointF &scenePos) const {
     return {bestFrame, bestNode};
 }
 
+namespace {
+// Index every node of a render tree by its key, so a dragged/target node — possibly in
+// a lens's independent tree — can be mapped to the base node replay will actually touch.
+void indexByKey(const core::FsNode *n, QHash<core::MemberKey, const core::FsNode *> &out) {
+    if (!n)
+        return;
+    out.insert(core::keyFor(*n), n); // path/identity aliasing: last wins (ADR-100 / task #14)
+    for (const auto &c : n->children)
+        indexByKey(c.get(), out);
+}
+} // namespace
+
 bool GraphScene::beginMoveDrag(const core::FsNode *source, const QPointF &sourceCenterScene) {
     if (!source)
         return false;
@@ -273,6 +286,11 @@ bool GraphScene::beginMoveDrag(const core::FsNode *source, const QPointF &source
     m_dragSourceCenter = sourceCenterScene;
     m_dragTarget = nullptr;
     m_dragLegal = false;
+    // Snapshot the base projection's keys for the drag. The projection can't change while
+    // a drag is in flight (no ledger edits mid-drag), so one build serves every move.
+    m_dragKeyIndex.clear();
+    for (FrameItem *b : baseFrames())
+        indexByKey(b->node(), m_dragKeyIndex);
     if (!m_dragOverlay) {
         m_dragOverlay = new MoveDragOverlay();
         addItem(m_dragOverlay);
@@ -286,7 +304,13 @@ void GraphScene::updateMoveDrag(const QPointF &cursorScene) {
         return;
     const auto [frame, node] = surfaceCellAt(cursorScene);
     m_dragTarget = node;
-    m_dragLegal = node && core::checkMove(m_dragSource, node) == core::MoveLegality::Ok;
+    // Resolve both endpoints to the base node replay will move (a lens cell lives in a
+    // separate tree, and a lens cell deeper than the base scan has no base counterpart at
+    // all). Checking the resolved base nodes makes the affordance match the result — a
+    // drop that won't project reads red and never enters the ledger.
+    const core::FsNode *bsrc = m_dragKeyIndex.value(core::keyFor(*m_dragSource), nullptr);
+    const core::FsNode *bdst = node ? m_dragKeyIndex.value(core::keyFor(*node), nullptr) : nullptr;
+    m_dragLegal = bsrc && bdst && core::checkMove(bsrc, bdst) == core::MoveLegality::Ok;
     QRectF targetScene;
     if (frame && node) {
         const QRectF itemRect = frame->interiorTreemap()->cellRectForNode(node);
@@ -310,6 +334,7 @@ void GraphScene::endMoveDrag(bool drop) {
     m_dragSource = nullptr;
     m_dragTarget = nullptr;
     m_dragLegal = false;
+    m_dragKeyIndex.clear();
     if (!commit)
         return;
     m_ledger.append(op);

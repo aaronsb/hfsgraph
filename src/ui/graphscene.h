@@ -12,6 +12,8 @@
 #include "core/group.h"
 #include "core/move.h"
 
+#include <QHash>
+
 #include <memory>
 #include <vector>
 
@@ -161,6 +163,11 @@ class GraphScene : public QGraphicsScene {
     QPointF m_dragSourceCenter;                  // drag-source square centre, scene coords
     const core::FsNode *m_dragTarget = nullptr; // current drop target, or null
     bool m_dragLegal = false;                    // is the current target a legal drop?
+    // key → node in the base projection, built at drag start (the projection is fixed
+    // for the drag's duration). Lets updateMoveDrag resolve a dragged/target node — which
+    // may live in a lens's independent tree — to the base node replay will actually move,
+    // so legality matches the result instead of comparing across separate trees (#13).
+    QHash<core::MemberKey, const core::FsNode *> m_dragKeyIndex;
 };
 
 } // namespace ui
