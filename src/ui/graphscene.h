@@ -9,6 +9,7 @@
 
 #include <QGraphicsScene>
 
+#include "core/commit.h"
 #include "core/group.h"
 #include "core/move.h"
 
@@ -102,6 +103,11 @@ class GraphScene : public QGraphicsScene {
     // re-renders every base. While the ledger is empty the projection is the identity.
     core::Ledger &ledger() { return m_ledger; }
     void rebuildProjection();
+
+    // Verify the staged plan against current disk (ADR-200 #16a dry-run): structural
+    // legality, source identity/drift, and volume boundaries, per active op. Reads disk,
+    // writes nothing — the report shown before any apply (which is the separate #16b half).
+    core::CommitPlan verifyLedger() const;
 
     // Ledger editing from the queue dock (ADR-302 #11). Each mutates the plan, re-
     // projects every base, and emits ledgerChanged() so the dock refreshes. scrubTo
