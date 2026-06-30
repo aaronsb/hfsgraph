@@ -1,5 +1,7 @@
 #include "scanner.h"
 
+#include "platform/identity.h"
+
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -12,7 +14,14 @@ std::unique_ptr<FsNode> scanDir(const QFileInfo &dirInfo, int depth, int maxDept
     auto node = std::make_unique<FsNode>();
     node->path = dirInfo.absoluteFilePath();
     node->name = dirInfo.fileName().isEmpty() ? node->path : dirInfo.fileName();
+    node->originalPath = node->path; // the scanned location, stable under a staged move
     node->parent = parent;
+    // ADR-100 durable identity: read-only here. The durable id is the UUID already
+    // stamped in the dir's xattr (empty until something *touches* it — stamping is lazy);
+    // the fingerprint is the (dev, inode) the commit engine re-checks. The scan writes
+    // nothing, so pointing the tool at a 6,000-dir tree mutates none of it.
+    node->identity = platform::readDurableId(node->path);
+    node->fp = platform::statFingerprint(node->path);
 
     QDir dir(node->path);
     const auto entries = dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden,

@@ -7,23 +7,21 @@
 namespace core {
 
 MemberKey keyFor(const FsNode &node) {
-    // The projection stamps each copy with its original key in `identity`, preserved
-    // even when a move recomputes `path`, so an op/group keyed to a node survives later
-    // moves (ADR-302). A freshly scanned node has no identity yet → fall back to path.
-    // TODO(ADR-100): identity becomes a durable id the scanner stamps (task #14).
+    // The durable directory id (ADR-100): a UUID the scanner reads from the dir's xattr,
+    // pinned into the projection's `identity` so an op/group keyed to a node survives a
+    // later move that recomputes `path`. An unstamped node has no id yet → fall back to
+    // path (its scanned path is a stable key while nothing has touched it).
     return node.identity.isEmpty() ? node.path : node.identity;
 }
 
 MemberKey keyForFile(const FsNode &dir, const QString &filename) {
-    // Path-based interim key; ADR-100 will key this as (dir durable id + filename).
-    // ASYMMETRY (track with task #14): keyFor() above is now identity-based — durable
-    // across a staged move — but this is still pure path. Harmless today (file keys are
-    // only resolved over the immutable source tree, where dir.path == its identity), but
-    // these two MUST move to durable ids in lockstep: the moment file membership is
-    // queried on a *projected* (moved) subtree, a moved dir would keep its group tint
-    // while its files silently drop out, because collectSubtree stored their old paths.
-    return dir.path.endsWith(QLatin1Char('/')) ? dir.path + filename
-                                               : dir.path + QLatin1Char('/') + filename;
+    // A file's key is (its directory's durable key) + filename, so it tracks keyFor(dir)
+    // in lockstep — durable across a staged move (ADR-100). Were this pure path, a moved
+    // group-anchor dir would keep its tint while its files silently dropped out (their
+    // keys still held the old path); keying off keyFor(dir) keeps the file with its dir.
+    const MemberKey dirKey = keyFor(dir);
+    return dirKey.endsWith(QLatin1Char('/')) ? dirKey + filename
+                                             : dirKey + QLatin1Char('/') + filename;
 }
 
 Group *GroupStore::create(GroupKind kind, const QString &name, const QColor &color) {

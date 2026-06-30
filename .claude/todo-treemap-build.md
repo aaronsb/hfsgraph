@@ -160,7 +160,22 @@ unless noted; each had a code-reviewer pass.
       drag/resize/close/remove, panning the grown canvas. A real-session click-through.
 
 ## Slice 4 — Durable identity + persistence (ADR-100 / 102)
-- [ ] ADR-100 durable directory identity (UUID in xattr + inode fingerprint) in the scanner.
+- [x] **(#14) ADR-100 durable identity substrate** — `platform/identity.{h,cpp}` (the only
+      xattr/stat seam, ADR-400): `readDurableId`/`stampDurableId`/`xattrSupported` over the
+      `user.hfsgraph.id` xattr, `statFingerprint` (lstat → `core::Fingerprint {dev,ino,mtime,
+      size}`), `newDurableId` (QUuid), and lazy `ensureDurableId(FsNode&)`. The **scanner reads**
+      the durable id + fingerprint per node — strictly read-only (a 6,000-dir tree mutates
+      nothing). `FsNode` gains `identity` (now the real UUID, empty until stamped), `fp`, and
+      `originalPath` (the scanned location). `keyFor` resolves to the on-disk UUID when present;
+      both keying seams the UUID disturbed are fixed: `diffStepFor` now tests `path !=
+      originalPath` (independent of the id scheme) and `keyForFile` keys off `keyFor(dir)` (the
+      tracked path/identity asymmetry — retired). Unit-tested (`tests/identity_test.cpp`: real
+      xattr round-trip + rename-survival + fingerprint + keyFor, self-skips on a non-xattr fs;
+      `move_test` locks the originalPath "did it move?" contract). *Deferred to the commit engine
+      (#16): wiring `ensureDurableId` into a live action — stamping at drag-stage time would write
+      to disk during a preview, breaking "nothing touches disk until commit"; the commit engine is
+      the correct touch point and the API is ready for it. Orphan re-adoption (last-path +
+      fingerprint) lands with persistence (#15).*
 - [ ] JSON group store persistence (XDG data dir, keyed by workspace durable id, id-keyed
       members/exclusions); reconcile rule exclusions against a changed tree on rescan.
 

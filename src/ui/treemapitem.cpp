@@ -363,11 +363,13 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
 }
 
 // The staged-move step that *actually relocated* this node, or 0 if none. A node is
-// only marked when its projected path diverged from its identity (original key): an op
+// only marked when its projected path diverged from where it was scanned: an op
 // projectForest skipped (collision / cycle / unresolved) leaves the node in place, so
-// path == identity and we must not paint a false "moved" badge on it (ADR-302 #12).
+// path == originalPath and we must not paint a false "moved" badge on it (ADR-302 #12).
+// (This compares scanned-vs-projected *paths*, not identity, so it stays correct once
+// identity is a durable UUID rather than the old path-as-key fallback — ADR-100.)
 int TreemapItem::diffStepFor(const core::FsNode *node) const {
-    if (m_diffSteps.isEmpty() || node->path == node->identity)
+    if (m_diffSteps.isEmpty() || node->path == node->originalPath)
         return 0;
     return m_diffSteps.value(core::keyFor(*node), 0);
 }

@@ -26,6 +26,7 @@ add_executable(hfsgraph
     src/core/scanner.cpp
     src/core/group.cpp
     src/core/move.cpp
+    src/platform/identity.cpp # ADR-100 durable id (xattr) + runtime fingerprint (lstat)
     # src/ui/nodeitem.cpp  — parked: the node-link card + file-viewer, kept for a
     #   future click-to-inspect detail panel; not built in the treemap-only canvas.
     src/ui/treemapitem.cpp
@@ -56,6 +57,17 @@ add_executable(move_test
 target_include_directories(move_test PRIVATE src)
 target_link_libraries(move_test PRIVATE Qt6::Core Qt6::Gui) # Gui only for QColor in group.h
 add_test(NAME move_test COMMAND move_test)
+
+# Durable identity (ADR-100): xattr round-trip + fingerprint + keyFor, exercised against
+# a real temp directory. Self-skips the xattr asserts when the fs lacks user.* support.
+add_executable(identity_test
+    tests/identity_test.cpp
+    src/platform/identity.cpp
+    src/core/group.cpp
+)
+target_include_directories(identity_test PRIVATE src)
+target_link_libraries(identity_test PRIVATE Qt6::Core Qt6::Gui) # Gui only for QColor in group.h
+add_test(NAME identity_test COMMAND identity_test)
 
 # Squarify layout (ADR-301) is now a pure function, so it gets its own unit test.
 # QRectF lives in Qt6::Core — no GUI needed.
