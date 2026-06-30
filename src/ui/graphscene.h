@@ -89,6 +89,13 @@ class GraphScene : public QGraphicsScene {
     void updateGroupOverlay(); // repaint the overlay after a group view-state change
     int colorRamp() const { return m_colorRamp; } // current ramp (for the depth legend)
 
+    // Group-store persistence (ADR-102 #15). The store is saved to a per-workspace JSON
+    // sidecar (keyed by the primary base root's path) so colours, view state, exclusions
+    // and manual membership survive a restart. saveGroups() is called on a group edit and
+    // at app close; loadGroups() runs once per workspace when its base is first added
+    // (before rule resolution, so the rule engine reconciles persisted groups to the tree).
+    void saveGroups() const;
+
     // Move staging (ADR-302). The ledger is the staged plan; the canvas renders the
     // *projection* — each base's scanned tree with the ledger's active ops [0, step)
     // replayed (ADR-200 idempotent replay). Mutate the ledger, then rebuildProjection()
@@ -133,7 +140,7 @@ class GraphScene : public QGraphicsScene {
     void ledgerChanged();
 
   private:
-    void resolveGroups();     // re-resolve rule groups across every base's tree
+    void resolveGroups();     // merge persisted groups + re-resolve rule groups across bases
     void updateSceneBounds(); // generous sceneRect so panning works in all directions
     void restackFrames();     // reassign z so each callout sits just under its frame
     // The deepest base-surface cell under a scene point, with the owning base frame —
@@ -156,6 +163,7 @@ class GraphScene : public QGraphicsScene {
     int m_fileMode = 0;               // TreemapItem::FileMode (0 = Auto), persists
     bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
     int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
+    QSet<QString> m_loadedWorkspaces; // roots whose sidecar we've loaded (load once, ADR-102 #15)
     int m_calloutMode = 0;           // 0 Filled, 1 Lines, 2 Off (ADR-304)
     // Move-drag gesture state (#10), live only between begin and end.
     MoveDragOverlay *m_dragOverlay = nullptr;   // top-Z arrow + target highlight, owned

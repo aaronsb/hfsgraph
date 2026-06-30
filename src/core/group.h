@@ -88,6 +88,11 @@ class GroupStore {
     // the store). The id is auto-assigned ("g1", "g2", …).
     Group *create(GroupKind kind, const QString &name, const QColor &color);
 
+    // Adopt a fully-formed group (the JSON loader, ADR-102 #15), keeping its id. Takes
+    // ownership and advances the auto-id counter past a "gN" id so a later create() can't
+    // collide. Returns the stored pointer.
+    Group *adopt(std::unique_ptr<Group> group);
+
     // Remove a group by id. No-op if unknown.
     void remove(const QString &id);
 

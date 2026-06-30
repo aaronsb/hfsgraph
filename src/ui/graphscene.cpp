@@ -1,6 +1,7 @@
 #include "graphscene.h"
 
 #include "core/fsnode.h"
+#include "core/groupstore_io.h"
 #include "core/scanner.h"
 #include "frameitem.h"
 #include "treemapitem.h"
@@ -177,7 +178,7 @@ FrameItem *GraphScene::addBase(std::unique_ptr<core::FsNode> tree) {
     base->setPos(40.0 + n * 48.0, 40.0 + n * 48.0);
     addItem(base);
     m_frames.push_back(base);
-    resolveGroups();     // re-resolve rule groups across all bases (multi-root)
+    resolveGroups();     // merge persisted groups + re-resolve rule groups across all bases
     restackFrames();
     rebuildProjection(); // render the projection (identity until moves are staged)
     Q_EMIT surfacesChanged();
@@ -204,10 +205,22 @@ void GraphScene::resolveGroups() {
     std::vector<const core::FsNode *> roots;
     for (FrameItem *f : baseFrames())
         roots.push_back(f->sourceRoot());
-    if (roots.empty())
+    if (roots.empty()) {
         m_groups.clear(); // no surfaces: drop stale groups so the panel matches
-    else
-        core::resolveRuleGroups(roots, m_groups);
+        return;
+    }
+    // Merge each workspace's persisted groups into the store *before* resolving (ADR-102
+    // #15). The load is additive by id (live state wins), so resolving on every scan is
+    // idempotent: a rule group reconciles to its anchor keeping its saved colour/view/
+    // exclusions instead of being re-created with defaults, and a deeper rescan that newly
+    // reaches a nested repo still picks up that repo's persisted styling. No once-guard:
+    // re-loading can't duplicate (skip-existing) and can't lose (merge-preserving save).
+    for (FrameItem *f : baseFrames()) {
+        const core::FsNode *r = f->sourceRoot();
+        if (r)
+            core::loadGroupStore(m_groups, r->originalPath.isEmpty() ? r->path : r->originalPath);
+    }
+    core::resolveRuleGroups(roots, m_groups);
 }
 
 void GraphScene::rebuildProjection() {
@@ -238,6 +251,21 @@ void GraphScene::rebuildProjection() {
 void GraphScene::updateGroupOverlay() {
     for (FrameItem *f : m_frames)
         f->update(); // every surface carries the same overlay
+    saveGroups();    // a group's view/membership just changed — persist it (ADR-102 #15)
+}
+
+void GraphScene::saveGroups() const {
+    // One sidecar per workspace, keyed by the primary base root's on-disk path. Multi-base
+    // workspaces share one store today; per-base splitting is a deferred follow-up (ADR-102
+    // #15). Nothing to persist with no base.
+    const std::vector<FrameItem *> bases = baseFrames();
+    if (bases.empty())
+        return;
+    const core::FsNode *root = bases.front()->sourceRoot();
+    if (!root)
+        return;
+    const QString rootPath = root->originalPath.isEmpty() ? root->path : root->originalPath;
+    core::saveGroupStore(m_groups, rootPath, root->identity); // identity = durable id, or empty
 }
 
 std::pair<FrameItem *, const core::FsNode *>
