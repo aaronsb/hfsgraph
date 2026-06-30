@@ -93,6 +93,8 @@ std::unique_ptr<FsNode> deepCopy(const FsNode *src, FsNode *parent,
     n->fileCount = src->fileCount;
     n->sizeBytes = src->sizeBytes;
     n->truncatedDepth = src->truncatedDepth;
+    n->originalPath = src->originalPath; // the scanned location; a move rewrites path, not this
+    n->fp = src->fp;                     // carry the runtime fingerprint into the projection
     n->parent = parent;
     const MemberKey key = keyFor(*src);
     n->identity = key; // pin the original key so later moves (which recompute path) still resolve

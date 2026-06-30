@@ -31,6 +31,7 @@ FsNode *addChild(FsNode *parent, const QString &name, int ownFiles = 0) {
     auto c = std::make_unique<FsNode>();
     c->name = name;
     c->path = parent->path + QLatin1Char('/') + name;
+    c->originalPath = c->path; // the scanner sets this; the diff overlay reads it
     c->parent = parent;
     c->fileCount = ownFiles;
     FsNode *raw = c.get();
@@ -41,6 +42,7 @@ FsNode *addChild(FsNode *parent, const QString &name, int ownFiles = 0) {
 std::unique_ptr<FsNode> makeRoot(const QString &path) {
     auto r = std::make_unique<FsNode>();
     r->path = path;
+    r->originalPath = path;
     r->name = path.mid(path.lastIndexOf(QLatin1Char('/')) + 1);
     return r;
 }
@@ -119,6 +121,12 @@ void testMove() {
     check(moved != nullptr, "move: leaf arrived under new parent");
     check(moved && moved->path == QStringLiteral("/r/b/leaf"), "move: path recomputed");
     check(moved && moved->parent == pb, "move: parent pointer updated");
+    // The diff overlay's "did it actually relocate?" contract (ADR-302 #12 / ADR-100):
+    // a moved node's path diverges from where it was scanned, an unmoved one's does not.
+    check(moved && moved->originalPath == QStringLiteral("/r/a/leaf"),
+          "move: originalPath holds the scanned location");
+    check(moved && moved->path != moved->originalPath, "move: relocated → path != originalPath");
+    check(pa && pa->path == pa->originalPath, "move: untouched sibling → path == originalPath");
 }
 
 void testCycleAndCollision() {
