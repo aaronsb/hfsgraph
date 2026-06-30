@@ -21,8 +21,8 @@ namespace core {
 
 class GroupStore;
 
-// The sidecar path for `rootAbsPath` (…/hfsgraph/<sha1(path)>.json). Pure — derives the
-// path, touches no disk. Exposed for tests and callers that want to check existence.
+// The sidecar path for `rootAbsPath` (…/hfsgraph/<first 16 hex of sha1(path)>.json).
+// Pure — derives the path, touches no disk. Exposed for tests and existence checks.
 QString workspaceStorePath(const QString &rootAbsPath);
 
 // Write `store` to the sidecar for `rootAbsPath`, recording `workspaceId` (the root's

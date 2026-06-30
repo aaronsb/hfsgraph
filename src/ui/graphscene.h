@@ -13,7 +13,6 @@
 #include "core/move.h"
 
 #include <QHash>
-#include <QSet>
 
 #include <memory>
 #include <vector>
@@ -141,8 +140,7 @@ class GraphScene : public QGraphicsScene {
     void ledgerChanged();
 
   private:
-    void loadGroupsOnce(const QString &rootPath); // load a workspace's sidecar, once per root
-    void resolveGroups();     // re-resolve rule groups across every base's tree
+    void resolveGroups();     // merge persisted groups + re-resolve rule groups across bases
     void updateSceneBounds(); // generous sceneRect so panning works in all directions
     void restackFrames();     // reassign z so each callout sits just under its frame
     // The deepest base-surface cell under a scene point, with the owning base frame —

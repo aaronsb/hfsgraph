@@ -178,12 +178,7 @@ FrameItem *GraphScene::addBase(std::unique_ptr<core::FsNode> tree) {
     base->setPos(40.0 + n * 48.0, 40.0 + n * 48.0);
     addItem(base);
     m_frames.push_back(base);
-    // Load this workspace's persisted groups *before* rule resolution, so the rule engine
-    // reconciles a persisted rule group to its current anchor (preserving its colour/view/
-    // exclusions) instead of creating a fresh duplicate (ADR-102 #15). Keyed by the scanned
-    // root's on-disk path; once per root, so a depth re-scan doesn't clobber live state.
-    loadGroupsOnce(render->originalPath.isEmpty() ? render->path : render->originalPath);
-    resolveGroups();     // re-resolve rule groups across all bases (multi-root)
+    resolveGroups();     // merge persisted groups + re-resolve rule groups across all bases
     restackFrames();
     rebuildProjection(); // render the projection (identity until moves are staged)
     Q_EMIT surfacesChanged();
@@ -210,10 +205,22 @@ void GraphScene::resolveGroups() {
     std::vector<const core::FsNode *> roots;
     for (FrameItem *f : baseFrames())
         roots.push_back(f->sourceRoot());
-    if (roots.empty())
+    if (roots.empty()) {
         m_groups.clear(); // no surfaces: drop stale groups so the panel matches
-    else
-        core::resolveRuleGroups(roots, m_groups);
+        return;
+    }
+    // Merge each workspace's persisted groups into the store *before* resolving (ADR-102
+    // #15). The load is additive by id (live state wins), so resolving on every scan is
+    // idempotent: a rule group reconciles to its anchor keeping its saved colour/view/
+    // exclusions instead of being re-created with defaults, and a deeper rescan that newly
+    // reaches a nested repo still picks up that repo's persisted styling. No once-guard:
+    // re-loading can't duplicate (skip-existing) and can't lose (merge-preserving save).
+    for (FrameItem *f : baseFrames()) {
+        const core::FsNode *r = f->sourceRoot();
+        if (r)
+            core::loadGroupStore(m_groups, r->originalPath.isEmpty() ? r->path : r->originalPath);
+    }
+    core::resolveRuleGroups(roots, m_groups);
 }
 
 void GraphScene::rebuildProjection() {
@@ -245,13 +252,6 @@ void GraphScene::updateGroupOverlay() {
     for (FrameItem *f : m_frames)
         f->update(); // every surface carries the same overlay
     saveGroups();    // a group's view/membership just changed — persist it (ADR-102 #15)
-}
-
-void GraphScene::loadGroupsOnce(const QString &rootPath) {
-    if (rootPath.isEmpty() || m_loadedWorkspaces.contains(rootPath))
-        return;
-    m_loadedWorkspaces.insert(rootPath); // mark first so a parse failure isn't retried
-    core::loadGroupStore(m_groups, rootPath);
 }
 
 void GraphScene::saveGroups() const {

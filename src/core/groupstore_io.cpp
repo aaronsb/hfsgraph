@@ -8,7 +8,10 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMap>
+#include <QSaveFile>
 #include <QStandardPaths>
+#include <QStringList>
 
 namespace core {
 
@@ -30,8 +33,10 @@ QString ruleToString(GroupRule) { return QStringLiteral("git-worktree"); }
 GroupRule ruleFromString(const QString &) { return GroupRule::GitWorktree; }
 
 QJsonArray keysToJson(const QSet<MemberKey> &keys) {
+    QStringList sorted(keys.begin(), keys.end());
+    sorted.sort(); // deterministic order → a sidecar diff reflects real changes, not hash churn
     QJsonArray arr;
-    for (const MemberKey &k : keys)
+    for (const MemberKey &k : sorted)
         arr.append(k);
     return arr;
 }
@@ -107,21 +112,49 @@ bool saveGroupStore(const GroupStore &store, const QString &rootAbsPath,
                     const QString &workspaceId) {
     if (!QDir().mkpath(dataDir())) // XDG data dir, never the scanned tree
         return false;
+    const QString path = workspaceStorePath(rootAbsPath);
+
+    // Merge-preserve, keyed by group id: seed from whatever is already on disk, then
+    // overlay the in-memory store. A group the in-memory store has *dropped* (e.g. a
+    // shallow scan didn't reach a nested repo's anchor, so resolveRuleGroups judged it
+    // stale and removed it) is kept on disk instead of being silently erased — that loss
+    // would be irreversible. QMap keeps the output ordered by id for stable diffs. Trade-
+    // off: a group whose anchor is *genuinely* gone lingers (there is no group-removal UI
+    // yet); explicit deletion + stale cleanup is a deferred follow-up (ADR-102 #15).
+    QMap<QString, QJsonObject> byId;
+    {
+        QFile in(path);
+        if (in.open(QIODevice::ReadOnly)) {
+            const QJsonDocument prev = QJsonDocument::fromJson(in.readAll());
+            if (prev.isObject())
+                for (const QJsonValue &v : prev.object()[QStringLiteral("groups")].toArray()) {
+                    const QJsonObject o = v.toObject();
+                    byId.insert(o[QStringLiteral("id")].toString(), o);
+                }
+        }
+    }
+    for (const auto &g : store.groups())
+        byId.insert(g->id, groupToJson(*g)); // overlay live state over the on-disk copy
 
     QJsonObject root;
     root[QStringLiteral("version")] = kFormatVersion;
     root[QStringLiteral("workspaceRoot")] = rootAbsPath;
     root[QStringLiteral("workspaceId")] = workspaceId; // durable id if known, else empty
     QJsonArray groups;
-    for (const auto &g : store.groups())
-        groups.append(groupToJson(*g));
+    for (const QJsonObject &o : byId) // QMap iterates sorted by key (id)
+        groups.append(o);
     root[QStringLiteral("groups")] = groups;
 
-    QFile f(workspaceStorePath(rootAbsPath));
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    // QSaveFile commits atomically (temp + rename), so a crash mid-write can't leave a
+    // truncated sidecar that loadGroupStore would then drop as corrupt.
+    QSaveFile f(path);
+    if (!f.open(QIODevice::WriteOnly))
         return false;
-    f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-    return true;
+    if (f.write(QJsonDocument(root).toJson(QJsonDocument::Indented)) < 0) {
+        f.cancelWriting();
+        return false;
+    }
+    return f.commit();
 }
 
 bool loadGroupStore(GroupStore &store, const QString &rootAbsPath) {
@@ -131,9 +164,21 @@ bool loadGroupStore(GroupStore &store, const QString &rootAbsPath) {
     const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
     if (!doc.isObject())
         return false; // corrupt / unexpected — leave the store untouched
-    const QJsonArray groups = doc.object()[QStringLiteral("groups")].toArray();
-    for (const QJsonValue &v : groups)
-        store.adopt(groupFromJson(v.toObject()));
+    const QJsonObject root = doc.object();
+    // Refuse a sidecar written by a newer format than we understand, rather than silently
+    // mis-parsing it (and then overwriting it on the next save). Absent version ⇒ treat as
+    // current (the field has existed since v1).
+    if (root[QStringLiteral("version")].toInt(kFormatVersion) > kFormatVersion)
+        return false;
+    for (const QJsonValue &v : root[QStringLiteral("groups")].toArray()) {
+        const QJsonObject o = v.toObject();
+        // Additive merge: a group already in the store (by id) is live state that is at
+        // least as fresh as disk (we save on every edit), so it wins — skip it. This lets
+        // the loader run before every resolve without duplicating on repeated scans.
+        if (store.find(o[QStringLiteral("id")].toString()))
+            continue;
+        store.adopt(groupFromJson(o));
+    }
     return true;
 }
 
