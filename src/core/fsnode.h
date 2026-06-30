@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Pure model of a scanned directory tree. No Qt-GUI / no rendering concerns —
 // this is the "core" layer the UI merely renders (ADR-101, ADR-200). Keeping it
 // dependency-light is deliberate: it is the seam a future Rust core would sit

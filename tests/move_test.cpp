@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Unit tests for the move-staging model (ADR-302 / task #9): core::Ledger editing
 // semantics and core::projectForest replay. Pure core, no Qt-GUI — a plain assert
 // harness registered with ctest (no extra test-framework dependency).

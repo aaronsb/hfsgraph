@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // JSON persistence for the semantic group store (ADR-102 / task #15). A per-workspace
 // sidecar in the XDG data dir (`~/.local/share/hfsgraph/<hash>.json`) keeps a group's
 // colour, view state, exclusions, and (for manual groups) membership across sessions.

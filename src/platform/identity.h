@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // OS-facility layer for ADR-100 durable identity. This is the *only* place that talks
 // to xattrs and stat(2); the core model stays dependency-light (the "Rust core" seam,
 // CONCEPT.md) and merely holds the results (core::FsNode::identity / ::fp). Linux-only

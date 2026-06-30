@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Unit tests for the commit-engine dry-run verification (ADR-200 / task #16a):
 // core::verifyPlan. The on-disk stat is injected, so every verdict — OK, drift, missing,
 // cross-volume, illegal, unresolved — is reachable without touching a real filesystem.

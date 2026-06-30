@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Top-level window: toolbar ("Add base folder", scan depth, appearance) over the
 // canvas. The canvas can hold several base surfaces (ADR-304); each base frame owns
 // its own scanned tree, so MainWindow keeps no tree state — it orchestrates scans

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Read-only filesystem scanner: builds an FsNode tree from a directory.
 // Strictly read-only (the POC never writes). Lives in the core layer.
 #pragma once

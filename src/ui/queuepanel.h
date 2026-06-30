@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Bottom dock for the staged move plan (ADR-302 #11): the ledger made visible and
 // editable. One row per queued MoveOp ("source → destination"), preceded by a Base
 // row for the un-staged state. Selecting a row *scrubs* the projection to that step

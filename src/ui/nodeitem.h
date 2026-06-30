@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // A directory as a rounded-rect canvas card. A "window-shade" toggle rolls the
 // card between two states:
 //   * shaded  -> a compact node showing stats (files, dirs, size on disk);

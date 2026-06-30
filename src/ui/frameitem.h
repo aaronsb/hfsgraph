@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // An investigation frame (ADR-303): a floating panel, living in the *same* scene
 // as the base treemap, that holds its own squarified treemap rooted at a
 // double-clicked subtree. It does not re-root the base — it's a non-destructive,

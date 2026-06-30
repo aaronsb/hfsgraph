@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The viewport: wheel-zoom, middle-button drag-to-pan, and a dotted-grid
 // background that gives the canvas a sense of physical space (ADR-300 design
 // language). Panning is on the middle button because the treemap fills the
