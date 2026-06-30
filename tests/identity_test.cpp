@@ -97,6 +97,19 @@ void testStampRoundTrip(const QString &dir) {
           "ensure: stamps the on-disk originalPath, not the staged path");
     check(platform::ensureDurableId(n2) == minted, "ensure: second call is idempotent");
 
+    // A projection node of a never-stamped dir: deepCopy pins identity = keyFor(src) = the
+    // dir's *path* (a non-empty fallback key, not a real id). ensureDurableId must consult
+    // disk, see no id, and mint — not early-return the path. (The #16 readiness contract.)
+    QTemporaryDir proj;
+    check(proj.isValid(), "ensure: temp dir for the projection case");
+    core::FsNode n3;
+    n3.originalPath = proj.path();
+    n3.identity = proj.path(); // a path-fallback key, exactly what deepCopy would pin
+    const QString projId = platform::ensureDurableId(n3);
+    check(!projId.isEmpty() && projId != proj.path(), "ensure: path-fallback identity is not mistaken for an id");
+    check(n3.identity == projId && platform::readDurableId(proj.path()) == projId,
+          "ensure: minted + stamped despite a non-empty path-fallback identity");
+
     // The whole point: the id travels with the directory through a rename, and the inode
     // (the ephemeral fingerprint) is preserved by an in-filesystem mv.
     const core::Fingerprint before = platform::statFingerprint(dir);

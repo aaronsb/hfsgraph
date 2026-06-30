@@ -41,12 +41,13 @@ QString newDurableId();
 // object. Don't hand these a symlink path.
 core::Fingerprint statFingerprint(const QString &path);
 
-// Lazy stamping (ADR-100): if `node` already carries a durable id, return it unchanged;
-// otherwise mint one, write it to the node's *on-disk* location (`originalPath`, since a
-// projection rewrites `path` to a staged destination that doesn't exist on disk), and —
-// only if the write succeeds — record it on `node.identity`. Returns the node's durable
-// id (empty when the write failed, e.g. unsupported fs, so the node stays path-keyed).
-// Idempotent.
+// Lazy stamping (ADR-100): ensure the node's *on-disk* directory carries a durable id,
+// and record it on `node.identity`. Reads the dir's xattr (the authority — a non-empty
+// in-memory `identity` may just be the projection's path-fallback key, not a real id):
+// adopts an existing id, otherwise mints one and writes it. Stamps `originalPath`, since
+// a projection rewrites `path` to a staged destination that doesn't exist on disk.
+// Returns the durable id, or empty when the write failed (e.g. unsupported fs, so the
+// node stays path-keyed). Idempotent. (Orphan re-adoption of a stripped id is #15.)
 QString ensureDurableId(core::FsNode &node);
 
 } // namespace platform

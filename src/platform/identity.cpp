@@ -73,17 +73,22 @@ core::Fingerprint statFingerprint(const QString &path) {
 }
 
 QString ensureDurableId(core::FsNode &node) {
-    if (!node.identity.isEmpty())
-        return node.identity; // already stamped (this session or a prior one)
-    // Stamp the *on-disk* location, not `path`: in a projection a moved node's `path` is
-    // the staged (non-existent) destination, while `originalPath` is where the directory
-    // actually lives, so setxattr would fail on `path`. They coincide on a freshly scanned
-    // node. (Scanned nodes always carry originalPath; fall back to path for a bare node.)
+    // Stamp / read the *on-disk* location, not `path`: in a projection a moved node's
+    // `path` is the staged (non-existent) destination, while `originalPath` is where the
+    // directory actually lives. They coincide on a freshly scanned node. (Scanned nodes
+    // always carry originalPath; fall back to path for a bare node.)
     const QString onDisk = node.originalPath.isEmpty() ? node.path : node.originalPath;
-    const QString id = newDurableId();
-    if (stampDurableId(onDisk, id))
-        node.identity = id; // only adopt the id once it's durably on disk
-    return node.identity;   // empty when the fs rejected the write — caller stays path-keyed
+    // Disk is the authority, not `node.identity`: the projection pins a *path* into
+    // `identity` as a fallback key (deepCopy), so a non-empty `identity` doesn't prove the
+    // dir is stamped. Re-read the xattr — adopt an existing id, mint one only when absent.
+    QString id = readDurableId(onDisk);
+    if (id.isEmpty()) {
+        id = newDurableId();
+        if (!stampDurableId(onDisk, id))
+            return QString(); // fs rejected the write — caller stays path-keyed
+    }
+    node.identity = id; // adopt the durable on-disk id (idempotent on repeat calls)
+    return id;
 }
 
 } // namespace platform
