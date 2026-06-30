@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Unit tests for durable directory identity (ADR-100 / task #14): the platform xattr +
 // fingerprint primitives and how keyFor() consumes them. Touches a real temp directory
 // (xattrs and stat have no in-memory fake worth building); the xattr round-trip asserts

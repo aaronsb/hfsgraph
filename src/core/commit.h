@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Commit engine — dry-run verification half (ADR-200 / task #16a). ADR-200 is a staged
 // transaction: edits accumulate in the Ledger (ADR-302), then before anything touches disk
 // the plan is *verified* — applied to a virtual view of the tree and reported per-op as

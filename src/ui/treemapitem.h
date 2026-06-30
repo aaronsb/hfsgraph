@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // A squarified treemap of the containment tree (ADR-300's nested-containment
 // view): every directory is a rectangle, subdivided among its children with area
 // ∝ subtree file count. Nesting *is* the parent→child relationship, so there are

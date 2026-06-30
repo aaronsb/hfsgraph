@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Unit tests for group-store JSON persistence (ADR-102 / task #15): the save/load
 // round-trip of core::GroupStore. Runs with QStandardPaths test mode enabled so the
 // sidecar lands in a throwaway temp dir, never the real ~/.local/share. Plain assert

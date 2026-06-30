@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "frameitem.h"
 
 #include "core/fsnode.h"

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Move staging model (ADR-302): the staged changeset that sits on top of the
 // immutable scanned tree(s). The only structural operation is re-parenting a node
 // — a `mv` (ADR-101) — so a staged change is a MoveOp, the plan is an ordered,

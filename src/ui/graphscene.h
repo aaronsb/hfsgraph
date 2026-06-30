@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Hosts the treemap surfaces (ADR-301/304). The graph is a strict containment tree
 // (ADR-101), rendered as squarified treemaps where nesting *is* the parent→child
 // relationship and semantic (level-of-detail) zoom reveals depth — no fixed render

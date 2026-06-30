@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Semantic groups (ADR-102): a many-to-many overlay on top of the containment
 // tree (ADR-101). One node may belong to many groups; a group carries behavioral
 // policy and view state, not data. This header is the in-memory model + store

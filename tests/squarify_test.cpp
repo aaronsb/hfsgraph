@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Unit tests for the squarified-treemap layout (ui::squarify), extracted from
 // TreemapItem so the algorithm can be checked in isolation. Pure geometry — a plain
 // assert harness registered with ctest, matching tests/move_test.cpp's style.

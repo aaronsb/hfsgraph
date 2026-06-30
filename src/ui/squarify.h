@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Squarified treemap layout (Bruls/Huizing/van Wijk). Pure geometry, no painter or
 // scene state — split out of TreemapItem so the layout algorithm can be read, tested
 // and reused independently of the rendering that consumes it.

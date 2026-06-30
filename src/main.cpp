@@ -1,9 +1,12 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // hfsgraph — a canvas tool for re-wiring a directory hierarchy to match its
 // semantic structure.
 //
-// POC milestone (read-only viewer): directories as nodes, containment as edges,
-// rendered on a QGraphicsView canvas with a collapse/expand containment toggle.
-// See CONCEPT.md "First pass (MVP)" and ADR-300/ADR-400.
+// A squarified treemap of the scanned tree (nesting = containment) on a QGraphicsView
+// canvas, with semantic level-of-detail zoom and floating investigation frames, plus a
+// propose → verify → commit workflow over `mv`. See CONCEPT.md and ADR-301/303/304/400.
 //
 // Usage: hfsgraph [PATH] [DEPTH]
 //   PATH   directory to graph (default: ~/Projects if present, else $HOME)
@@ -24,6 +27,9 @@ int main(int argc, char *argv[]) {
                      QStringLiteral("Re-wire a directory hierarchy to match its "
                                     "semantic structure"),
                      KAboutLicense::GPL_V3);
+    // GPL-3.0-or-later to match the SPDX file headers (KF6 has no GPL_V3Plus enum; the
+    // version restriction is how "or later" is expressed).
+    about.setLicense(KAboutLicense::GPL_V3, KAboutLicense::OrLaterVersions);
     KAboutData::setApplicationData(about);
 
     const QStringList args = app.arguments();

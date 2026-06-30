@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Left dock panel for the canvas's surfaces and semantic groups. At the top, a
 // list of the open *base* surfaces (ADR-304), each removable. Below, a **table** of
 // the semantic groups (ADR-102) — one row per group with a colour swatch, name,

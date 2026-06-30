@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aaron Bockelie <aaronsb@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Single source of truth for how a file type is presented (ADR-301): its theme
 // icon and its colour, both keyed by filename extension. The treemap's icon LOD
 // rung draws the icon; the finer pixel-dot rung draws the colour; a future coloured
