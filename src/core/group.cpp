@@ -35,6 +35,20 @@ Group *GroupStore::create(GroupKind kind, const QString &name, const QColor &col
     return raw;
 }
 
+Group *GroupStore::adopt(std::unique_ptr<Group> group) {
+    // Keep the loaded id, but bump m_nextId past it if it's our "gN" scheme, so a future
+    // create() can't hand out a colliding id.
+    if (group->id.startsWith(QLatin1Char('g'))) {
+        bool ok = false;
+        const int n = group->id.mid(1).toInt(&ok);
+        if (ok && n >= m_nextId)
+            m_nextId = n + 1;
+    }
+    Group *raw = group.get();
+    m_groups.push_back(std::move(group));
+    return raw;
+}
+
 void GroupStore::remove(const QString &id) {
     for (auto it = m_groups.begin(); it != m_groups.end(); ++it) {
         if ((*it)->id == id) {

@@ -25,6 +25,7 @@ add_executable(hfsgraph
     src/main.cpp
     src/core/scanner.cpp
     src/core/group.cpp
+    src/core/groupstore_io.cpp # ADR-102 #15 JSON group-store persistence (XDG sidecar)
     src/core/move.cpp
     src/platform/identity.cpp # ADR-100 durable id (xattr) + runtime fingerprint (lstat)
     # src/ui/nodeitem.cpp  — parked: the node-link card + file-viewer, kept for a
@@ -68,6 +69,17 @@ add_executable(identity_test
 target_include_directories(identity_test PRIVATE src)
 target_link_libraries(identity_test PRIVATE Qt6::Core Qt6::Gui) # Gui only for QColor in group.h
 add_test(NAME identity_test COMMAND identity_test)
+
+# Group-store JSON persistence (ADR-102 #15): save/load round-trip into a temp XDG dir
+# (QStandardPaths test mode), so the suite never touches the real ~/.local/share.
+add_executable(groupstore_io_test
+    tests/groupstore_io_test.cpp
+    src/core/groupstore_io.cpp
+    src/core/group.cpp
+)
+target_include_directories(groupstore_io_test PRIVATE src)
+target_link_libraries(groupstore_io_test PRIVATE Qt6::Core Qt6::Gui) # Gui for QColor
+add_test(NAME groupstore_io_test COMMAND groupstore_io_test)
 
 # Squarify layout (ADR-301) is now a pure function, so it gets its own unit test.
 # QRectF lives in Qt6::Core — no GUI needed.

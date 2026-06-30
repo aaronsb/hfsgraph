@@ -1,6 +1,7 @@
 #include "graphscene.h"
 
 #include "core/fsnode.h"
+#include "core/groupstore_io.h"
 #include "core/scanner.h"
 #include "frameitem.h"
 #include "treemapitem.h"
@@ -177,6 +178,11 @@ FrameItem *GraphScene::addBase(std::unique_ptr<core::FsNode> tree) {
     base->setPos(40.0 + n * 48.0, 40.0 + n * 48.0);
     addItem(base);
     m_frames.push_back(base);
+    // Load this workspace's persisted groups *before* rule resolution, so the rule engine
+    // reconciles a persisted rule group to its current anchor (preserving its colour/view/
+    // exclusions) instead of creating a fresh duplicate (ADR-102 #15). Keyed by the scanned
+    // root's on-disk path; once per root, so a depth re-scan doesn't clobber live state.
+    loadGroupsOnce(render->originalPath.isEmpty() ? render->path : render->originalPath);
     resolveGroups();     // re-resolve rule groups across all bases (multi-root)
     restackFrames();
     rebuildProjection(); // render the projection (identity until moves are staged)
@@ -238,6 +244,28 @@ void GraphScene::rebuildProjection() {
 void GraphScene::updateGroupOverlay() {
     for (FrameItem *f : m_frames)
         f->update(); // every surface carries the same overlay
+    saveGroups();    // a group's view/membership just changed — persist it (ADR-102 #15)
+}
+
+void GraphScene::loadGroupsOnce(const QString &rootPath) {
+    if (rootPath.isEmpty() || m_loadedWorkspaces.contains(rootPath))
+        return;
+    m_loadedWorkspaces.insert(rootPath); // mark first so a parse failure isn't retried
+    core::loadGroupStore(m_groups, rootPath);
+}
+
+void GraphScene::saveGroups() const {
+    // One sidecar per workspace, keyed by the primary base root's on-disk path. Multi-base
+    // workspaces share one store today; per-base splitting is a deferred follow-up (ADR-102
+    // #15). Nothing to persist with no base.
+    const std::vector<FrameItem *> bases = baseFrames();
+    if (bases.empty())
+        return;
+    const core::FsNode *root = bases.front()->sourceRoot();
+    if (!root)
+        return;
+    const QString rootPath = root->originalPath.isEmpty() ? root->path : root->originalPath;
+    core::saveGroupStore(m_groups, rootPath, root->identity); // identity = durable id, or empty
 }
 
 std::pair<FrameItem *, const core::FsNode *>

@@ -144,6 +144,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 }
 
 MainWindow::~MainWindow() {
+    // Persist the group store on the way out so freshly auto-resolved rule groups (whose
+    // default colour/view never went through an edit-triggered save) survive a restart
+    // (ADR-102 #15). m_scene is a child QObject, still alive in this destructor body.
+    m_scene->saveGroups();
     // A scan could still be in flight at shutdown; balance the override cursor we pushed
     // so it isn't left on QApplication's global stack.
     if (m_busyActive)
