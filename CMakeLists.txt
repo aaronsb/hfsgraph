@@ -26,6 +26,7 @@ add_executable(hfsgraph
     src/core/scanner.cpp
     src/core/group.cpp
     src/core/groupstore_io.cpp # ADR-102 #15 JSON group-store persistence (XDG sidecar)
+    src/core/commit.cpp        # ADR-200 #16 commit engine — dry-run verification half
     src/core/move.cpp
     src/platform/identity.cpp # ADR-100 durable id (xattr) + runtime fingerprint (lstat)
     # src/ui/nodeitem.cpp  — parked: the node-link card + file-viewer, kept for a
@@ -80,6 +81,19 @@ add_executable(groupstore_io_test
 target_include_directories(groupstore_io_test PRIVATE src)
 target_link_libraries(groupstore_io_test PRIVATE Qt6::Core Qt6::Gui) # Gui for QColor
 add_test(NAME groupstore_io_test COMMAND groupstore_io_test)
+
+# Commit-engine dry-run verification (ADR-200 #16a): per-op legality, fingerprint drift,
+# and volume-boundary classification, with an injected stat function (no disk needed).
+add_executable(commit_test
+    tests/commit_test.cpp
+    src/core/commit.cpp
+    src/core/move.cpp
+    src/core/group.cpp
+    src/platform/identity.cpp
+)
+target_include_directories(commit_test PRIVATE src)
+target_link_libraries(commit_test PRIVATE Qt6::Core Qt6::Gui) # Gui only for QColor in group.h
+add_test(NAME commit_test COMMAND commit_test)
 
 # Squarify layout (ADR-301) is now a pure function, so it gets its own unit test.
 # QRectF lives in Qt6::Core — no GUI needed.

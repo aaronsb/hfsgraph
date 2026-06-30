@@ -1,5 +1,6 @@
 #include "queuepanel.h"
 
+#include "core/commit.h"
 #include "core/move.h"
 #include "graphscene.h"
 
@@ -8,6 +9,7 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QStringList>
 #include <QVBoxLayout>
 
 namespace ui {
@@ -38,25 +40,30 @@ QueuePanel::QueuePanel(GraphScene *scene, QWidget *parent) : QWidget(parent), m_
     m_undo = new QPushButton(QStringLiteral("Undo"), this);
     m_redo = new QPushButton(QStringLiteral("Redo"), this);
     m_clear = new QPushButton(QStringLiteral("Clear"), this);
+    m_verify = new QPushButton(QStringLiteral("Verify…"), this);
     m_commit = new QPushButton(QStringLiteral("Commit…"), this);
     m_undo->setToolTip(QStringLiteral("Remove the last staged move (re-doable)"));
     m_redo->setToolTip(QStringLiteral("Restore the last undone move"));
     m_clear->setToolTip(QStringLiteral("Discard the whole staged plan"));
+    m_verify->setToolTip(QStringLiteral("Dry-run: prove the plan legal against current disk "
+                                        "(ADR-200) — reads only, changes nothing"));
     m_commit->setToolTip(QStringLiteral("Apply the plan to disk — not yet implemented"));
     connect(m_undo, &QPushButton::clicked, this, [this] { m_scene->undoMove(); });
     connect(m_redo, &QPushButton::clicked, this, [this] { m_scene->redoMove(); });
     connect(m_clear, &QPushButton::clicked, this, [this] { m_scene->clearMoves(); });
+    connect(m_verify, &QPushButton::clicked, this, [this] { showVerifyReport(); });
     connect(m_commit, &QPushButton::clicked, this, [this] {
         QMessageBox::information(
             this, QStringLiteral("Commit"),
-            QStringLiteral("The commit engine isn't built yet (ADR-200): the plan would be "
-                           "re-verified against disk, then applied as ordered moves with "
-                           "rollback. For now the plan stays staged — scrub, undo, or clear it."));
+            QStringLiteral("Apply isn't built yet (ADR-200 #16b): it will snapshot, re-verify, "
+                           "and apply the moves in order with rollback. Use Verify… to dry-run "
+                           "the plan against disk now; until then it stays staged."));
     });
     bar->addWidget(m_undo);
     bar->addWidget(m_redo);
     bar->addWidget(m_clear);
     bar->addStretch(1);
+    bar->addWidget(m_verify);
     bar->addWidget(m_commit);
     root->addLayout(bar);
 
@@ -96,6 +103,7 @@ void QueuePanel::refresh() {
     m_undo->setEnabled(led.canUndo());
     m_redo->setEnabled(led.canRedo());
     m_clear->setEnabled(!led.empty());
+    m_verify->setEnabled(!led.empty());
     m_commit->setEnabled(!led.empty());
     if (n == 0)
         m_status->setText(QStringLiteral("No moves staged"));
@@ -108,6 +116,40 @@ void QueuePanel::onRowActivated(int row) {
     if (m_populating || row < 0)
         return;
     m_scene->scrubTo(row); // row index is the step (0 = base, i = after op i)
+}
+
+void QueuePanel::showVerifyReport() {
+    const core::CommitPlan plan = m_scene->verifyLedger();
+    if (plan.ops.empty()) {
+        QMessageBox::information(this, QStringLiteral("Verify"),
+                                 QStringLiteral("No moves staged to verify."));
+        return;
+    }
+    // One line per op (numbered to match the queue rows). Blocked ops carry their reason.
+    QStringList lines;
+    for (int i = 0; i < static_cast<int>(plan.ops.size()); ++i) {
+        const core::OpVerification &v = plan.ops[i];
+        const QString mark = v.status == core::VerifyStatus::Ok ? QStringLiteral("✓")
+                                                                : QStringLiteral("✗");
+        lines << QStringLiteral("%1 %2. %3").arg(mark).arg(i + 1).arg(v.detail);
+    }
+    const QString summary =
+        plan.allClear()
+            ? QStringLiteral("All %1 staged move(s) verified — the plan is legal against the "
+                             "current disk.")
+                  .arg(plan.okCount())
+            : QStringLiteral("%1 of %2 move(s) OK, %3 blocked. Apply will refuse the blocked "
+                             "ones until you re-scan or adjust the plan.")
+                  .arg(plan.okCount())
+                  .arg(plan.ops.size())
+                  .arg(plan.blockedCount());
+
+    QMessageBox box(this);
+    box.setWindowTitle(QStringLiteral("Verify plan"));
+    box.setIcon(plan.allClear() ? QMessageBox::Information : QMessageBox::Warning);
+    box.setText(summary);
+    box.setDetailedText(lines.join(QLatin1Char('\n')));
+    box.exec();
 }
 
 } // namespace ui

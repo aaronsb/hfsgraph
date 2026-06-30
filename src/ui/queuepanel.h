@@ -29,12 +29,14 @@ class QueuePanel : public QWidget {
 
   private:
     void onRowActivated(int row); // a row clicked → scrub the projection to that step
+    void showVerifyReport();      // dry-run the plan against disk and report (ADR-200 #16a)
 
     GraphScene *m_scene = nullptr;
     QListWidget *m_list = nullptr;   // row 0 = Base (step 0); rows 1..n = ops
     QPushButton *m_undo = nullptr;
     QPushButton *m_redo = nullptr;
     QPushButton *m_clear = nullptr;
+    QPushButton *m_verify = nullptr;
     QPushButton *m_commit = nullptr;
     QLabel *m_status = nullptr;      // "Previewing k of n staged moves"
     bool m_populating = false;       // guard so refresh()'s selection doesn't re-scrub

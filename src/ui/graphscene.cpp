@@ -248,6 +248,15 @@ void GraphScene::rebuildProjection() {
     refreshCallouts();
 }
 
+core::CommitPlan GraphScene::verifyLedger() const {
+    // Verify against the immutable scanned sources (real on-disk paths + recorded
+    // fingerprints), not the projection — the engine re-stats the actual filesystem.
+    std::vector<const core::FsNode *> roots;
+    for (FrameItem *b : baseFrames())
+        roots.push_back(b->sourceRoot());
+    return core::verifyPlan(roots, m_ledger.active());
+}
+
 void GraphScene::updateGroupOverlay() {
     for (FrameItem *f : m_frames)
         f->update(); // every surface carries the same overlay

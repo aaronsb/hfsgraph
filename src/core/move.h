@@ -88,4 +88,15 @@ class Ledger {
 std::vector<std::unique_ptr<FsNode>> projectForest(const std::vector<const FsNode *> &roots,
                                                    const std::vector<MoveOp> &ops);
 
+// Replay `ops` over a deep copy (same evolving-tree logic as projectForest) and report,
+// per op and index-aligned, the legality checkMove produced *at that point in the replay*
+// — i.e. against the tree as earlier ops left it, not the static base. `Ok` means the op
+// applied; any other value is why it was skipped. This is what the dry-run verifier
+// (ADR-200 #16a) needs so a chained plan (op B relies on what op A cleared) is judged in
+// apply order, not falsely flagged against the base. An op whose keys don't resolve maps
+// to SameNode (the null-node verdict). The copy is discarded; nothing is returned but the
+// verdicts.
+std::vector<MoveLegality> replayLegality(const std::vector<const FsNode *> &roots,
+                                         const std::vector<MoveOp> &ops);
+
 } // namespace core

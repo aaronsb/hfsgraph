@@ -180,8 +180,19 @@ unless noted; each had a code-reviewer pass.
       members/exclusions); reconcile rule exclusions against a changed tree on rescan.
 
 ## Slice 5 — Real commit engine (ADR-200, eventually Rust ADR-401)
-- [ ] Commit: re-verify the whole queue vs current disk (drift), btrfs snapshot, apply moves in
-      order, fsync, rollback on failure. All-or-nothing. Replaces the Slice-3 stub.
+- [x] **(#16a) Dry-run verification half** — `core/commit.{h,cpp}` (`verifyPlan`): a pure,
+      UI-free engine that proves the staged plan against the *current* disk, per active op:
+      structural legality (`checkMove`), source identity/drift (recorded `(dev,inode)`
+      fingerprint from #14 vs. a fresh stat of the on-disk `originalPath`), source existence,
+      and volume-boundary (`EXDEV`) classification → `CommitPlan` of `OpVerification`s. The
+      disk stat is injected (`FingerprintFn`) so every verdict is unit-tested without touching
+      disk (`tests/commit_test.cpp`). Wired to a new queue-dock **Verify…** button
+      (`GraphScene::verifyLedger` → report dialog); reads only, changes nothing. *Permissions/
+      immutability/git-boundary/symlink classification deferred with the apply half.*
+- [ ] **(#16b) Apply half** — btrfs snapshot net, re-verify, topological `mv` with staging
+      names, durable-id stamping (the #14 touch point), symlink rewrite, sidecar path update,
+      rollback on failure. All-or-nothing. Replaces the Slice-3 stub. The dangerous half —
+      writes to the real filesystem; gated on an explicit design + sign-off before any code.
 
 ## Docs / polish
 - [ ] Refresh `CONCEPT.md` to the treemap model (still describes node-link).
