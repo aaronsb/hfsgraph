@@ -19,6 +19,8 @@ QString verifyStatusLabel(VerifyStatus s) {
         return QStringLiteral("source missing");
     case VerifyStatus::SourceDrifted:
         return QStringLiteral("source changed on disk");
+    case VerifyStatus::DestMissing:
+        return QStringLiteral("destination missing");
     case VerifyStatus::CrossVolume:
         return QStringLiteral("cross-volume");
     }
@@ -60,28 +62,35 @@ QString diskPath(const FsNode *n) {
     return n->originalPath.isEmpty() ? n->path : n->originalPath;
 }
 
-OpVerification verifyOne(const MoveOp &op, const QHash<MemberKey, const FsNode *> &byKey,
-                         const FingerprintFn &statOf) {
+QString moveLegalityLabel(MoveLegality l) {
+    switch (l) {
+    case MoveLegality::Ok:
+        return QStringLiteral("ok");
+    case MoveLegality::SameNode:
+        return QStringLiteral("same node / no-op");
+    case MoveLegality::SourceIsRoot:
+        return QStringLiteral("source is a root surface");
+    case MoveLegality::Cycle:
+        return QStringLiteral("would form a cycle");
+    case MoveLegality::Collision:
+        return QStringLiteral("name already exists at destination");
+    }
+    return QStringLiteral("illegal");
+}
+
+// `replayed` is the structural verdict from replayLegality at this op's point in the plan
+// (evolving-tree, so chained ops are judged in apply order). Identity/drift/volume are
+// checked against the *base* node `src`/`dst` (their real on-disk scanned location).
+OpVerification verifyOne(const MoveOp &op, const FsNode *src, const FsNode *dst,
+                         MoveLegality replayed, const FingerprintFn &statOf) {
     OpVerification v;
     v.op = op;
 
-    const FsNode *src = byKey.value(op.source, nullptr);
-    const FsNode *dst = byKey.value(op.destParent, nullptr);
-    if (!src || !dst) {
-        v.status = VerifyStatus::Unresolved;
-        v.detail = QStringLiteral("%1 → %2: a node no longer resolves in the scan")
-                       .arg(op.sourceName, op.destParent);
-        return v;
-    }
-
-    // Structural legality against the scanned tree. (Chained-op dependencies — op B moving
-    // into a dir op A created — are resolved topologically by the apply half; here the
-    // skip-floor mirror of the live gesture is reported.)
-    v.legality = checkMove(src, dst);
-    if (v.legality != MoveLegality::Ok) {
+    v.legality = replayed;
+    if (replayed != MoveLegality::Ok) {
         v.status = VerifyStatus::IllegalMove;
-        v.detail = QStringLiteral("%1 → %2: structurally illegal (%3)")
-                       .arg(op.sourceName, dst->name, QString::number(static_cast<int>(v.legality)));
+        v.detail = QStringLiteral("%1 → %2: %3")
+                       .arg(op.sourceName, dst->name, moveLegalityLabel(replayed));
         return v;
     }
 
@@ -100,10 +109,18 @@ OpVerification verifyOne(const MoveOp &op, const QHash<MemberKey, const FsNode *
         return v;
     }
 
+    // The destination parent must still exist to receive the move (apply would fail otherwise).
+    const Fingerprint dstFp = statOf(diskPath(dst));
+    if (!dstFp.valid) {
+        v.status = VerifyStatus::DestMissing;
+        v.detail = QStringLiteral("%1 → %2: destination no longer exists at %3")
+                       .arg(op.sourceName, dst->name, diskPath(dst));
+        return v;
+    }
+
     // Volume boundary: a rename across devices fails with EXDEV (needs copy+delete, which the
     // apply half will classify and cost; flagged here so the report is honest).
-    const Fingerprint dstFp = statOf(diskPath(dst));
-    if (now.valid && dstFp.valid && now.dev != dstFp.dev) {
+    if (now.dev != dstFp.dev) {
         v.status = VerifyStatus::CrossVolume;
         v.detail = QStringLiteral("%1 → %2: crosses a volume boundary (copy+delete, not mv)")
                        .arg(op.sourceName, dst->name);
@@ -122,11 +139,27 @@ CommitPlan verifyPlan(const std::vector<const FsNode *> &roots, const std::vecto
     QHash<MemberKey, const FsNode *> byKey;
     for (const FsNode *r : roots)
         indexByKey(r, byKey);
+    // Structural legality from an ordered replay, so a chained op (op B relies on what op A
+    // cleared) is judged in apply order, not against the static base (#16a review).
+    const std::vector<MoveLegality> replayed = replayLegality(roots, ops);
 
     CommitPlan plan;
     plan.ops.reserve(ops.size());
-    for (const MoveOp &op : ops)
-        plan.ops.push_back(verifyOne(op, byKey, statOf));
+    for (std::size_t i = 0; i < ops.size(); ++i) {
+        const MoveOp &op = ops[i];
+        const FsNode *src = byKey.value(op.source, nullptr);
+        const FsNode *dst = byKey.value(op.destParent, nullptr);
+        if (!src || !dst) {
+            OpVerification v;
+            v.op = op;
+            v.status = VerifyStatus::Unresolved;
+            v.detail = QStringLiteral("%1 → %2: a node no longer resolves in the scan")
+                           .arg(op.sourceName, op.destParent);
+            plan.ops.push_back(v);
+            continue;
+        }
+        plan.ops.push_back(verifyOne(op, src, dst, replayed[i], statOf));
+    }
     return plan;
 }
 

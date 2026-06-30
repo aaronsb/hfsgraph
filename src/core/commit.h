@@ -29,6 +29,7 @@ enum class VerifyStatus {
     IllegalMove,   // structurally illegal (collision / cycle / root / same) — see `legality`
     SourceMissing, // the source directory no longer exists on disk
     SourceDrifted, // the source on disk is a different object (dev/inode) than we scanned
+    DestMissing,   // the destination parent no longer exists on disk
     CrossVolume,   // source and destination parent are on different devices (EXDEV: copy+delete)
 };
 

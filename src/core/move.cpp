@@ -115,6 +115,26 @@ void recomputePaths(FsNode *n) {
         recomputePaths(c.get());
 }
 
+// Detach `src` from its parent (taking ownership) and re-home it under `dst`, then refresh
+// its subtree paths. Caller must have already checked legality. Returns false only if `src`
+// wasn't found among its parent's children (shouldn't happen — stay safe).
+bool applyMoveTo(FsNode *src, FsNode *dst) {
+    auto &siblings = src->parent->children;
+    std::unique_ptr<FsNode> owned;
+    for (auto it = siblings.begin(); it != siblings.end(); ++it)
+        if (it->get() == src) {
+            owned = std::move(*it);
+            siblings.erase(it);
+            break;
+        }
+    if (!owned)
+        return false;
+    owned->parent = dst;
+    dst->children.push_back(std::move(owned));
+    recomputePaths(src);
+    return true;
+}
+
 } // namespace
 
 std::vector<std::unique_ptr<FsNode>> projectForest(const std::vector<const FsNode *> &roots,
@@ -137,21 +157,34 @@ std::vector<std::unique_ptr<FsNode>> projectForest(const std::vector<const FsNod
         FsNode *dst = dit.value();
         if (checkMove(src, dst) != MoveLegality::Ok)
             continue; // unresolved-to-illegal ops are skipped — replay never corrupts
+        applyMoveTo(src, dst);
+    }
+    return out;
+}
 
-        // Detach src from its current parent (taking ownership) and re-home it.
-        auto &siblings = src->parent->children;
-        std::unique_ptr<FsNode> owned;
-        for (auto it = siblings.begin(); it != siblings.end(); ++it)
-            if (it->get() == src) {
-                owned = std::move(*it);
-                siblings.erase(it);
-                break;
-            }
-        if (!owned)
-            continue; // shouldn't happen (src->parent listed it), but stay safe
-        owned->parent = dst;
-        dst->children.push_back(std::move(owned));
-        recomputePaths(src);
+std::vector<MoveLegality> replayLegality(const std::vector<const FsNode *> &roots,
+                                         const std::vector<MoveOp> &ops) {
+    std::vector<std::unique_ptr<FsNode>> work;
+    QHash<MemberKey, FsNode *> byKey;
+    work.reserve(roots.size());
+    for (const FsNode *r : roots)
+        work.push_back(r ? deepCopy(r, nullptr, byKey) : nullptr);
+
+    std::vector<MoveLegality> out;
+    out.reserve(ops.size());
+    for (const MoveOp &op : ops) {
+        const auto sit = byKey.constFind(op.source);
+        const auto dit = byKey.constFind(op.destParent);
+        if (sit == byKey.constEnd() || dit == byKey.constEnd()) {
+            out.push_back(MoveLegality::SameNode); // unresolved → the null-node verdict
+            continue;
+        }
+        FsNode *src = sit.value();
+        FsNode *dst = dit.value();
+        const MoveLegality legal = checkMove(src, dst);
+        out.push_back(legal);
+        if (legal == MoveLegality::Ok)
+            applyMoveTo(src, dst); // apply so later ops see the evolving tree
     }
     return out;
 }
