@@ -1,12 +1,22 @@
 # hfsgraph — concept capture
 
-A canvas tool for **re-wiring a directory hierarchy** the way qpwgraph re-wires audio
-routes: boxes and edges for a real filesystem tree, with auto-layout, multiple
-visualization modes, and a *propose → verify → commit* workflow over `mv`.
+A canvas tool for **re-wiring a directory hierarchy**: a **squarified treemap** of a real
+filesystem tree — nesting *is* the parent→child relationship — with semantic level-of-detail
+zoom, floating investigation *frames* (lenses over any subtree), and a *propose → verify →
+commit* workflow over `mv`.
 
-Mental lineage: **filelight** (proportional structure view) × **qpwgraph** (nodes,
-ports, drawn routes) × **ComfyUI** (node canvas you edit) × **mermaid/d3** (tidy
-auto-layout).
+Mental lineage: **filelight / QDirStat** (proportional, nested structure view) × **qpwgraph**
+(drag a route, stage it, apply) × **Terraform** (plan → verify → apply) × **KDE Partition
+Manager** (a buffer of pending operations, one explicit commit).
+
+> **Rendering note (read this first).** Early concept work imagined a **node-link** canvas —
+> force-directed boxes joined by drawn containment edges (ADR-300). That was **superseded by
+> the squarified treemap** (ADR-301): containment reads as *spatial enclosure*, not a drawn
+> edge, which stays legible across thousands of directories instead of collapsing into a
+> hairball. Investigation **frames/lenses** (ADR-303/304) provide the "open a subtree in its
+> own floating view" capability the node-link mode was reaching for. This document has been
+> updated to the treemap model; where older passages still say "node" read **treemap cell**,
+> and "containment edge" read **nesting**.
 
 ## Why this exists (the thesis)
 
@@ -145,8 +155,8 @@ plan/apply, driving real `mv`s, layered on top of Baloo's existing tags.*
 > libraries — d3-hierarchy, Cytoscape.js, Sigma.js, ELK, litegraph — but these are all
 > **web/JS** and can't be used without an embedded browser, which is a hard non-goal.
 > Treat them as **algorithm and UX references only**. For the Qt6/KF6 build (ADR-400) the
-> canvas is `QGraphicsView` and layout comes from **Graphviz** (`twopi`/`sfdp`/`dot`) or
-> **OGDF**/**igraph** (C/C++); treemap/sunburst are hand-rolled regardless.
+> canvas is `QGraphicsView`; the **squarified treemap layout is hand-rolled** (no graph-layout
+> library needed once the node-link direction was dropped — ADR-301).
 
 ## The core loop
 
@@ -378,12 +388,12 @@ cannot be moved.** Rather than surface each cause separately, the scanner derive
 a lock badge on the canvas. An immutable node can never be a move **source**, and the
 dry-run rejects any pending op targeting one *up front*, with the reason shown.
 
-**Immutable ≠ unselectable on the canvas.** Because layout position and filesystem
-structure are *separate coordinate systems* (see below), the user can freely **reposition
-an immutable node on the canvas** — drag it for readability, pull it near related nodes,
-arrange the picture — because that's pure view state and touches nothing on disk. What's
-forbidden is a structural change: re-parenting it (a `mv`). The canvas lets you move the
-*box* around all you like; it just won't let you change what the box *means*.
+**Immutable ≠ uninspectable.** An immutable node can never be a move *source*, but it stays
+fully explorable: open it in an investigation **frame** (ADR-303/304), highlight it via a
+group, zoom into its contents — all pure view state that touches nothing on disk. What's
+forbidden is the one structural change, re-parenting it (a `mv`). You can look at a locked
+subtree however you like; the tool just won't stage a move out of it. *(Immutability
+classification ships with the apply half, ADR-200.)*
 
 Enumerable causes (extensible):
 
@@ -405,26 +415,27 @@ mount is frozen) and **per-node** when its origin is permissions or the `+i` fla
 it at scan time means the canvas can grey out what can't move *before* the user wastes a
 gesture drawing an edge that could never commit.
 
-## Two coordinate systems (layout vs. structure)
+## Position is structure — except for frames (view state)
 
-A node has two independent positions, and conflating them is the classic graph-tool trap:
+A classic graph-tool trap is conflating *where a box sits on the canvas* with *where it
+sits in the tree*. The treemap sidesteps it for the base surface and reintroduces a clean,
+bounded version of it only for frames:
 
-- **Layout position** — where the box sits *on the canvas* (x/y, cluster, manual nudges).
-  Pure **view state**, persisted in the app's own store, never on the filesystem. Editable
-  for *every* node, including immutable ones. Changing it is free and reversible.
-- **Structural position** — where the node sits in the *directory tree* (its parent).
-  This is the real thing; changing it is a `mv` op that flows through the ledger → verify
-  → commit. Forbidden for immutable nodes.
+- **Base treemap — position *is* structure.** A cell's location and size are computed by
+  the squarify layout from the tree itself (nesting = parent→child, area = size/count).
+  There is no free x/y to drag; the only thing a gesture on a cell does is **stage a move**
+  — drag a cell onto another (ADR-302) → a `move` op into the ledger (or a rejection if
+  illegal / the source is immutable). "Tidying the picture" isn't a separate mode here
+  because the picture *is* the structure.
+- **Frames — free position, pure view state.** An investigation frame/lens (ADR-303/304)
+  floats at an arbitrary canvas position you drag and resize freely; that placement is view
+  state (the app's own store, never the filesystem). Frames are how you "arrange the picture
+  to think" — open several subtrees as floating lenses, place them side by side — while the
+  base tree underneath stays untouched.
 
-So a canvas drag is **two distinct gestures** that must be visually unambiguous:
-
-- **drag-to-arrange** — drop into empty canvas space → updates layout only, no op.
-- **drag-to-rewire** — drop *onto another node* (its container/port) → emits a `move` op
-  into the ledger (or is rejected if the source is immutable / the drop is illegal).
-
-This keeps "tidy up the picture so I can think" completely separate from "actually
-restructure the filesystem" — you can rearrange a locked, read-only subtree into a legible
-shape without ever risking a change to it.
+So the two gestures stay visually unambiguous: **drag a treemap cell onto another** = stage
+a `mv`; **drag a frame's title bar** = reposition a lens (view only). You can frame and
+arrange a locked, read-only subtree freely without ever risking a change to it.
 
 ## Git-aware grouping (special-case convenience)
 
@@ -450,115 +461,99 @@ Move-safety consequences (these feed the legality checker, ADR territory):
   superproject's index and `.gitmodules` paths, which a plain `mv` won't fix — flag as
   more-than-`mv`.
 
-## Visualization modes
+## Visualization: one squarified treemap, semantic LOD
 
-One node graph, many renderers — current state solid, proposed state ghosted/overlaid
-with diff edges:
+There is **one** renderer — a **squarified treemap** (ADR-301, Bruls/Huizing/van Wijk) —
+not a menu of node-link layouts. Nesting is containment; cell area encodes a size metric
+(file count or bytes); a depth ramp colors nesting level. This was chosen over the
+force-directed node-link canvas (ADR-300) precisely because it stays legible at ~6,000
+directories, where a spring layout collapses into a hairball.
 
-- radial tidy tree
-- force-directed tree
-- tangled tree
-- tidy tree
-- sunburst
-- nested treemap
+What replaces "multiple modes" is **semantic level-of-detail**, driven by zoom plus two
+independent controls:
 
-Group color/label is a shared visual channel across all modes.
+- **Reveal** — how deep the subdivision goes (when a cell splits into its children).
+- **Detail** — when a cell crosses from a solid block to showing its *contents*.
 
-### Snap-to-physics layout (anti-hairball)
+A cell's contents render as **rungs** chosen by available size (or forced from the toolbar):
+solid tile → pixel **dots** (one per file, type-colored) → **icons** → a multi-column
+**list** (`ls -a`) → **details** (`ls -l`: perms, size, mtime, symlink). One file-type color
+dictionary is shared across every rung.
 
-The force-directed mode needs a **"snap to physics" layout engine**, not a raw
-spring-embedder that relaxes into a tangle. The default failure mode of force layouts at
-scale (~6,000 nodes) is the **hairball** — everything overlapping, edges crossing, no
-legible structure. Requirements:
+**Investigation frames (ADR-303/304)** are the "open this elsewhere" mechanism: double-click
+a cell to float a **frame** — its own treemap rooted at that subtree, drawn at a
+zoom-independent size (a magnifying lens), anchored back to its origin by a **callout**
+(filled frustum / lines / off). Frames nest (a frame opened from within a frame), raise on
+click, and close as a cascade. Every surface is the same `FrameItem` — the level-0 *base*
+frames (one per scanned tree; several coexist) and the level-1+ lenses — so there is one
+surface abstraction and one render path top to bottom.
 
-- **Settles, then snaps.** The simulation runs to a low-energy state and then *quantizes*
-  — nodes snap to a clean arrangement (grid, ring, or tier) rather than floating at
-  organic-but-messy coordinates. The result reads as deliberate, not jittery.
-- **Tree-aware forces.** Because the underlying graph is a strict containment tree (not an
-  arbitrary DAG), the engine can exploit that: hierarchical/radial constraints + repulsion
-  keep parent→child legible instead of letting containment edges tangle with everything.
-- **Stable & incremental.** Adding a pending move or expanding a node should *nudge* the
-  layout, not re-throw the whole board — important when the whole point is comparing
-  current vs. proposed state without losing your visual bearings.
-- **Collision/overlap resolution** so boxes never stack, and **edge-bundling or
-  orthogonal routing** so the lines stay followable.
-- **Pin & freeze.** A node the user has hand-placed (recall layout ≠ structure) stays put;
-  physics flows around pinned anchors.
-
-Conceptually closer to a constrained/quantized layout (cola.js-style constraints, or
-Graphviz `sfdp` with post-snap) than to a naive `d3-force` blob.
+Overlays compose on any surface: the **group overlay** (ADR-102 — highlight tint/border,
+focus-dim non-members, de-emphasize, in the group color) and the **move diff overlay**
+(ADR-302 — an amber crosshatch + step badge on every cell the staged plan relocates).
 
 ### Design language (canvas aesthetic)
 
-The canvas should feel like a deliberate **physical space**, not a node soup (detailed in
-ADR-300):
+The canvas should feel like a deliberate **physical space**, not a flat fill (ADR-301/304):
 
-- **Canvas themes:** dark / light / twilight, chosen independently of node styling.
-- **Background with presence:** a rendered ground — grid lines, dots at intersections, or
-  tiled polygons — not a flat fill, so panning/zoom feels spatial.
-- **Nodes & edges float** above the canvas (drop shadows), with robust high-contrast colors
-  so group/state reads against any background.
-- **Not everything is a circle:** directory nodes are rectangular containers showing a file
-  listing; shape carries meaning (container/leaf, group, state).
-- **Reuse native Qt/KF6 widgets** for non-canvas chrome — lists, dialogs, toolbars — and
-  minimize clutter; the canvas is the interface.
-- **Native theming with canvas override:** as a Qt6/KF6 app (ADR-400) the chrome inherits
-  the KDE color scheme and style automatically; the canvas takes that palette as its default
-  and layers its own themes (dark/light/twilight) on top.
+- **Background with presence** — a rendered ground (grid / dots / tiles), not a flat fill,
+  so pan/zoom feels spatial.
+- **Device-space chrome** — frame headers, resize grips, callout dither, and the
+  constant-size labels are drawn in *screen* space, so they stay crisp and legible at any
+  zoom while the treemap cells scale.
+- **Ordered-dither textures** — drop shadows and callout frustums use tiled ordered dither
+  (pixel-perfect, area scales with zoom) for a tactile, non-flat feel.
+- **Shape carries meaning** — a cell is a rectangular container showing a file listing;
+  group color, depth, and staged-move state read as overlays on it.
+- **Native theming** — as a Qt6/KF6 app (ADR-400) the chrome inherits the KDE color scheme;
+  the treemap layers its depth ramp and group colors on top.
 
-## First pass (MVP): a read-only graph viewer
+## How the read-only viewer came together (the foundation)
 
-Before any of the dangerous machinery (identity stamping, ledger, `mv`, groups, volumes,
-immutability), build the thing that just *draws the tree as a graph* — read-only. At first
-it "wouldn't look much different than a file-tree view," just expressed as nodes and edges
-with a reasonable auto-layout. This de-risks everything: no writes, no commit, pure viewer.
+Before any disk-mutating machinery (identity stamping, ledger, `mv`, groups, immutability),
+the first build was a **read-only viewer** — draw the scanned tree, no writes, no commit.
+That de-risked everything: the canvas, layout, content rendering, and navigation had to feel
+right read-only before the mutating layers (groups → move staging → verify → commit) were
+layered on as additive slices, none able to corrupt anything until built.
 
-- **Node = directory.** Each node is a box that lists the directory's **file contents**
-  (a mini file-listing inside the node).
-- **Edge = containment.** A parent→subdirectory relationship is an edge. Subdirectories
-  are their own nodes.
-- **Pan / zoom / drag-to-arrange.** Layout only (no structural meaning yet — see the two
-  coordinate systems). A reasonable initial auto-layout, then the snap-to-physics engine.
+The original concept imagined a node-link viewer with a `[+]/[-]` **collapse/expand morph**
+between a force-directed picture and a nested-treemap picture — two depictions of containment
+on one interactive continuum. In practice the treemap won outright (ADR-301): rather than
+morph between two layouts, **semantic LOD** (reveal/detail + zoom) slides continuously
+between "a subtree is one solid block" and "a subtree is fully subdivided showing its files"
+— the same continuum the morph was reaching for, but without a second layout engine or the
+hairball failure mode at scale. **Frames** (ADR-304) give you the "explode this part out into
+its own view" capability the expanded node-link picture promised.
 
-### Collapse / expand = the containment morph (the core visual idea)
+## Status (what's built)
 
-Containment renders **two ways**, and `[+]` / `[-]` morphs between them — this *is* the
-"**nested treemap meets force-directed graph**" feel:
+The read-only viewer grew into most of the propose → preview → verify loop. Shipped:
 
-- **Expanded `[-]`** — children are **separate nodes**, joined to the parent by
-  containment **edges**. The force-directed, qpwgraph-style picture.
-- **Collapsed `[+]`** — the parent draws a **perimeter that swallows its descendants**,
-  nesting them *inside* its own box. The containment edge becomes spatial enclosure. The
-  nested-treemap picture.
+1. **Squarified treemap viewer** (ADR-301) — semantic LOD (reveal/detail + zoom); the
+   file-content rungs (dots / icons / list / details); depth-ramp + file-type colors;
+   outlier-robust name sizing; a large bounded canvas; **threaded scan** so a big/cold tree
+   never freezes the UI.
+2. **Frames as the universal surface** (ADR-303/304) — resizable floating lenses with
+   per-level scan depth, zoom-from callouts, cardinality-1 re-raise, recursion +
+   close-cascade; level-0 *base* frames support **multiple coexisting scanned trees**.
+3. **Semantic groups** (ADR-102) — git-worktree rule groups (anchor + descendants −
+   exclusions, re-resolved on rescan); a groups table with bulk highlight / focus / dim /
+   show; and **JSON persistence** (a per-workspace XDG sidecar) so group color/view survive
+   a restart.
+4. **Move staging** (ADR-302) — drag a cell onto another → a legality-checked `move` into an
+   ordered **ledger**; a bottom **queue dock** to scrub / undo / redo; an amber **diff
+   crosshatch** marking every relocated cell; cross-frame drag with top-layer hit-testing.
+5. **Durable identity** (ADR-100) — the scanner reads a `user.hfsgraph.id` xattr + a
+   `(dev, inode)` fingerprint per directory (read-only); `keyFor` resolves to the durable id
+   so groups/moves survive a directory being moved or renamed.
+6. **Commit — verify half** (ADR-200) — a **Verify** dry-run proves the staged plan against
+   the *current* disk per op (structural legality via ordered replay; source identity/drift
+   vs. the recorded fingerprint; cross-volume `EXDEV` flag). Reads only.
 
-Same relationship, two depictions; collapse/expand slides between them. This means
-**"force-directed tree" and "nested treemap" stop being separate modes** and become two
-ends of one interactive continuum — you can have part of the graph exploded into nodes
-and part of it collapsed into nested boxes *at the same time*, per subtree.
-
-This MVP is the foundation everything else snaps onto: once the canvas, layout, node
-rendering, and collapse/expand work read-only, the ledger / verify / commit / semantic
-layers are additive — and none of them can corrupt anything until they're built.
-
-## Roadmap (committed next)
-
-The POC is a read-only viewer. Status of the core items:
-
-1. **Force-directed layout** — *done.* d3-style spring-electrical model (inverse-square
-   charge with mass = files + child dirs, Hooke springs to a rest length, velocity damping,
-   cooling alpha) that settles instead of ringing. **Physics on/off toggle** + live
-   **repel/attract** controls done. **Box collision** done (cards separate on real bounds,
-   no overlap). Remaining: **snap-to-physics** (settle → quantize) per ADR-300, and
-   **Barnes-Hut** to drop the O(n²) per-tick cost at scale.
-2. **Window-shade nodes** — *done.* Roll between a compact stats node (files · dirs · size)
-   and a lazily-built file viewer that toggles icon-grid ↔ detail and is drag-resizable.
-   Bulk controls (expand/shade all, icons/list, fit-to-count) done. Node size reflects
-   object count via fit-to-count.
-3. **Lazy expand** — *not yet.* Scan/expand subtrees on demand so the full ~6k-node tree is
-   navigable without loading it all up front. (Pairs with Barnes-Hut for scale.)
-4. **Nested containment morph** — *not yet.* Collapse `[+]` currently hides children; it
-   should *swallow* them into a nested perimeter (treemap-in-graph), ADR-300's signature.
-5. Then the mutating layers (ledger → verify → commit) on the Rust core (ADR-200/401).
+**Next:** the commit **apply** half (ADR-200) — btrfs snapshot, re-verify, topological `mv`
+with staging names, durable-id stamping, rollback — the one irreversible step, gated behind
+the verify above. Then symlink / git-boundary classification, and eventually the Rust core
+(ADR-401).
 
 ## Sharp edges to resolve (open questions)
 
