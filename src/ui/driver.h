@@ -44,6 +44,8 @@
 //                            prints staged/refused — assert with `check ops`
 //   stage trash X Y          stage moving that file to the trash
 //   stage move X Y DX DY     stage moving that file into the directory cell at (DX,DY)
+//                            (X Y may be `@NAME`: the file by name in the first laid-out
+//                            leaf cell holding it — survives a re-flow)
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
 //   check differs A B        fail if the two PNGs are pixel-identical
 //   bench [N]                repaint the viewport N times (default 20), print ms/frame

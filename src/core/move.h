@@ -128,6 +128,16 @@ std::vector<std::unique_ptr<FsNode>> projectForest(const std::vector<const FsNod
 std::vector<MoveLegality> replayLegality(const std::vector<const FsNode *> &roots,
                                          const std::vector<MoveOp> &ops);
 
+// replayLegality plus, per op, the on-disk origin of its subject at that point in the
+// replay: a directory's scanned path, or a file entry's FileEntry::originalPath — so a
+// file renamed by op 1 and moved by op 2 is verified against where it actually is.
+struct ReplayVerdict {
+    MoveLegality legality = MoveLegality::SameNode;
+    QString subjectOrigin; // empty when the subject didn't resolve
+};
+std::vector<ReplayVerdict> replayVerdicts(const std::vector<const FsNode *> &roots,
+                                          const std::vector<MoveOp> &ops);
+
 // A deep copy of a subtree (files, counts, flags, identity key), parented to `parent`.
 // The scene uses it to hand one deepen scan to several surfaces holding the same
 // directory (a base and a lens over it).

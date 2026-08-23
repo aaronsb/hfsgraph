@@ -62,8 +62,9 @@ class Selection : public QObject {
 
     QHash<core::MemberKey, QSet<QString>> m_byDir; // dir key → selected names
     QHash<core::MemberKey, QString> m_dirPath;     // dir key → on-disk path (for urls)
-    core::MemberKey m_anchorDir; // Shift-range anchor: by name, so a re-listing that
-    QString m_anchorName;        // reorders files doesn't move it
+    QHash<QString, QString> m_origin; // "dirkey\nname" → the entry's scanned path (urls)
+    core::MemberKey m_anchorDir;      // Shift-range anchor: by name, so a re-listing that
+    QString m_anchorName;             // reorders files doesn't move it
 };
 
 } // namespace ui

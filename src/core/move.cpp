@@ -224,14 +224,26 @@ void applyFileOp(const MoveOp &op, FsNode *dir, FsNode *dst) {
 }
 
 // Resolve an op's nodes in the replay index, judge it, and apply it if legal. The one
-// replay step projectForest and replayLegality share, so the projection and the
-// verdicts can't diverge.
-MoveLegality replayOne(const MoveOp &op, const QHash<MemberKey, FsNode *> &byKey) {
+// replay step projectForest, replayLegality and replayVerdicts share, so the
+// projection and the verdicts can't diverge. `origin` receives the subject's on-disk
+// location as of this point in the replay (see ReplayVerdict).
+MoveLegality replayOne(const MoveOp &op, const QHash<MemberKey, FsNode *> &byKey,
+                       QString *origin = nullptr) {
     FsNode *src = byKey.value(op.source, nullptr);
     FsNode *dst = byKey.value(op.destParent, nullptr);
     if (op.isFileOp()) {
         if (!src || (op.kind == OpKind::MoveFile && !dst))
             return MoveLegality::SameNode; // unresolved → the null-node verdict
+        if (origin) {
+            const int i = fileIndex(src, op.fileName);
+            if (i >= 0) {
+                const FileEntry &fe = src->files[static_cast<std::size_t>(i)];
+                *origin = fe.originalPath.isEmpty()
+                              ? (src->originalPath.isEmpty() ? src->path : src->originalPath) +
+                                    QLatin1Char('/') + fe.name
+                              : fe.originalPath;
+            }
+        }
         const MoveLegality legal = checkFileOp(op, src, dst);
         if (legal == MoveLegality::Ok)
             applyFileOp(op, src, dst);
@@ -239,6 +251,8 @@ MoveLegality replayOne(const MoveOp &op, const QHash<MemberKey, FsNode *> &byKey
     }
     if (!src || !dst)
         return MoveLegality::SameNode;
+    if (origin)
+        *origin = src->originalPath.isEmpty() ? src->path : src->originalPath;
     const MoveLegality legal = checkMove(src, dst);
     if (legal == MoveLegality::Ok)
         applyMoveTo(src, dst);
@@ -275,6 +289,23 @@ std::vector<MoveLegality> replayLegality(const std::vector<const FsNode *> &root
     out.reserve(ops.size());
     for (const MoveOp &op : ops)
         out.push_back(replayOne(op, byKey)); // applied when legal, so later ops see it
+    return out;
+}
+
+std::vector<ReplayVerdict> replayVerdicts(const std::vector<const FsNode *> &roots,
+                                          const std::vector<MoveOp> &ops) {
+    std::vector<std::unique_ptr<FsNode>> work;
+    QHash<MemberKey, FsNode *> byKey;
+    work.reserve(roots.size());
+    for (const FsNode *r : roots)
+        work.push_back(r ? deepCopy(r, nullptr, byKey) : nullptr);
+    std::vector<ReplayVerdict> out;
+    out.reserve(ops.size());
+    for (const MoveOp &op : ops) {
+        ReplayVerdict v;
+        v.legality = replayOne(op, byKey, &v.subjectOrigin);
+        out.push_back(v);
+    }
     return out;
 }
 

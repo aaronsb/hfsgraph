@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Actions on the file selection (#38, the file-ops prototype), in two classes:
-//   * immediate — open, open with…, reveal in the file manager, copy path,
-//     properties: read-only from hfsgraph's point of view, handed to KIO and done;
+//   * immediate — open, open with…, reveal in the file manager, copy path: read-only
+//     from hfsgraph's point of view, handed to KIO and done (KPropertiesDialog is
+//     deliberately absent: it can rename/chmod outside the ledger);
 //   * staged — rename, move to trash (and move-to-directory via drop): a MoveOp on
 //     the ledger, previewed in the projection and verified/committed with the rest
 //     of the plan (ADR-200/302). Nothing here writes to disk.
@@ -38,7 +39,6 @@ class FileActions : public QObject {
     void openSelected(QWidget *parent);
     void revealSelected();
     void copyPaths();
-    void showProperties(QWidget *parent);
     void renameSelected(QWidget *parent); // single file: asks for the new name, stages it
     void trashSelected();                 // stages a trash op per selected file
 

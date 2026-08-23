@@ -186,6 +186,9 @@ class GraphScene : public QGraphicsScene {
     // Emitted when the set of base surfaces changes (add/remove/clear) so the dock's
     // bases list and group cards can refresh together.
     void surfacesChanged();
+    // A staged file op was refused (illegal or unresolved) — the reason, for the
+    // status bar. Nothing was queued.
+    void opRefused(const QString &reason);
     // Emitted when the staged move plan changes (append / undo / redo / scrub / clear)
     // so the queue dock (ADR-302 #11) can re-list the ops and update its step pointer.
     void ledgerChanged();
@@ -205,6 +208,7 @@ class GraphScene : public QGraphicsScene {
     Selection *m_selection = nullptr;     // file selection (#37), owned (child)
     FileActions *m_fileActions = nullptr; // actions on the selection (#38), owned (child)
     bool stageFileOp(core::MoveOp op);    // legality against the projection, append, re-project
+    bool m_ledgerDirty = false;           // a staged op awaits the coalesced re-projection
     core::Ledger m_ledger;                // staged move plan (ADR-302), owned
     // Projected base forest (scanned trees + active ops replayed), owned here and
     // index-aligned with baseFrames(); empty while the ledger has no active ops (the

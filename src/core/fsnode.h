@@ -39,6 +39,9 @@ struct FileEntry {
     uint perms = 0;         // QFileDevice::Permissions bits (decoded by the UI)
     bool isSymlink = false; // a symbolic link (rendered with a leading 'l')
     QString linkTarget;     // symlink destination, empty for a plain file
+    // Where the entry was scanned: the on-disk path, unchanged by staged renames or
+    // moves that re-home the entry in the projection. Verify stats this (#38).
+    QString originalPath;
 };
 
 // One directory in the scanned tree. `children` are subdirectories; `files` are

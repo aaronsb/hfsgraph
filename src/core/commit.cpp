@@ -83,32 +83,38 @@ QString moveLegalityLabel(MoveLegality l) {
     return QStringLiteral("illegal");
 }
 
-// `replayed` is the structural verdict from replayLegality at this op's point in the plan
-// (evolving-tree, so chained ops are judged in apply order). Identity/drift/volume are
-// checked against the *base* node `src`/`dst` (their real on-disk scanned location).
-// A file op's subject on disk: the entry's scanned location. Existence is the
-// identity check (no inode fingerprint is recorded per file); the directory's own
-// fingerprint still guards against the directory having been swapped.
+// `replayed` carries the entry's on-disk path as replay resolved it at this op (a
+// file renamed by an earlier op is still at its scanned path on disk).
 OpVerification verifyFileOp(const MoveOp &op, const FsNode *dir, const FsNode *dst,
-                            MoveLegality replayed, const FingerprintFn &statOf) {
+                            const ReplayVerdict &replayed, const FingerprintFn &statOf) {
     OpVerification v;
     v.op = op;
-    v.legality = replayed;
+    v.legality = replayed.legality;
     const QString what = opKindLabel(op.kind) + QLatin1Char(' ') + op.fileName;
-    if (replayed != MoveLegality::Ok) {
+    if (replayed.legality != MoveLegality::Ok) {
         v.status = VerifyStatus::IllegalMove;
-        v.detail = QStringLiteral("%1: %2").arg(what, moveLegalityLabel(replayed));
+        v.detail = QStringLiteral("%1: %2").arg(what, moveLegalityLabel(replayed.legality));
         return v;
     }
-    const QString filePath = diskPath(dir) + QLatin1Char('/') + op.fileName;
+    const QString filePath = replayed.subjectOrigin.isEmpty()
+                                 ? diskPath(dir) + QLatin1Char('/') + op.fileName
+                                 : replayed.subjectOrigin;
     const Fingerprint now = statOf(filePath);
     if (!now.valid) {
         v.status = VerifyStatus::SourceMissing;
         v.detail = QStringLiteral("%1: no longer exists at %2").arg(what, filePath);
         return v;
     }
+    // The holding directory must still be the object we scanned; one that can't be
+    // stat'd at all counts as missing, not as unchanged.
     const Fingerprint dirNow = statOf(diskPath(dir));
-    if (dir->fp.valid && dirNow.valid && (dirNow.dev != dir->fp.dev || dirNow.ino != dir->fp.ino)) {
+    if (!dirNow.valid) {
+        v.status = VerifyStatus::SourceMissing;
+        v.detail =
+            QStringLiteral("%1: its directory no longer exists at %2").arg(what, diskPath(dir));
+        return v;
+    }
+    if (dir->fp.valid && (dirNow.dev != dir->fp.dev || dirNow.ino != dir->fp.ino)) {
         v.status = VerifyStatus::SourceDrifted;
         v.detail = QStringLiteral("%1: its directory is a different object now (re-scan needed)")
                        .arg(what);
@@ -136,9 +142,10 @@ OpVerification verifyFileOp(const MoveOp &op, const FsNode *dir, const FsNode *d
 }
 
 OpVerification verifyOne(const MoveOp &op, const FsNode *src, const FsNode *dst,
-                         MoveLegality replayed, const FingerprintFn &statOf) {
+                         const ReplayVerdict &verdict, const FingerprintFn &statOf) {
     if (op.isFileOp())
-        return verifyFileOp(op, src, dst, replayed, statOf);
+        return verifyFileOp(op, src, dst, verdict, statOf);
+    const MoveLegality replayed = verdict.legality;
     OpVerification v;
     v.op = op;
 
@@ -197,7 +204,7 @@ CommitPlan verifyPlan(const std::vector<const FsNode *> &roots, const std::vecto
         indexByKey(r, byKey);
     // Structural legality from an ordered replay, so a chained op (op B relies on what op A
     // cleared) is judged in apply order, not against the static base (#16a review).
-    const std::vector<MoveLegality> replayed = replayLegality(roots, ops);
+    const std::vector<ReplayVerdict> replayed = replayVerdicts(roots, ops);
 
     CommitPlan plan;
     plan.ops.reserve(ops.size());
@@ -210,8 +217,11 @@ CommitPlan verifyPlan(const std::vector<const FsNode *> &roots, const std::vecto
             OpVerification v;
             v.op = op;
             v.status = VerifyStatus::Unresolved;
-            v.detail = QStringLiteral("%1 → %2: a node no longer resolves in the scan")
-                           .arg(op.sourceName, op.destParent);
+            v.detail = op.isFileOp() && op.kind != OpKind::MoveFile
+                           ? QStringLiteral("%1 %2: its directory no longer resolves in the scan")
+                                 .arg(opKindLabel(op.kind), op.fileName)
+                           : QStringLiteral("%1 → %2: a node no longer resolves in the scan")
+                                 .arg(op.sourceName, op.destParent);
             plan.ops.push_back(v);
             continue;
         }

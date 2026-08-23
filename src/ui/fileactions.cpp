@@ -20,7 +20,6 @@
 #include <KIO/JobUiDelegateFactory>
 #include <KIO/OpenFileManagerWindowJob>
 #include <KIO/OpenUrlJob>
-#include <KPropertiesDialog>
 
 namespace ui {
 
@@ -48,7 +47,6 @@ void FileActions::populate(QMenu &menu, QWidget *parent) {
     menu.addAction(QStringLiteral("Reveal in file manager"), this, &FileActions::revealSelected);
     menu.addAction(n == 1 ? QStringLiteral("Copy path") : QStringLiteral("Copy %1 paths").arg(n),
                    this, &FileActions::copyPaths);
-    menu.addAction(QStringLiteral("Properties…"), this, [this, parent] { showProperties(parent); });
 
     menu.addSeparator();
     // Staged: previewed in the map, applied with the plan.
@@ -92,13 +90,6 @@ void FileActions::copyPaths() {
     for (const QUrl &u : m_scene->selection().urls())
         paths << u.toLocalFile();
     QApplication::clipboard()->setText(paths.join(QLatin1Char('\n')));
-}
-
-void FileActions::showProperties(QWidget *parent) {
-    const QList<QUrl> urls = m_scene->selection().urls();
-    if (urls.isEmpty())
-        return;
-    KPropertiesDialog::showDialog(urls.size() == 1 ? urls.first() : urls.first(), parent);
 }
 
 void FileActions::renameSelected(QWidget *parent) {

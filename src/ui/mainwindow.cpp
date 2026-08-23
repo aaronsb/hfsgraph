@@ -145,6 +145,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     // Keep the status bar / title in step when a base is removed (dock × or frame ×).
     connect(m_scene, &GraphScene::surfacesChanged, this, &MainWindow::updateStatus);
+    connect(m_scene, &GraphScene::opRefused, this,
+            [this](const QString &why) { statusBar()->showMessage(why, 5000); });
 
     setWindowTitle(QStringLiteral("hfsgraph"));
     resize(1200, 800);

@@ -167,6 +167,11 @@ GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {
         for (FrameItem *f : m_frames)
             if (TreemapItem *t = f->interiorTreemap())
                 t->invalidateLayout(); // lenses keep their items; every surface re-lays out
+        if (m_ledgerDirty) {
+            m_ledgerDirty = false;
+            Q_EMIT ledgerChanged();   // the queue dock re-lists the staged ops
+            Q_EMIT surfacesChanged(); // refresh the dock/status against the new projection
+        }
     });
 }
 
@@ -438,25 +443,41 @@ void GraphScene::endMoveDrag(bool drop) {
 }
 
 bool GraphScene::stageFileOp(core::MoveOp op) {
-    // Judge against what the user sees: the current projection (the scanned sources
-    // when nothing is staged). Replay re-judges in order anyway; this keeps an
-    // illegal op out of the queue instead of showing it skipped.
+    // Judge against the state replay will actually see: every queued op applied. A
+    // scrubbed-back preview is brought to the end first (append previews all anyway),
+    // so a legal-looking op can't be queued behind a tail that makes it illegal.
+    if (m_ledger.step() < m_ledger.size())
+        scrubTo(m_ledger.size());
     QHash<core::MemberKey, const core::FsNode *> index;
     for (FrameItem *b : baseFrames())
         indexByKey(b->node(), index);
     const core::FsNode *dir = index.value(op.source, nullptr);
     const core::FsNode *dst =
         op.kind == core::OpKind::MoveFile ? index.value(op.destParent, nullptr) : nullptr;
-    if (!dir || core::checkFileOp(op, dir, dst) != core::MoveLegality::Ok)
+    const QString what = core::opKindLabel(op.kind) + QLatin1Char(' ') + op.fileName;
+    if (!dir || (op.kind == core::OpKind::MoveFile && !dst)) {
+        Q_EMIT opRefused(QStringLiteral("%1: not in the current scan").arg(what));
         return false;
+    }
+    const core::MoveLegality legal = core::checkFileOp(op, dir, dst);
+    if (legal != core::MoveLegality::Ok) {
+        static const char *const kWhy[] = {"ok",
+                                           "no such entry / no-op",
+                                           "source is a root",
+                                           "would form a cycle",
+                                           "name already exists there",
+                                           "not a usable name"};
+        Q_EMIT opRefused(
+            QStringLiteral("%1: %2").arg(what, QLatin1String(kWhy[static_cast<int>(legal)])));
+        return false;
+    }
     op.sourceName = op.fileName;
     m_ledger.append(op);
     m_selection->clear(); // the entry's name/location is about to change in the view
-    QTimer::singleShot(0, this, [this] {
-        rebuildProjection();
-        Q_EMIT ledgerChanged();
-        Q_EMIT surfacesChanged();
-    });
+    // Re-project once for a batch of stages (trash N files), and never while a drag,
+    // a file gesture, or a modal menu holds pointers into the current items.
+    m_ledgerDirty = true;
+    m_graftTimer->start();
     return true;
 }
 

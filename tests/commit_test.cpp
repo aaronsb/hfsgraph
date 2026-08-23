@@ -279,6 +279,27 @@ void runFileOps() {
             roots, {fileOp(core::OpKind::MoveFile, "/f/d", "note.txt", "/f/g")}, statOf);
         check(plan.ops[0].status == VerifyStatus::Ok, "move within the volume is Ok");
     }
+    {
+        // Chained: rename, then move the *renamed* entry. Replay resolves the subject by
+        // its projected name; verify must stat where it still is on disk (note.txt).
+        d->files[0].originalPath = QStringLiteral("/f/d/note.txt");
+        auto plan =
+            core::verifyPlan(roots,
+                             {fileOp(core::OpKind::RenameFile, "/f/d", "note.txt", "memo.txt"),
+                              fileOp(core::OpKind::MoveFile, "/f/d", "memo.txt", "/f/g")},
+                             statOf);
+        check(plan.ops.size() == 2 && plan.ops[0].status == VerifyStatus::Ok &&
+                  plan.ops[1].status == VerifyStatus::Ok,
+              "rename then move of the renamed entry verifies Ok at its scanned path");
+    }
+    {
+        disk.remove(QStringLiteral("/f/d")); // the holding directory vanished
+        auto plan =
+            core::verifyPlan(roots, {fileOp(core::OpKind::TrashFile, "/f/d", "note.txt")}, statOf);
+        check(plan.ops[0].status == VerifyStatus::SourceMissing,
+              "a directory that can't be stat'd is missing, not unchanged");
+        disk.insert(QStringLiteral("/f/d"), fp(1, 10));
+    }
     (void)e;
 }
 

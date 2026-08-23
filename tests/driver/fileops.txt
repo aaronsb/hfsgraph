@@ -24,6 +24,11 @@ stage trash 15 278
 settle
 check ops 2
 probe 15 278                  # the map re-flowed: the directory lost weight with the file
+stage move @f1.toml 600 100   # by name (geometry-free): into the directory cell up there
+settle
+check ops 3
+stage trash @f1.toml          # found in its new directory (the projection moved it)
+check ops 4
 shot driver_fileops.png view
 echo fileops ok
 quit
