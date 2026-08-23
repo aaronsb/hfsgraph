@@ -23,19 +23,19 @@ void RotatedHeader::paintSection(QPainter *painter, const QRect &rect, int logic
         QHeaderView::paintSection(painter, rect, logicalIndex);
         return;
     }
-    // Let the style paint the section background / frame with an empty label,
-    // then draw the text ourselves rotated into the same rect.
+    // Let the style paint the section background / frame with an empty label
+    // (initStyleOptionForIndex fills in hover/pressed state, section position, sort
+    // indicator and any model brushes), then draw the text ourselves rotated into
+    // the same rect.
     QStyleOptionHeader opt;
-    initStyleOption(&opt);
+    initStyleOptionForIndex(&opt, logicalIndex);
     opt.rect = rect;
-    opt.section = logicalIndex;
     opt.text.clear();
-    opt.textAlignment = Qt::AlignCenter;
     style()->drawControl(QStyle::CE_Header, &opt, painter, this);
 
     const QString text = model()->headerData(logicalIndex, orientation()).toString();
     painter->save();
-    painter->setPen(palette().color(QPalette::ButtonText));
+    painter->setPen(opt.palette.color(QPalette::ButtonText));
     painter->setFont(font());
     // Rotate about the rect's centre so the text reads bottom-to-top, then draw
     // into a width/height-swapped rect centred on the origin.

@@ -66,6 +66,7 @@ GroupPanel::GroupPanel(GraphScene *scene, QWidget *parent) : QWidget(parent), m_
     // be long. The Group header stays horizontal and left-aligned.
     auto *hh = new RotatedHeader(m_table);
     m_table->setHorizontalHeader(hh);
+    hh->setSectionsClickable(true); // a replaced header defaults off; keeps click → select-all
     m_table->setHorizontalHeaderLabels({QStringLiteral("Group"), QStringLiteral("Members"),
                                         QStringLiteral("Show"), QStringLiteral("Highlight"),
                                         QStringLiteral("Focus"), QStringLiteral("Dim")});
@@ -278,10 +279,17 @@ void GroupPanel::applyToTargets(const std::function<void(core::Group &)> &fn) {
 }
 
 void GroupPanel::showContextMenu(const QPoint &pos) {
-    const bool any = !m_table->selectionModel()->selectedRows().isEmpty();
-    const QString to = any ? QStringLiteral(" the selected groups") : QStringLiteral(" all groups");
+    // A right-click on an unselected row targets that row (not every group): fold
+    // it into the selection first, as a file manager would.
+    const QModelIndex hit = m_table->indexAt(pos);
+    if (hit.isValid() && !m_table->selectionModel()->isRowSelected(hit.row(), QModelIndex()))
+        m_table->selectRow(hit.row());
+    const int n = m_table->selectionModel()->selectedRows().size();
+    const QString to = n ? QStringLiteral(" the selected groups") : QStringLiteral(" all groups");
     QMenu menu(this);
     menu.setToolTipsVisible(true);
+    menu.addSection(n ? QStringLiteral("Selected groups (%1)").arg(n)
+                      : QStringLiteral("All groups"));
     auto add = [&](const QString &text, const QString &tip, std::function<void(core::Group &)> fn) {
         QAction *a = menu.addAction(text);
         a->setToolTip(tip + to);
