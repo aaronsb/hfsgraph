@@ -13,7 +13,8 @@ set(CMAKE_AUTOUIC ON)
 find_package(ECM REQUIRED NO_MODULE)
 list(APPEND CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Concurrent Test)
+# 6.3+: QTest::mouseMove delivers button-held moves, which ui::Driver's `drag` relies on.
+find_package(Qt6 6.3 REQUIRED COMPONENTS Core Gui Widgets Concurrent Test)
 find_package(KF6 REQUIRED COMPONENTS CoreAddons)
 # Engine / OS-facility components are added as the code lands (see ADRs):
 #   KF6::Solid       — mount/device detection for volume descriptors (ADR-200)

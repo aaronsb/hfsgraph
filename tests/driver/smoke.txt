@@ -3,11 +3,13 @@
 resize 1200 800
 load $HFSGRAPH_FIXTURE 3
 wait
-shot driver_smoke_fit.png
+check bases 1
+shot driver_smoke_fit.png view
 check nonblank driver_smoke_fit.png
-wheel 4 600 400
+wheel 4
 settle
-shot driver_smoke_zoomed.png
+shot driver_smoke_zoomed.png view
 check nonblank driver_smoke_zoomed.png
+check differs driver_smoke_fit.png driver_smoke_zoomed.png
 echo smoke ok
 quit

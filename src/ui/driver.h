@@ -10,14 +10,14 @@
 // them; `wait` parks until every in-flight scan has landed.
 //
 // Script grammar (one command per line; `#` comments; `$VAR` expands from the
-// environment):
+// environment — an unset variable fails the line):
 //   load PATH DEPTH          add PATH as a base, scanned to DEPTH
 //   wait                     block until no scan is pending (then settle a frame)
 //   settle [N]               spin N event-loop turns (default 3) — let paints land
 //   resize W H               resize the main window
 //   fit                      fit every surface in the view
 //   zoom F [X Y]             scale the view by F, anchored at viewport (X,Y) or centre
-//   wheel N [X Y]            N wheel notches (negative = out) at viewport (X,Y)
+//   wheel N                  N wheel notches (negative = out), anchored at the view centre
 //   pan DX DY                scroll the viewport by device pixels
 //   key NAME                 press+release a key (QKeySequence name: Space, Ctrl+A…)
 //   keydown NAME / keyup NAME
@@ -26,8 +26,10 @@
 //   drag X1 Y1 X2 Y2 [MODS]  press, move in steps, release (left button)
 //   set reveal|detail F      the LOD sliders' factor
 //   set filemode|ramp|metric|callout N   the toolbar combos, by index
-//   shot PATH                save a PNG of the main window
+//   shot PATH [view]         save a PNG of the main window, or of the canvas viewport only
+//   check bases N            fail unless the scene holds N base surfaces
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
+//   check differs A B        fail if the two PNGs are pixel-identical
 //   echo TEXT                print to stdout
 //   quit                     exit 0 (a failed command exits 2)
 #pragma once
@@ -61,7 +63,7 @@ class Driver : public QObject {
     void fail(const QString &message); // report + exit(2)
     void finish(int code);
 
-    QString expand(const QString &line) const; // $VAR from the environment
+    bool expand(const QString &line, QString &out) const; // $VAR; false if one is unset
 
     MainWindow *m_window;
     CanvasView *m_view;
