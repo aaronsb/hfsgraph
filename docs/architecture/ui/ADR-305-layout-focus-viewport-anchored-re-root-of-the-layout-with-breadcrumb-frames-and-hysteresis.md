@@ -142,9 +142,9 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
   widget, no callout, and no second surface, driven by zoom instead of double-click. It
   replaces the lens for the "drill in and look" case; lenses remain the tool for side-by-side
   comparison, for keeping a subtree open while the view moves on, and for lens-depth scanning
-  (ADR-304). The seam between them is `GraphScene::setLayoutFocus` (re-shaped to be
-  per-surface): a future "pin focus" gesture takes the surface's current focus key and opens
-  it as an ADR-303 lens, with no new mechanism. The pin is also the moment a
+  (ADR-304). The seam between them is `FrameItem::layoutFocusKey()`: a future "pin focus"
+  gesture takes the surface's current focus key and opens it as an ADR-303 lens, with no
+  new mechanism. The pin is also the moment a
   viewport-anchored focus becomes an item-space-pinned frame, which is the clean boundary
   between the two commitments.
 - **Lazy deepening (#36) and the interaction LOD.** No new mechanism. A truncated directory
@@ -218,7 +218,7 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
 - Revises ADR-301's "the root rect is the surface": the *canonical* layout still is; the
   overlay is a second root over it — anchored to the viewport. Extends ADR-303/304: lenses are now the deliberate sibling of an
   automatic focus, focus state lives on `FrameItem` like every other surface property, and
-  `setLayoutFocus` (per-surface) is where one becomes the other.
+  `FrameItem::layoutFocusKey()` is where one becomes the other.
 - Thresholds (60/45, both axes, visible intersection against the viewport rather than the
   surface) are the spike's values corrected per the review; a single-axis rule would engage
   more often on tall/wide directories and is not chosen.

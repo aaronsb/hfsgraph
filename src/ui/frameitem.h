@@ -119,7 +119,11 @@ class FrameItem : public QGraphicsObject {
     // the new tree; a key that no longer resolves under this surface clears. The
     // interior decides and reports the key; readers resolve through the interior.
     const core::MemberKey &layoutFocusKey() const { return m_focusKey; }
-    void setLayoutFocusKey(const core::MemberKey &key) { m_focusKey = key; }
+    const QRectF &layoutFocusRect() const { return m_focusRect; } // interior item coords
+    void setLayoutFocus(const core::MemberKey &key, const QRectF &rect) {
+        m_focusKey = key;
+        m_focusRect = rect;
+    }
     const core::FsNode *layoutFocus() const; // the interior's resolved focus, or null
 
     // The frame this one was opened from (null for a top-level frame). Closing a
@@ -157,6 +161,7 @@ class FrameItem : public QGraphicsObject {
     int m_level = 1;             // lens nesting level (1 = top lens); deepens the scan
     std::unique_ptr<core::FsNode> m_ownTree; // the frame's own deep scan (owned; RAII)
     core::MemberKey m_focusKey;              // layout focus (ADR-305), empty = none
+    QRectF m_focusRect;                      // its overlay rect, interior item coords
 };
 
 // Bottom-right corner handle that resizes its frame. A child item (so it grabs the

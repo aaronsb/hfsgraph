@@ -413,24 +413,31 @@ TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, Si
 
 TreemapItem::~TreemapItem() = default;
 
-void TreemapItem::adoptFocus(const core::MemberKey &key) {
+void TreemapItem::adoptFocus(const core::MemberKey &key, const QRectF &focusRect) {
     m_focus = nullptr;
-    m_focusRect = QRectF(); // captured from the viewport on the first paint
+    m_popped = nullptr;
+    m_focusRect = QRectF();
     if (key.isEmpty() || !m_root)
         return;
-    // Keys are paths (ADR-102): walk down the one branch whose path prefixes the key.
-    const core::FsNode *n = m_root;
-    while (n && core::keyFor(*n) != key) {
-        const core::FsNode *next = nullptr;
+    // A key is an identity, not a path (ADR-102: a stamped directory's key is its
+    // UUID, and a staged move keeps the key while the path changes), so the subtree is
+    // searched by key. Once per interior rebuild; O(n) is fine.
+    std::vector<const core::FsNode *> stack{m_root};
+    const core::FsNode *found = nullptr;
+    while (!stack.empty() && !found) {
+        const core::FsNode *n = stack.back();
+        stack.pop_back();
+        if (n != m_root && core::keyFor(*n) == key) {
+            found = n;
+            break;
+        }
         for (const auto &c : n->children)
-            if (key == core::keyFor(*c) || key.startsWith(core::keyFor(*c) + QLatin1Char('/'))) {
-                next = c.get();
-                break;
-            }
-        n = next;
+            stack.push_back(c.get());
     }
-    if (n && n != m_root && n->parent && !n->children.empty())
-        m_focus = n; // a leaf never focuses; the root never does
+    if (found && found->parent && !found->children.empty()) { // a leaf never focuses
+        m_focus = found;
+        m_focusRect = focusRect; // null → captured from the viewport on the first paint
+    }
 }
 
 QRectF TreemapItem::cellRectAt(const QPointF &itemPos) const {
@@ -988,8 +995,10 @@ void TreemapItem::setFocus(const core::FsNode *focus, const QRectF &focusRect,
         (cells[i].overlay ? m_fromOverlay : m_fromCanon)[cells[i].node] = shown[i];
     m_focus = focus;
     m_focusRect = focusRect;
+    if (!focus)
+        m_popped = nullptr;
     if (m_ownerFrame)
-        m_ownerFrame->setLayoutFocusKey(focus ? core::keyFor(*focus) : core::MemberKey());
+        m_ownerFrame->setLayoutFocus(focus ? core::keyFor(*focus) : core::MemberKey(), focusRect);
     if (m_scene)
         m_scene->noteLayoutFocusChanged(); // callouts re-anchor on the next turn
     TreemapLayout::Params np = lp;
@@ -1057,8 +1066,13 @@ void TreemapItem::decideFocus(TreemapLayout::Params &lp, const QRectF &vpDev, co
             return;
         }
     }
-    if (m_popped && lp.zoom > m_popZoom)
-        m_popped = nullptr; // zoomed back in: the child may engage again
+    // The guard lifts when the user zooms back in, or when the popped child has left
+    // the eye (under the release coverage) — so a pan away and back re-engages it.
+    if (m_popped) {
+        const LayoutCell *pc = m_layout.cellFor(m_popped);
+        if (lp.zoom > m_popZoom || !pc || !covers(*pc, kFocusRelease))
+            m_popped = nullptr;
+    }
     // Engage: the deepest *subdivided* cell under the current focus (or the root) that
     // covers the viewport on both axes. At most one child can (two disjoint tiles
     // can't both span 60% of the same axis), so this is a single descent. A leaf is
@@ -1125,7 +1139,7 @@ void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *optio
         vpItem = toDevice.inverted().mapRect(vpDev).intersected(boundingRect());
     }
     if (m_focus && m_focusRect.isNull() && vpItem.isValid())
-        m_focusRect = vpItem; // an adopted focus (adoptFocus) lands in the viewport, no morph
+        m_focusRect = vpItem; // an adopted focus with no rect lands in the viewport, no morph
     lp.focus = m_focus;
     lp.focusRect = m_focusRect;
     m_layout.ensure(lp);

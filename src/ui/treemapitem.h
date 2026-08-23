@@ -123,9 +123,10 @@ class TreemapItem : public QGraphicsItem {
     static constexpr double kFocusRelease = 0.45;
     const core::FsNode *layoutFocus() const { return m_focus; }
     // Resolve the owner's focus key under this root (a fresh interior after a
-    // re-projection): the focus is laid out into the viewport on the first paint with
-    // no morph. An empty or unresolvable key means no focus.
-    void adoptFocus(const core::MemberKey &key);
+    // re-projection) and keep its rect, so the overlay is where it was, with no morph.
+    // A null rect is captured from the viewport on the first paint. An empty or
+    // unresolvable key means no focus.
+    void adoptFocus(const core::MemberKey &key, const QRectF &focusRect);
     // The rect of the deepest cell under an item-space point — a breadcrumb frame's
     // whole rect when its rim is hit (ADR-305: a frame is a drop target, and the
     // highlight must show all of it). Null when no cell is hit.
