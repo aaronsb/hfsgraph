@@ -177,8 +177,7 @@ void NodeItem::fitToContent() {
     if (m_viewMode == 0) { // icon grid: roughly square, sized to show every cell
         auto *iconView = qobject_cast<QListView *>(m_stack->widget(0));
         const QSize cell = iconView ? iconView->gridSize() : QSize(80, 62);
-        const int sb =
-            iconView ? iconView->style()->pixelMetric(QStyle::PM_ScrollBarExtent) : 16;
+        const int sb = iconView ? iconView->style()->pixelMetric(QStyle::PM_ScrollBarExtent) : 16;
         constexpr qreal kComfort = 8.0; // beats QListView's internal cell margin
         const int cols = std::max(1, static_cast<int>(std::ceil(std::sqrt(double(count)))));
         // Aim for a roughly square grid, plus a scrollbar-width gutter so the layout

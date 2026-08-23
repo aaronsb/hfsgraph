@@ -77,8 +77,8 @@ class NodeItem : public QGraphicsItem {
     qreal m_openListH; // viewer height when open (resizable)
     bool m_resizing = false;
     bool m_pendingListFit = false; // a list fit is waiting on the model to load
-    QString m_stats1; // "N files · M dirs"
-    QString m_stats2; // "1.2 MB on disk"
+    QString m_stats1;              // "N files · M dirs"
+    QString m_stats2;              // "1.2 MB on disk"
     QGraphicsProxyWidget *m_proxy = nullptr;
     QFileSystemModel *m_fsModel = nullptr;
     QStackedWidget *m_stack = nullptr;

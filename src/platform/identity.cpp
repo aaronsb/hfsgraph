@@ -54,8 +54,8 @@ bool xattrSupported(const QString &path) {
     char buf[64];
     const ssize_t n = ::getxattr(p.constData(), kDurableIdAttr, buf, sizeof(buf));
     if (n >= 0 || errno == ERANGE)
-        return true;            // attribute present (so the fs supports it)
-    return errno != ENOTSUP;    // ENODATA/ENOENT/EACCES still imply xattr support
+        return true;         // attribute present (so the fs supports it)
+    return errno != ENOTSUP; // ENODATA/ENOENT/EACCES still imply xattr support
 }
 
 QString newDurableId() {
@@ -64,7 +64,7 @@ QString newDurableId() {
 
 core::Fingerprint statFingerprint(const QString &path) {
     core::Fingerprint fp;
-    struct stat st {};
+    struct stat st{};
     if (::lstat(enc(path).constData(), &st) == 0) {
         fp.dev = static_cast<quint64>(st.st_dev);
         fp.ino = static_cast<quint64>(st.st_ino);

@@ -32,8 +32,12 @@ GroupKind kindFromString(const QString &s) {
 }
 
 // The only rule today (git-worktree); stringified for the same forward-compat reason.
-QString ruleToString(GroupRule) { return QStringLiteral("git-worktree"); }
-GroupRule ruleFromString(const QString &) { return GroupRule::GitWorktree; }
+QString ruleToString(GroupRule) {
+    return QStringLiteral("git-worktree");
+}
+GroupRule ruleFromString(const QString &) {
+    return GroupRule::GitWorktree;
+}
 
 QJsonArray keysToJson(const QSet<MemberKey> &keys) {
     QStringList sorted(keys.begin(), keys.end());
@@ -107,8 +111,7 @@ QString dataDir() {
 QString workspaceStorePath(const QString &rootAbsPath) {
     const QByteArray h =
         QCryptographicHash::hash(rootAbsPath.toUtf8(), QCryptographicHash::Sha1).toHex();
-    return dataDir() + QLatin1Char('/') + QString::fromLatin1(h.left(16)) +
-           QStringLiteral(".json");
+    return dataDir() + QLatin1Char('/') + QString::fromLatin1(h.left(16)) + QStringLiteral(".json");
 }
 
 bool saveGroupStore(const GroupStore &store, const QString &rootAbsPath,
