@@ -41,6 +41,7 @@ _Canvas, rendering, layout, visualization modes, interaction_
 | [ADR-302](./ui/ADR-302-move-staging-drag-arrow-gesture-queued-changeset-with-scrub-preview-atomic-commit.md) | Move staging: drag-arrow gesture, queued changeset with scrub preview, atomic commit | Accepted |
 | [ADR-303](./ui/ADR-303-investigation-frames-double-click-opens-a-floating-focused-treemap-with-callout-lines-one-shared-scene-and-ledger.md) | Investigation frames: double-click opens a floating focused treemap with callout lines, one shared scene and ledger | Accepted |
 | [ADR-304](./ui/ADR-304-frames-as-the-universal-surface-resizable-frames-level-0-as-a-root-frame-and-multiple-base-surfaces.md) | Frames as the universal surface: resizable frames, level 0 as a root frame, and multiple base surfaces | Accepted |
+| [ADR-305](./ui/ADR-305-layout-focus-viewport-anchored-re-root-of-the-layout-with-breadcrumb-frames-and-hysteresis.md) | Layout focus: viewport-anchored re-root of the layout with breadcrumb frames and hysteresis | Proposed |
 
 ## Platform
 _Tech stack & toolkit, build/packaging, OS facilities, xattr/Baloo interop_
