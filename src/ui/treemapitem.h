@@ -11,16 +11,17 @@
 // are drawn at a constant screen size (not scaled with the zoom). So zooming in
 // reveals deeper structure rather than just enlarging pixels — there is no fixed
 // render depth. The recursion lives in paint(), driven by the painter's zoom and
-// the exposed viewport rect, so every zoom/pan frame re-evaluates detail and culls
-// off-screen cells. Pure view; no structural authority.
+// the exposed viewport rect, so every zoom frame re-evaluates detail and every frame
+// culls off-screen cells. Geometry itself is cached in a TreemapLayout keyed on zoom,
+// so pans and plain repaints don't re-squarify. Pure view; no structural authority.
 #pragma once
+
+#include "treemaplayout.h"
 
 #include <QGraphicsItem>
 #include <QHash>
 #include <QRectF>
 #include <QString>
-#include <unordered_map>
-#include <vector>
 
 namespace core {
 struct FsNode;
@@ -82,10 +83,17 @@ class TreemapItem : public QGraphicsItem {
     // capability. Paint-time layout, so this is just a geometry change + repaint.
     void setSize(qreal width, qreal height);
 
-    // The cell rect (item coords) for a node, computed by replaying the squarify
-    // layout from the root down to it — so callouts can re-anchor to a source square
-    // after the treemap is resized/moved. Empty if the node isn't under this root.
+    // The cell rect (item coords) for a node — from the layout cache, or replayed
+    // for a node too small to have a cell — so callouts can re-anchor to a source
+    // square after the treemap is resized/moved. Empty if the node isn't under this root.
     QRectF cellRectForNode(const core::FsNode *target) const;
+
+    // The geometry this item paints from (ADR-301): a cache keyed on panel size,
+    // metric, LOD factors and zoom. Hit-testing and callouts read it; the coming
+    // file-glyph hit-test will too.
+    const TreemapLayout &layout() const { return m_layout; }
+    // The tree changed underneath (a deepened subtree): drop the cached geometry.
+    void invalidateLayout();
 
     // The semantic-group overlay source (ADR-102), not owned. Per-cell membership
     // drives highlight (tint + group-colour border), focus (dim non-members), and
@@ -97,7 +105,7 @@ class TreemapItem : public QGraphicsItem {
     void setOwnerFrame(FrameItem *frame) { m_ownerFrame = frame; }
 
     // The deepest cell under an item-space point, for the scene's move-drag target
-    // hit-testing (#10). Null if no cell is hit. Public wrapper over the hit cache.
+    // hit-testing (#10). Null if no cell is hit.
     const core::FsNode *cellNodeAt(const QPointF &itemPos) const { return cellAt(itemPos); }
 
   protected:
@@ -107,14 +115,9 @@ class TreemapItem : public QGraphicsItem {
     void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override; // open a frame
 
   private:
-    struct Cell {
-        QRectF rect;
-        const core::FsNode *node;
-    };
-
-    double weight(const core::FsNode *n) const; // subtree file count (memoized)
-    void drawCell(QPainter *painter, const core::FsNode *node, const QRectF &rect, int depth,
-                  const QTransform &toDevice, const QRectF &exposed) const;
+    // Paint one layout cell (by index) and, if it subdivided, its children.
+    void drawCell(QPainter *painter, int index, const QTransform &toDevice,
+                  const QRectF &exposed) const;
     // The leaf rung (files as names / icons / dots, or the cell's own name) — split
     // out of drawCell to keep it focused on cull / subdivide / chrome.
     void drawLeafContents(QPainter *painter, const core::FsNode *node, const QRectF &dev,
@@ -126,6 +129,8 @@ class TreemapItem : public QGraphicsItem {
     // skipped op never paints a false mark on a node still in its original place.
     int diffStepFor(const core::FsNode *node) const;
     const core::FsNode *cellAt(const QPointF &p) const; // deepest cell under a point
+
+    TreemapLayout m_layout; // cached geometry (see layout())
 
     const core::FsNode *m_root;
     qreal m_w;
@@ -153,10 +158,6 @@ class TreemapItem : public QGraphicsItem {
     // identity → 1-based ledger step for cells the staged plan relocated (#12); rebuilt
     // each paint from the scene's active ops, so the overlay tracks queue scrub/undo.
     mutable QHash<QString, int> m_diffSteps;
-    mutable qreal m_lastZoom = 1.0; // view zoom from the last paint (for cellRectForNode)
-
-    mutable std::unordered_map<const core::FsNode *, double> m_weight;
-    mutable std::vector<Cell> m_cells; // from the last paint, for hit-testing
 };
 
 } // namespace ui

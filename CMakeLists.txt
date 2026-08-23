@@ -34,6 +34,7 @@ add_executable(hfsgraph
     #   future click-to-inspect detail panel; not built in the treemap-only canvas.
     src/ui/treemapitem.cpp
     src/ui/squarify.cpp
+    src/ui/treemaplayout.cpp  # cached treemap geometry (cells, hit-test, replay)
     src/ui/filetypestyle.cpp
     src/ui/grouppanel.cpp
     src/ui/rotatedheader.cpp
@@ -107,6 +108,16 @@ add_executable(squarify_test
 target_include_directories(squarify_test PRIVATE src)
 target_link_libraries(squarify_test PRIVATE Qt6::Core)
 add_test(NAME squarify_test COMMAND squarify_test)
+
+# Treemap layout cache (ADR-301): geometry separated from painting. Pure Qt Core.
+add_executable(treemaplayout_test
+    tests/treemaplayout_test.cpp
+    src/ui/treemaplayout.cpp
+    src/ui/squarify.cpp
+)
+target_include_directories(treemaplayout_test PRIVATE src)
+target_link_libraries(treemaplayout_test PRIVATE Qt6::Core)
+add_test(NAME treemaplayout_test COMMAND treemaplayout_test)
 
 # Driver smoke test: run the app headless through a command script — load a tree, zoom,
 # screenshot — and assert the capture isn't blank. Exercises the real event paths

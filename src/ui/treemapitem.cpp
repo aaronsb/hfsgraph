@@ -8,7 +8,7 @@
 #include "filetypestyle.h"
 #include "frameitem.h"
 #include "graphscene.h"
-#include "squarify.h"
+#include "treemaplayout.h"
 
 #include <algorithm>
 #include <vector>
@@ -34,13 +34,12 @@ namespace ui {
 namespace {
 // On-screen (device-pixel) thresholds — the whole point of semantic zoom is that
 // detail is decided by how big a cell is on screen, not by a fixed tree depth.
-constexpr double kMinDevPx = 3.0;  // smaller than this: don't bother drawing
-constexpr double kSubdivW = 150.0; // subdivide into children only once this wide…
-constexpr double kSubdivH = 64.0;  // …and this tall on screen
-constexpr double kLabelW = 42.0;   // room to show a name
+// Geometry thresholds (cell size, subdivision, header/pad insets) live in
+// TreemapLayout so the painter and the layout can't disagree; these are the
+// contents-only gates.
+constexpr double kLabelW = TreemapLayout::kLabelW;
 constexpr double kLabelH = 14.0;
-constexpr double kHeaderPx = 16.0; // device-px label strip atop a subdivided cell
-constexpr double kPadPx = 2.0;     // device-px inset around a child block
+constexpr double kHeaderPx = TreemapLayout::kHeaderPx;
 
 // Unified per-file glyph layout (ADR-301). Every LOD rung that packs a directory's
 // files into its cell — the icon grid, the finer pixel-dot grid, and eventually
@@ -203,23 +202,12 @@ QColor textColorFor(const QColor &bg) {
 TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, SizeMetric metric,
                          Ramp ramp, GraphScene *scene)
     : m_root(root), m_w(width), m_h(height), m_metric(metric), m_ramp(ramp), m_scene(scene) {
+    m_layout.setRoot(root);
     setAcceptedMouseButtons(Qt::LeftButton);
 }
 
 QColor TreemapItem::depthColor(Ramp ramp, int depth) {
     return rampColor(static_cast<int>(ramp), depth);
-}
-
-double TreemapItem::weight(const core::FsNode *n) const {
-    const auto it = m_weight.find(n);
-    if (it != m_weight.end())
-        return it->second;
-    double w = m_metric == Bytes ? static_cast<double>(n->sizeBytes) : n->fileCount;
-    for (const auto &c : n->children)
-        w += weight(c.get());
-    w = std::max(w, 1.0); // floor so empty dirs still get a sliver
-    m_weight[n] = w;
-    return w;
 }
 
 void TreemapItem::setReveal(qreal factor) {
@@ -244,58 +232,18 @@ void TreemapItem::setInteracting(bool on) {
     update();
 }
 
+void TreemapItem::invalidateLayout() {
+    m_layout.invalidate();
+    update();
+}
+
 void TreemapItem::setGroupStore(const core::GroupStore *store) {
     m_groups = store;
     update(); // overlay is decided in paint()
 }
 
 QRectF TreemapItem::cellRectForNode(const core::FsNode *target) const {
-    if (!target)
-        return {};
-    // Path root..target via parent pointers (the tree this item renders).
-    std::vector<const core::FsNode *> path;
-    for (const core::FsNode *n = target; n; n = n->parent) {
-        path.push_back(n);
-        if (n == m_root)
-            break;
-    }
-    if (path.empty() || path.back() != m_root)
-        return {}; // target isn't under this root
-    std::reverse(path.begin(), path.end());
-
-    // Replay the same subdivision as drawCell, in item space (zoom=1 approximation:
-    // the device-constant header/pad insets are small, so the cone anchor is close
-    // enough). Descend rect → child rect along the path.
-    QRectF rect(0, 0, m_w, m_h);
-    for (size_t i = 0; i + 1 < path.size(); ++i) {
-        const core::FsNode *node = path[i];
-        std::vector<const core::FsNode *> kids;
-        kids.reserve(node->children.size());
-        for (const auto &c : node->children)
-            kids.push_back(c.get());
-        std::sort(kids.begin(), kids.end(), [this](const core::FsNode *a, const core::FsNode *b) {
-            return weight(a) > weight(b);
-        });
-        // Match drawCell's device-space insets (kHeaderPx/zoom, kPadPx/zoom) so the
-        // replayed rect lines up with the actually-drawn square at the current zoom.
-        const qreal hdr = kHeaderPx / m_lastZoom, pad = kPadPx / m_lastZoom;
-        const QRectF inner = rect.adjusted(pad, hdr, -pad, -pad);
-        std::vector<double> ws;
-        ws.reserve(kids.size());
-        for (const auto *k : kids)
-            ws.push_back(weight(k));
-        const std::vector<QRectF> rects = squarify(ws, inner);
-        int idx = -1;
-        for (size_t k = 0; k < kids.size(); ++k)
-            if (kids[k] == path[i + 1]) {
-                idx = static_cast<int>(k);
-                break;
-            }
-        if (idx < 0)
-            return {};
-        rect = rects[idx];
-    }
-    return rect;
+    return m_layout.rectFor(target); // cached cell, or replayed for a culled node
 }
 
 void TreemapItem::setSize(qreal width, qreal height) {
@@ -304,36 +252,30 @@ void TreemapItem::setSize(qreal width, qreal height) {
     prepareGeometryChange();
     m_w = width;
     m_h = height;
-    update(); // squarify happens in paint() against m_w/m_h
+    update(); // paint() re-ensures the layout against m_w/m_h
 }
 
 QRectF TreemapItem::boundingRect() const {
     return QRectF(0, 0, m_w, m_h);
 }
 
-void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &rect, int depth,
-                           const QTransform &toDevice, const QRectF &exposed) const {
+void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
+                           const QRectF &exposed) const {
+    const LayoutCell &cell = m_layout.cells()[static_cast<std::size_t>(index)];
+    const QRectF &rect = cell.rect;
     if (!rect.intersects(exposed))
-        return; // off-screen — cull
+        return; // off-screen — cull (the layout is zoom-keyed, so this is the only per-pan test)
+    const core::FsNode *node = cell.node;
     const QRectF dev = toDevice.mapRect(rect);
-    if (dev.width() < kMinDevPx || dev.height() < kMinDevPx)
-        return; // too small on screen to be worth a cell
-
-    m_cells.push_back({rect, node});
     const double zoom = toDevice.m11();
-    // m_reveal gates subdivision (how deep nesting shows); m_detail gates the
-    // contents crossover below — kept separate so revealing deeper nesting doesn't
-    // also promote small squares from pixel-dots into full icons, and vice versa.
-    const bool subdivide = !node->children.empty() && dev.width() > kSubdivW * m_reveal &&
-                           dev.height() > kSubdivH * m_reveal;
+    const bool subdivide = cell.subdivided;
+    const bool hasTitle = cell.hasTitle;
 
     // Every cell = a title bar (the ramp identity colour) over a contents area (a
     // darker value in dark mode / lighter in light mode), so icons and child cells
     // sit on a low-key background and read clearly.
-    const QColor title = rampColor(m_ramp, depth);
+    const QColor title = rampColor(m_ramp, cell.depth);
     const QColor body = m_dark ? title.darker(235) : title.lighter(168);
-    const bool hasTitle =
-        dev.width() > kLabelW * m_detail && dev.height() > kHeaderPx * 1.5 * m_detail;
 
     // Semantic-group overlay (ADR-102): highlight tints + borders a group's cells;
     // focus dims non-members; dim de-emphasises a group's own members.
@@ -369,13 +311,12 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
 
     // A subdivided cell's children tile its inner rect exactly (squarify partitions
     // the area), so the body only needs painting where a child won't: the chrome rim
-    // around the inner rect, and — if any child is too small on screen to draw —
-    // behind the culled holes. Filling the whole rect every level meant each pixel
-    // of a deep map was painted once per nesting level; this paints it once.
+    // around the inner rect, and — if any child was culled for size — behind the
+    // holes. Filling the whole rect every level meant each pixel of a deep map was
+    // painted once per nesting level; this paints it once.
     const bool rimOnly = subdivide && !ovHighlight && !ovDim;
-    const qreal rimHdr = (hasTitle ? kHeaderPx : kPadPx) / zoom, rimPad = kPadPx / zoom;
     if (rimOnly) {
-        const QRectF inner = rect.adjusted(rimPad, rimHdr, -rimPad, -rimPad);
+        const QRectF &inner = cell.inner;
         p->fillRect(QRectF(rect.left(), rect.top(), rect.width(), inner.top() - rect.top()), body);
         p->fillRect(
             QRectF(rect.left(), inner.bottom(), rect.width(), rect.bottom() - inner.bottom()),
@@ -384,6 +325,14 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
                     body);
         p->fillRect(
             QRectF(inner.right(), inner.top(), rect.right() - inner.right(), inner.height()), body);
+        // Culled children leave holes the rim fill skipped: fill the inner rect behind
+        // them when the cell has fewer child cells than the node has children.
+        int laidOut = 0;
+        for (int c = cell.firstChild; c >= 0;
+             c = m_layout.cells()[static_cast<std::size_t>(c)].nextSibling)
+            ++laidOut;
+        if (laidOut < static_cast<int>(node->children.size()))
+            p->fillRect(inner, body);
     } else {
         p->fillRect(rect, body);
     }
@@ -419,30 +368,10 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
     }
 
     if (subdivide) {
-        const qreal hdr = (hasTitle ? kHeaderPx : kPadPx) / zoom, pad = kPadPx / zoom;
-        const QRectF inner = rect.adjusted(pad, hdr, -pad, -pad);
-        std::vector<const core::FsNode *> kids;
-        kids.reserve(node->children.size());
-        for (const auto &c : node->children)
-            kids.push_back(c.get());
-        std::sort(kids.begin(), kids.end(), [this](const core::FsNode *a, const core::FsNode *b) {
-            return weight(a) > weight(b);
-        });
-        std::vector<double> ws;
-        ws.reserve(kids.size());
-        for (const auto *k : kids)
-            ws.push_back(weight(k));
-        const std::vector<QRectF> rects = squarify(ws, inner);
         dimScrim(); // dim this cell's chrome; children overdraw the inner and self-dim
-        for (size_t k = 0; k < kids.size(); ++k) {
-            if (rimOnly) {
-                // The rim fill skipped this area; a child culled for size leaves a hole.
-                const QRectF cdev = toDevice.mapRect(rects[k]);
-                if (cdev.width() < kMinDevPx || cdev.height() < kMinDevPx)
-                    p->fillRect(rects[k], body);
-            }
-            drawCell(p, kids[k], rects[k], depth + 1, toDevice, exposed);
-        }
+        for (int c = cell.firstChild; c >= 0;
+             c = m_layout.cells()[static_cast<std::size_t>(c)].nextSibling)
+            drawCell(p, c, toDevice, exposed);
         if (const int step = diffStepFor(node))
             drawDiffMark(p, dev, step); // on top of children, so a moved dir stays marked
         return;
@@ -654,7 +583,6 @@ void TreemapItem::drawDiffMark(QPainter *p, const QRectF &dev, int step) const {
 
 void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) {
     painter->setRenderHint(QPainter::Antialiasing, false); // crisp rectangle edges
-    m_cells.clear();
     m_dark = qApp && qApp->palette().color(QPalette::Window).lightness() < 128;
     m_anyFocus = false; // focus mode dims every non-member; resolve it once per paint
     if (m_groups)
@@ -673,28 +601,31 @@ void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *optio
             m_diffSteps.insert(active[i].source, i + 1); // a re-moved node shows its latest step
     }
     const QTransform toDevice = painter->worldTransform();
-    m_lastZoom = toDevice.m11() > 0 ? toDevice.m11() : 1.0; // for cellRectForNode insets
     const QRectF exposed = option ? option->exposedRect : QRectF(0, 0, m_w, m_h);
-    drawCell(painter, m_root, QRectF(0, 0, m_w, m_h), 0, toDevice, exposed);
+    // Geometry comes from the layout cache, keyed on the panel size, metric, LOD
+    // factors and zoom: a pan or a plain repaint reuses it; a zoom step rebuilds.
+    TreemapLayout::Params lp;
+    lp.width = m_w;
+    lp.height = m_h;
+    lp.metric = m_metric == Bytes ? TreemapLayout::Bytes : TreemapLayout::Files;
+    lp.reveal = m_reveal;
+    lp.detail = m_detail;
+    lp.zoom = toDevice.m11() > 0 ? toDevice.m11() : 1.0;
+    m_layout.ensure(lp);
+    if (!m_layout.cells().empty())
+        drawCell(painter, 0, toDevice, exposed);
 }
 
 const core::FsNode *TreemapItem::cellAt(const QPointF &p) const {
-    const core::FsNode *hit = nullptr;
-    for (const Cell &c : m_cells) // pre-order: last match is the deepest
-        if (c.rect.contains(p))
-            hit = c.node;
-    return hit;
+    const LayoutCell *c = m_layout.cellAt(p);
+    return c ? c->node : nullptr;
 }
 
 void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
     // Find the deepest hit cell *and* its rect (the rect anchors the drag arrow's tail).
-    const core::FsNode *hit = nullptr;
-    QRectF hitRect;
-    for (const Cell &c : m_cells)
-        if (c.rect.contains(event->pos())) {
-            hit = c.node;
-            hitRect = c.rect;
-        }
+    const LayoutCell *cell = m_layout.cellAt(event->pos()); // deepest cell under the press
+    const core::FsNode *hit = cell ? cell->node : nullptr;
+    const QRectF hitRect = cell ? cell->rect : QRectF();
     if (hit) {
         m_selected = hit; // left click selects; a movable cell also arms a drag (#10)
         update();
@@ -750,13 +681,9 @@ void TreemapItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
     // (a non-destructive lens) instead of re-rooting the map. Find the deepest cell
     // under the cursor and hand the scene both the node and its rect (mapped to
     // scene space) so the frame can anchor its callout lines to the origin square.
-    const core::FsNode *hit = nullptr;
-    QRectF hitRect;
-    for (const Cell &c : m_cells) // pre-order: last match is the deepest
-        if (c.rect.contains(event->pos())) {
-            hit = c.node;
-            hitRect = c.rect;
-        }
+    const LayoutCell *cell = m_layout.cellAt(event->pos()); // deepest cell under the click
+    const core::FsNode *hit = cell ? cell->node : nullptr;
+    const QRectF hitRect = cell ? cell->rect : QRectF();
     // Open only for a node strictly *deeper* than this treemap's own root: never the
     // root itself (that re-opens the same subtree, stacking identical frames), and
     // only when there are deeper levels to show — otherwise ignore the double-click.
