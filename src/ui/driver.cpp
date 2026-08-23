@@ -7,9 +7,11 @@
 #include "graphscene.h"
 #include "mainwindow.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QImage>
 #include <QKeySequence>
@@ -128,7 +130,9 @@ void Driver::step() {
             fail(QStringLiteral("line %1: %2").arg(m_pc).arg(raw.trimmed()));
             return;
         }
-        QTimer::singleShot(0, this, &Driver::step); // one command per loop turn
+        // One command per loop turn; a `sleep` defers the next by its wall-clock delay.
+        QTimer::singleShot(m_sleepMs, this, &Driver::step);
+        m_sleepMs = 0;
         return;
     }
     finish(0); // end of script
@@ -158,6 +162,14 @@ bool Driver::run(const QString &line) {
         m_waiting = true;
         return true;
     }
+    if (cmd == QLatin1String("sleep")) {
+        // Wall-clock pause with the event loop running — lets real timers fire (the
+        // scene's interaction-idle timer, deferred rebuilds), which `settle` can't.
+        if (!has(1))
+            return false;
+        m_sleepMs = std::max(0, static_cast<int>(num(1)));
+        return true;
+    }
     if (cmd == QLatin1String("settle")) {
         m_settle = has(1) ? static_cast<int>(num(1)) : 3;
         return true;
@@ -174,6 +186,10 @@ bool Driver::run(const QString &line) {
         if (m_scene->itemsBoundingRect().isValid())
             m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
         m_scene->refreshCallouts();
+        return true;
+    }
+    if (cmd == QLatin1String("fitnames")) {
+        m_scene->fitNamesToTypical(); // the toolbar's "Fit names"
         return true;
     }
     if (cmd == QLatin1String("zoom")) {
@@ -290,6 +306,8 @@ bool Driver::run(const QString &line) {
             m_scene->setSizeMetric(i);
         else if (what == QLatin1String("callout"))
             m_scene->setCalloutMode(i);
+        else if (what == QLatin1String("fast"))
+            m_scene->setInteracting(i != 0); // interaction LOD, held for benching
         else
             return false;
         return true;
@@ -354,6 +372,21 @@ bool Driver::run(const QString &line) {
             return true;
         }
         return false;
+    }
+    if (cmd == QLatin1String("bench")) {
+        // Synchronous repaints of the viewport, timed — the per-frame cost of the
+        // current view state, which a sampling profiler over a whole run can't isolate
+        // from scanning and I/O.
+        const int n = has(1) ? std::max(1, static_cast<int>(num(1))) : 20;
+        vp->repaint(); // warm-up: the first frame pays for cache population
+        QElapsedTimer t;
+        t.start();
+        for (int i = 0; i < n; ++i)
+            vp->repaint();
+        const double ms = static_cast<double>(t.nsecsElapsed()) / 1e6 / n;
+        std::printf("bench %d frames: %.2f ms/frame\n", n, ms);
+        std::fflush(stdout);
+        return true;
     }
     if (cmd == QLatin1String("echo")) {
         std::printf("%s\n", qPrintable(line.mid(4).trimmed()));

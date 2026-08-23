@@ -25,7 +25,7 @@
 namespace core {
 struct FsNode;
 class GroupStore;
-}
+} // namespace core
 
 namespace ui {
 
@@ -70,6 +70,12 @@ class TreemapItem : public QGraphicsItem {
 
     // Force the file rung (FileMode), or Auto to pick by size. Paint-only.
     void setFileMode(int mode);
+
+    // Interaction LOD: while a zoom/pan gesture is in flight the leaf rungs (names,
+    // icons, dots) are skipped — they're the bulk of a large frame's raster cost and
+    // unreadable mid-motion anyway. The scene sets this for the gesture and clears it
+    // after a short idle, which repaints at full detail. Paint-only.
+    void setInteracting(bool on);
 
     // Re-squarify into new bounds (ADR-304). Larger bounds give each cell more
     // scene-space area, so constant-size labels elide less — the resize/magnify
@@ -135,18 +141,19 @@ class TreemapItem : public QGraphicsItem {
     // owns the arrow + cross-surface target hit-testing, since a drop can land on a
     // different base). These are cleared on release.
     const core::FsNode *m_pressNode = nullptr; // cell pressed (candidate drag source)
-    QPointF m_pressScene;                       // press position, scene coords (threshold)
-    QPointF m_pressCenterScene;                 // pressed cell centre, scene coords (arrow tail)
-    bool m_dragging = false;                    // past the threshold: a drag is live
-    qreal m_reveal = 1.0;        // subdivision gate multiplier; <1 = subdivide sooner
-    qreal m_detail = 1.0;        // contents-crossover gate multiplier; <1 = icons/name sooner
-    int m_fileMode = Auto;       // forced file rung, or Auto (size-driven)
-    mutable bool m_dark = true;   // resolved from the palette each paint
+    QPointF m_pressScene;                      // press position, scene coords (threshold)
+    QPointF m_pressCenterScene;                // pressed cell centre, scene coords (arrow tail)
+    bool m_dragging = false;                   // past the threshold: a drag is live
+    qreal m_reveal = 1.0;                      // subdivision gate multiplier; <1 = subdivide sooner
+    qreal m_detail = 1.0;            // contents-crossover gate multiplier; <1 = icons/name sooner
+    int m_fileMode = Auto;           // forced file rung, or Auto (size-driven)
+    bool m_interacting = false;      // gesture in flight: skip leaf contents
+    mutable bool m_dark = true;      // resolved from the palette each paint
     mutable bool m_anyFocus = false; // any visible group in focus mode (resolved each paint)
     // identity → 1-based ledger step for cells the staged plan relocated (#12); rebuilt
     // each paint from the scene's active ops, so the overlay tracks queue scrub/undo.
     mutable QHash<QString, int> m_diffSteps;
-    mutable qreal m_lastZoom = 1.0;  // view zoom from the last paint (for cellRectForNode)
+    mutable qreal m_lastZoom = 1.0; // view zoom from the last paint (for cellRectForNode)
 
     mutable std::unordered_map<const core::FsNode *, double> m_weight;
     mutable std::vector<Cell> m_cells; // from the last paint, for hit-testing

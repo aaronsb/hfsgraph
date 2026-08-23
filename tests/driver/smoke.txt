@@ -8,8 +8,12 @@ shot driver_smoke_fit.png view
 check nonblank driver_smoke_fit.png
 wheel 4
 settle
+shot driver_smoke_gesture.png view   # mid-gesture: the interaction LOD holds
+sleep 200   # let the interaction LOD idle out so the next shot has full detail
+settle
 shot driver_smoke_zoomed.png view
 check nonblank driver_smoke_zoomed.png
 check differs driver_smoke_fit.png driver_smoke_zoomed.png
+check differs driver_smoke_gesture.png driver_smoke_zoomed.png   # the idle restore repainted
 echo smoke ok
 quit

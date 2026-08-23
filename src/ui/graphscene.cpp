@@ -38,7 +38,8 @@ class MoveDragOverlay : public QGraphicsItem {
         setAcceptedMouseButtons(Qt::NoButton);
         setFlag(ItemIsSelectable, false);
     }
-    void setState(const QPointF &src, const QPointF &cursor, const QRectF &targetScene, bool legal) {
+    void setState(const QPointF &src, const QPointF &cursor, const QRectF &targetScene,
+                  bool legal) {
         prepareGeometryChange();
         m_src = src;
         m_cursor = cursor;
@@ -135,7 +136,27 @@ double collectDirStats(const core::FsNode &n, bool byBytes, bool isRoot,
 }
 } // namespace
 
-GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {}
+GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {
+    m_idleTimer = new QTimer(this);
+    m_idleTimer->setSingleShot(true);
+    m_idleTimer->setInterval(120); // a wheel burst keeps restarting it; full detail after
+    connect(m_idleTimer, &QTimer::timeout, this, [this] { setInteracting(false); });
+}
+
+void GraphScene::noteInteraction() {
+    setInteracting(true);
+    m_idleTimer->start();
+}
+
+void GraphScene::setInteracting(bool on) {
+    if (!on)
+        m_idleTimer->stop();
+    if (m_interacting == on)
+        return;
+    m_interacting = on;
+    for (FrameItem *f : m_frames)
+        f->setInteracting(on);
+}
 
 // Out-of-line (fsnode.h is included here) so the unique_ptr<FsNode> projection trees
 // can be freed — the header only forward-declares core::FsNode.
@@ -181,7 +202,7 @@ FrameItem *GraphScene::addBase(std::unique_ptr<core::FsNode> tree) {
     base->setPos(40.0 + n * 48.0, 40.0 + n * 48.0);
     addItem(base);
     m_frames.push_back(base);
-    resolveGroups();     // merge persisted groups + re-resolve rule groups across all bases
+    resolveGroups(); // merge persisted groups + re-resolve rule groups across all bases
     restackFrames();
     rebuildProjection(); // render the projection (identity until moves are staged)
     Q_EMIT surfacesChanged();
@@ -464,7 +485,7 @@ void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRe
     addItem(frame);
     callout->refresh(); // compute the origin now that it's in the scene
     m_frames.push_back(frame);
-    restackFrames(); // assign z so each callout sits just under its frame
+    restackFrames();     // assign z so each callout sits just under its frame
     updateSceneBounds(); // a frame may extend past the map's edges
 }
 
@@ -603,10 +624,10 @@ void GraphScene::fitNamesToTypical() {
     if (z <= 0.0)
         return;
     const bool byBytes = m_sizeMetric != 0; // match the active area metric (TreemapItem::Bytes)
-    constexpr double kCharPx = 7.0;     // ≈ average char width at the 11px title font
-    constexpr double kInsetPx = 8.0;    // title text inset (renderer elides to width − 6)
-    constexpr double kPercentile = 0.9; // target a typical name; long outliers still truncate
-    constexpr double kMaxScale = 12.0;  // bound a single grow step so the map stays navigable
+    constexpr double kCharPx = 7.0;         // ≈ average char width at the 11px title font
+    constexpr double kInsetPx = 8.0;        // title text inset (renderer elides to width − 6)
+    constexpr double kPercentile = 0.9;     // target a typical name; long outliers still truncate
+    constexpr double kMaxScale = 12.0;      // bound a single grow step so the map stays navigable
     for (FrameItem *base : baseFrames()) {
         const core::FsNode *root = base->sourceRoot();
         if (!root)
@@ -641,7 +662,7 @@ void GraphScene::updateSceneBounds() {
     // side) never butts up against the canvas edge: a large floor plus a margin that
     // scales with the content. Bounded by a hard maximum so the scroll range stays
     // finite (ScrollHandDrag is constrained to sceneRect).
-    constexpr qreal kFloor = 4000.0;     // minimum margin beyond the content, each side
+    constexpr qreal kFloor = 4000.0;      // minimum margin beyond the content, each side
     constexpr qreal kMaxExtent = 80000.0; // hard cap on either scene dimension
     const QRectF b = itemsBoundingRect();
     const qreal m = std::max({kFloor, b.width(), b.height()});

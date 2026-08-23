@@ -11,7 +11,10 @@
 #include <QGraphicsItem>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QBrush>
 #include <QPainter>
+#include <QPixmap>
+#include <QTransform>
 #include <QPalette>
 #include <QScrollBar>
 #include <QWheelEvent>
@@ -44,6 +47,8 @@ CanvasView::CanvasView(QWidget *parent) : QGraphicsView(parent) {
 void CanvasView::wheelEvent(QWheelEvent *event) {
     constexpr double step = 1.15;
     const double factor = event->angleDelta().y() > 0 ? step : 1.0 / step;
+    if (auto *gs = qobject_cast<GraphScene *>(scene()))
+        gs->noteInteraction(); // fast path for the zoom burst (interaction LOD)
     scale(factor, factor);
     if (auto *gs = qobject_cast<GraphScene *>(scene()))
         gs->refreshCallouts(); // keep investigation-frame callouts anchored on zoom
@@ -141,8 +146,10 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
         m_panLast = event->pos();
         horizontalScrollBar()->setValue(horizontalScrollBar()->value() - d.x());
         verticalScrollBar()->setValue(verticalScrollBar()->value() - d.y());
-        if (auto *gs = qobject_cast<GraphScene *>(scene()))
+        if (auto *gs = qobject_cast<GraphScene *>(scene())) {
+            gs->noteInteraction(); // fast path while the pan is in flight
             gs->refreshCallouts(); // keep callouts anchored while panning
+        }
         event->accept();
         return;
     }
@@ -176,15 +183,40 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
 
     QColor dot = palette().color(QPalette::Mid);
     dot.setAlpha(110);
-    painter->setPen(Qt::NoPen);
-    painter->setBrush(dot);
 
-    const qreal dotR = 1.4 / scale; // ~constant on-screen dot size
-    const qreal left = std::floor(rect.left() / spacing) * spacing;
-    const qreal top = std::floor(rect.top() / spacing) * spacing;
-    for (qreal x = left; x < rect.right(); x += spacing)
-        for (qreal y = top; y < rect.bottom(); y += spacing)
-            painter->drawEllipse(QPointF(x, y), dotR, dotR);
+    // One dot rendered into a tile, then the visible rect filled with it as a texture
+    // brush: a single fill instead of one drawEllipse per dot, which at a 4K viewport
+    // was thousands of antialiased ellipses per frame. The tile is in device pixels
+    // (constant on-screen dot size); the brush transform maps it back to scene units
+    // so the grid stays anchored to the scene as the view pans.
+    const int tilePx = std::max(2, static_cast<int>(std::lround(spacing * scale)));
+    static QPixmap tile;
+    static int tileKey = -1;
+    const int key = tilePx * 1000 + dot.rgba() % 1000;
+    if (tileKey != key || tile.isNull()) {
+        tile = QPixmap(tilePx, tilePx);
+        tile.fill(Qt::transparent);
+        QPainter tp(&tile);
+        tp.setRenderHint(QPainter::Antialiasing, true);
+        tp.setPen(Qt::NoPen);
+        tp.setBrush(dot);
+        tp.drawEllipse(QPointF(tilePx / 2.0, tilePx / 2.0), 1.4, 1.4); // whole disc, centred
+        tp.end();
+        tileKey = key;
+    }
+    // Blit in device space (world matrix off) so the tile maps 1:1 to pixels — a
+    // scene-space brush with a 1/scale transform lands on Qt's resampled-texture path.
+    // The brush origin is the scene origin in device pixels, shifted by half a tile so
+    // each dot's centre sits on a lattice point; the grid stays anchored to the scene.
+    const QTransform toDevice = painter->worldTransform();
+    const QRectF devRect = toDevice.mapRect(rect);
+    painter->save();
+    painter->setWorldMatrixEnabled(false);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(QBrush(tile));
+    painter->setBrushOrigin(toDevice.map(QPointF(0.0, 0.0)) - QPointF(tilePx / 2.0, tilePx / 2.0));
+    painter->drawRect(devRect);
+    painter->restore();
 }
 
 } // namespace ui
