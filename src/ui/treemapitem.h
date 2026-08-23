@@ -23,6 +23,11 @@
 #include <QRectF>
 #include <QString>
 
+#include <memory>
+#include <unordered_map>
+
+class QVariantAnimation;
+
 namespace core {
 struct FsNode;
 class GroupStore;
@@ -103,6 +108,18 @@ class TreemapItem : public QGraphicsItem {
     // The tree changed underneath (a deepened subtree): drop the cached geometry.
     void invalidateLayout();
 
+    // Layout focus (#40, spike). Decided in paint() from the current zoom and
+    // viewport: once one cell covers kFocusEngage of the viewport on both axes it
+    // becomes the focus — its subtree is re-squarified into the viewport's rect over
+    // the canonical map, its ancestors reduced to breadcrumb frames (TreemapLayout).
+    // It pops to its parent when it shrinks under kFocusRelease (hysteresis), and
+    // clears at the root. The change is told to the scene (setLayoutFocus) and the
+    // old→new cell rects are blended over a short animation so the eye can follow.
+    static constexpr double kFocusEngage = 0.6;
+    static constexpr double kFocusRelease = 0.45;
+    const core::FsNode *layoutFocus() const { return m_focus; }
+    ~TreemapItem() override;
+
     // The semantic-group overlay source (ADR-102), not owned. Per-cell membership
     // drives highlight (tint + group-colour border), focus (dim non-members), and
     // dim (de-emphasise members). Null = no overlay. Paint-only.
@@ -133,9 +150,24 @@ class TreemapItem : public QGraphicsItem {
     void dropEvent(QGraphicsSceneDragDropEvent *event) override;
 
   private:
+    // The morph (#40): the rect a cell is drawn at is lerp(from, layout rect, t). `from`
+    // is the rect the same node showed before the focus change, else its new rect
+    // carried into its parent's from-rect proportionally (newly revealed cells grow
+    // out of their parent). The parent's pair is passed down the drawCell walk.
+    struct MorphParent {
+        QRectF from, to; // the parent's shown-from rect and its layout rect
+    };
     // Paint one layout cell (by index) and, if it subdivided, its children.
-    void drawCell(QPainter *painter, int index, const QTransform &toDevice,
-                  const QRectF &exposed) const;
+    void drawCell(QPainter *painter, int index, const QTransform &toDevice, const QRectF &exposed,
+                  const MorphParent *parent) const;
+    // Re-evaluate the layout focus against the viewport (device rect `vpDev`, item
+    // rect `vpItem`); on a change, snapshot the shown rects, switch, and rebuild.
+    void decideFocus(TreemapLayout::Params &lp, const QRectF &vpDev, const QRectF &vpItem,
+                     const QTransform &toDevice);
+    void setFocus(const core::FsNode *focus, const QRectF &focusRect,
+                  const TreemapLayout::Params &lp);
+    QRectF morphFrom(const LayoutCell &cell, const MorphParent *parent) const;
+    double morphT() const; // eased animation progress, 1 when idle
     // The rung and glyph geometry of a leaf cell's files (LeafPlan, in the .cpp);
     // shared by painting, the file hit-test and band selection.
     LeafPlan planLeaf(const core::FsNode *node, const QRectF &dev, bool hasTitle) const;
@@ -168,6 +200,13 @@ class TreemapItem : public QGraphicsItem {
     const core::FsNode *cellAt(const QPointF &p) const; // deepest cell under a point
 
     TreemapLayout m_layout; // cached geometry (see layout())
+
+    // Layout focus state (#40).
+    const core::FsNode *m_focus = nullptr;
+    QRectF m_focusRect; // outermost frame rect, item coords
+    std::unique_ptr<QVariantAnimation> m_morph;
+    std::unordered_map<const core::FsNode *, QRectF> m_fromCanon;   // canonical cells
+    std::unordered_map<const core::FsNode *, QRectF> m_fromOverlay; // overlay cells
 
     const core::FsNode *m_root;
     qreal m_w;
