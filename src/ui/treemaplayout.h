@@ -13,15 +13,17 @@
 // anchoring, and the coming file-glyph hit-test all read this one structure, so
 // "what is where" has a single answer. No Qt GUI dependency — unit-testable.
 //
-// Layout focus (#40, spike). The root rect is fixed, so a deep cell is squarified
-// inside whatever sliver its ancestors left it and zooming in yields thin slivers.
-// With Params::focus set, the canonical layout stops at the focus node (its cell is
-// a flat *shadow*) and the focus subtree is re-squarified into Params::focusRect —
-// the viewport's rect in item coordinates — as an *overlay* appended after the
-// canonical cells, wrapped in one thin *frame* cell per ancestor (name strip + a
-// depth-coloured rim: the breadcrumb). The overlay cells come last in the vector, so
-// the pre-order "last match is deepest" hit-test picks them over what they cover.
-// View-only: the tree and the ledger never see it.
+// Layout focus (ADR-305). The root rect is fixed, so a deep cell is squarified inside
+// whatever sliver its ancestors left it and zooming in yields thin slivers. With
+// Params::focus set, the canonical layout stops at the focus node (its cell is a flat
+// *shadow*) and the focus subtree is re-squarified into Params::focusRect — the
+// viewport's rect in item coordinates, captured by the surface whenever the focus
+// changes — as an *overlay* appended after the canonical cells, wrapped in one thin
+// *frame* cell per ancestor (name strip + a depth-coloured rim: the breadcrumb). The
+// overlay cells come last in the vector, so the pre-order "last match is deepest"
+// hit-test picks them over what they cover. View-only: the tree and the ledger never
+// see it. Which node is the focus, and when it changes, is the surface's decision
+// (TreemapItem / FrameItem); the layout only builds what it is told.
 #pragma once
 
 #include <QPointF>
@@ -48,7 +50,7 @@ struct LayoutCell {
     // (truncatedDepth). The painter asks the scene to deepen it (lazy deepening).
     bool wantsChildren = false;
     bool hasTitle = false; // wide/tall enough on screen for a header strip
-    // Layout focus (#40). focusFrame: an ancestor's breadcrumb frame around the focus
+    // Layout focus (ADR-305). focusFrame: an ancestor's breadcrumb frame around the focus
     // overlay (its inner is the next frame, or the focus cell). focusShadow: the
     // canonical cell of the focus node, left unsubdivided under the overlay.
     // overlay: the cell belongs to the re-squarified focus subtree (frames included).
@@ -85,9 +87,10 @@ class TreemapLayout {
         // so the map doesn't re-flow under the cursor; released on idle, the children's
         // real weights flow up — one re-layout, while the user is looking.
         bool freezeLazy = false;
-        // Layout focus (#40): re-squarify `focus`'s subtree into `focusRect` (item
-        // coordinates, the outermost ancestor frame's rect) over the canonical map.
-        // Null = no focus. A focus that is the root or not under it is ignored.
+        // Layout focus (ADR-305): re-squarify `focus`'s subtree into `focusRect` (item
+        // coordinates: the viewport, which the outermost ancestor frame fills) over the
+        // canonical map. Null = no focus. A focus that is the root or not under it is
+        // ignored.
         const core::FsNode *focus = nullptr;
         QRectF focusRect;
         bool operator==(const Params &o) const; // exact — params are deterministic copies
@@ -114,12 +117,6 @@ class TreemapLayout {
     // The overlay's focus cell itself (the subtree root inside the frames), or null.
     const LayoutCell *focusCell() const;
 
-    // The focusRect that puts `focus` (with its ancestor frames) around a layout in
-    // which `child` keeps the centre and area of `childRect` — the pop-to-parent
-    // geometry, so a focus change under zoom-out leaves the old focus where the eye
-    // is. `viewRect` (item coords) gives the shape the focus cell is squarified into.
-    QRectF focusRectAround(const core::FsNode *focus, const core::FsNode *child,
-                           const QRectF &childRect, const QRectF &viewRect) const;
     const Params &params() const { return m_params; }
 
     // The deepest cell containing an item-space point, or null.

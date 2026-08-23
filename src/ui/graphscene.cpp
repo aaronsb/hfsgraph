@@ -183,12 +183,24 @@ void GraphScene::setLayoutFocusEnabled(bool on) {
         f->update(); // each surface re-decides (and clears) its focus in paint
 }
 
-void GraphScene::setLayoutFocus(const core::FsNode *node) {
-    if (m_layoutFocus == node)
-        return;
-    m_layoutFocus = node;
+void GraphScene::noteLayoutFocusChanged() {
     // Called mid-paint: the callouts read the new geometry on the next turn.
     QTimer::singleShot(0, this, [this] { refreshCallouts(); });
+}
+
+const core::FsNode *GraphScene::layoutFocusAt(const QPointF &scenePos) const {
+    // The topmost surface whose interior holds the point, as surfaceCellAt picks a
+    // drop target; a point on no surface has no focus.
+    FrameItem *best = nullptr;
+    qreal bestZ = -1e18;
+    for (FrameItem *f : m_frames) {
+        TreemapItem *t = f->interiorTreemap();
+        if (t && t->boundingRect().contains(t->mapFromScene(scenePos)) && f->zValue() >= bestZ) {
+            best = f;
+            bestZ = f->zValue();
+        }
+    }
+    return best ? best->layoutFocus() : nullptr;
 }
 
 void GraphScene::noteInteraction() {
@@ -296,9 +308,6 @@ void GraphScene::resolveGroups() {
 }
 
 void GraphScene::rebuildProjection() {
-    // The reported layout focus (#40) points into a projection or a source tree this
-    // replaces; the new interiors re-decide and re-report it on their next paint.
-    m_layoutFocus = nullptr;
     const std::vector<FrameItem *> bases = baseFrames();
     const std::vector<core::MoveOp> active = m_ledger.active();
     if (active.empty()) {
@@ -425,9 +434,13 @@ void GraphScene::updateMoveDrag(const QPointF &cursorScene) {
     m_dragLegal = bsrc && bdst && core::checkMove(bsrc, bdst) == core::MoveLegality::Ok;
     QRectF targetScene;
     if (frame && node) {
-        const QRectF itemRect = frame->interiorTreemap()->cellRectForNode(node);
+        // The hit cell's own rect: a breadcrumb frame under focus (ADR-305) highlights
+        // whole, so a release on its 6 px rim is seen for what it is — a move into
+        // that ancestor — before it lands.
+        TreemapItem *t = frame->interiorTreemap();
+        const QRectF itemRect = t->cellRectAt(t->mapFromScene(cursorScene));
         if (!itemRect.isNull())
-            targetScene = frame->interiorTreemap()->mapToScene(itemRect).boundingRect();
+            targetScene = t->mapToScene(itemRect).boundingRect();
     }
     m_dragOverlay->setState(m_dragSourceCenter, cursorScene, targetScene, m_dragLegal);
 }
@@ -711,8 +724,7 @@ void GraphScene::closeFrame(FrameItem *frame) {
     if (it == m_frames.end())
         return;
     const bool wasBase = frame->level() == 0; // read before teardown (ADR-304)
-    m_frames.erase(it);      // remove before recursing so a re-entrant call can't re-find it
-    m_layoutFocus = nullptr; // may point into this frame's tree (#40); surfaces re-report
+    m_frames.erase(it); // remove before recursing so a re-entrant call can't re-find it
 
     // Close descendants first (frames opened from within this one), so closing an
     // upstream frame — or a base — never leaves its lenses dangling.

@@ -1,8 +1,10 @@
-# Layout focus (#40, spike). Zoom into the synthetic tree (make_synth --depth 3; which
+# Layout focus (ADR-305). Zoom into the synthetic tree (make_synth --depth 3; which
 # sibling wins follows readdir order, hence the globs and depth checks) until one cell
 # covers the viewport: the focus engages, its subtree is re-squarified into the
-# viewport with breadcrumb frames for its ancestors. Zoom back out: the focus pops to
-# the parent (`check focuspopped` against the `mark`), then clears. Finally the same
+# viewport with breadcrumb frames for its ancestors. A staged op re-projects the tree
+# and recreates every interior: the focus is keyed by identity and must survive it.
+# Zoom back out: the focus pops — the parent fills the viewport in its place
+# (`check focuspopped` against the `mark`) — then clears at the root. Finally the same
 # zoom-in with `set focus 0` must leave the focus off, for comparison shots.
 resize 1200 800
 load $HFSGRAPH_FIXTURE 3
@@ -24,8 +26,15 @@ settle
 check focusdepth 2+
 shot driver_focus_deep.png view
 check differs driver_focus_in.png driver_focus_deep.png
+# Re-projection: stage a trash (any file in the fixture), which rebuilds the interiors.
+stage trash @f0.json
+settle
+check ops 1
+check focusdepth 2+
+shot driver_focus_staged.png view
+check nonblank driver_focus_staged.png
 mark
-# Zoom out: the focus pops to its parent (placed so the old focus stays put), then clears.
+# Zoom out: the focus pops to its parent, which fills the viewport in its place; then clears.
 zoom 0.4 600 400
 sleep 300
 settle

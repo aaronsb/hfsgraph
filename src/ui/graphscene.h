@@ -67,15 +67,15 @@ class GraphScene : public QGraphicsScene {
     void setInteracting(bool on);
     bool interacting() const { return m_interacting; }
 
-    // Layout focus (#40, spike). A surface decides its own focus as it paints
-    // (TreemapItem) and reports it here so callouts re-anchor and the driver can see
-    // it; the enable flag is the comparison switch (driver `set focus 0|1`).
+    // Layout focus (ADR-305). Every surface decides and owns its own focus (FrameItem,
+    // keyed by identity); there is no scene-wide focus. A caller that needs to know
+    // asks for the surface under a point. The enable flag is the comparison switch
+    // (driver `set focus 0|1`); noteLayoutFocusChanged is called from a surface's
+    // paint and defers the callout re-anchor to the next turn.
     void setLayoutFocusEnabled(bool on);
     bool layoutFocusEnabled() const { return m_layoutFocusEnabled; }
-    void setLayoutFocus(const core::FsNode *node); // called from paint: defers the refresh
-    // The pointer is cleared by rebuildProjection and closeFrame (the trees it can
-    // point into die there) and by a reporting TreemapItem's destructor.
-    const core::FsNode *layoutFocus() const { return m_layoutFocus; }
+    void noteLayoutFocusChanged();
+    const core::FsNode *layoutFocusAt(const QPointF &scenePos) const; // topmost surface's
 
     int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)
     double reveal() const { return m_reveal; }      // current reveal LOD (for frames)
@@ -241,9 +241,8 @@ class GraphScene : public QGraphicsScene {
     bool m_lazyDeepen = true;         // requestDeepen is a no-op when false (tests, benches)
     int m_calloutMode = 0;            // 0 Filled, 1 Lines, 2 Off (ADR-304)
     bool m_interacting = false;       // a zoom/pan gesture is in flight (interaction LOD)
-    bool m_layoutFocusEnabled = true; // layout focus (#40) on
-    const core::FsNode *m_layoutFocus = nullptr; // the last surface-reported focus
-    QTimer *m_idleTimer = nullptr; // clears m_interacting after the gesture goes quiet
+    bool m_layoutFocusEnabled = true; // layout focus (ADR-305) on
+    QTimer *m_idleTimer = nullptr;    // clears m_interacting after the gesture goes quiet
     // Move-drag gesture state (#10), live only between begin and end.
     MoveDragOverlay *m_dragOverlay = nullptr;   // top-Z arrow + target highlight, owned
     const core::FsNode *m_dragSource = nullptr; // node being dragged (a render node)

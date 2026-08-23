@@ -14,6 +14,8 @@
 // queue-scrubs (ADR-302/303).
 #pragma once
 
+#include "core/group.h"
+
 #include <QGraphicsObject>
 #include <QPointF>
 #include <QRectF>
@@ -112,6 +114,14 @@ class FrameItem : public QGraphicsObject {
     CalloutItem *callout() const { return m_callout; }
     TreemapItem *interiorTreemap() const { return m_interior; } // for callout origin replay
 
+    // Layout focus (ADR-305): the surface owns it, keyed by identity (MemberKey) so it
+    // survives a re-projection — the interior is recreated and resolves the key against
+    // the new tree; a key that no longer resolves under this surface clears. The
+    // interior decides and reports the key; readers resolve through the interior.
+    const core::MemberKey &layoutFocusKey() const { return m_focusKey; }
+    void setLayoutFocusKey(const core::MemberKey &key) { m_focusKey = key; }
+    const core::FsNode *layoutFocus() const; // the interior's resolved focus, or null
+
     // The frame this one was opened from (null for a top-level frame). Closing a
     // frame cascade-closes its descendants so none are left dangling (ADR-303).
     void setParentFrame(FrameItem *parent) { m_parentFrame = parent; }
@@ -146,6 +156,7 @@ class FrameItem : public QGraphicsObject {
     qreal m_lastZoom = 1.0;      // view zoom from the last paint (for device-aligned closeRect)
     int m_level = 1;             // lens nesting level (1 = top lens); deepens the scan
     std::unique_ptr<core::FsNode> m_ownTree; // the frame's own deep scan (owned; RAII)
+    core::MemberKey m_focusKey;              // layout focus (ADR-305), empty = none
 };
 
 // Bottom-right corner handle that resizes its frame. A child item (so it grabs the

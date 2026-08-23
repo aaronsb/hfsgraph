@@ -110,7 +110,7 @@ bool TreemapLayout::ensure(const Params &p) {
         return true;
     build(-1, -1, m_root, QRectF(0, 0, p.width, p.height), 0);
 
-    // Layout focus (#40): the overlay. One frame cell per ancestor, each the inner of
+    // Layout focus (ADR-305): the overlay. One frame cell per ancestor, each the inner of
     // the one before, then the focus subtree squarified into the innermost frame.
     const std::vector<const core::FsNode *> chain = focusChain(p.focus);
     if (chain.empty() || !p.focusRect.isValid())
@@ -141,41 +141,6 @@ bool TreemapLayout::ensure(const Params &p) {
     for (std::size_t i = first; i < m_cells.size(); ++i)
         m_cells[i].overlay = true; // the focus subtree: indexed, so cellFor(focus) = overlay
     return true;
-}
-
-QRectF TreemapLayout::focusRectAround(const core::FsNode *focus, const core::FsNode *child,
-                                      const QRectF &childRect, const QRectF &viewRect) const {
-    const std::vector<const core::FsNode *> chain = focusChain(focus);
-    if (chain.empty() || !viewRect.isValid())
-        return {};
-    // Squarify is scale-free, so lay the children into a probe of the view's shape and
-    // read the child's share of it as fractions.
-    QRectF probe = viewRect;
-    for (std::size_t i = 0; i < chain.size(); ++i)
-        probe = frameInner(probe);
-    const QRectF probeInner = innerRect(probe, true);
-    std::vector<const core::FsNode *> kids;
-    std::vector<double> ws;
-    childOrder(focus, kids, ws);
-    const std::vector<QRectF> rects = squarify(ws, probeInner);
-    const auto it = std::find(kids.begin(), kids.end(), child);
-    if (it == kids.end())
-        return {};
-    const QRectF r = rects[static_cast<std::size_t>(it - kids.begin())];
-    if (r.width() <= 0 || r.height() <= 0)
-        return {};
-    // Scale the probe so the child's share has childRect's area, then place it so the
-    // share's centre sits on childRect's centre; the aspect follows the view shape.
-    const double s = std::sqrt(childRect.width() * childRect.height() / (r.width() * r.height()));
-    const QPointF centre = childRect.center();
-    const QPointF shareCentre = (r.center() - probe.topLeft()) * s;
-    const QRectF focusCell(centre - shareCentre, probe.size() * s);
-    // Back out to the outermost frame: the focus cell is the innermost frame's inner.
-    const qreal hdr = kHeaderPx / m_params.zoom, rim = kStripPx / m_params.zoom;
-    QRectF out = focusCell;
-    for (std::size_t i = 0; i < chain.size(); ++i)
-        out.adjust(-rim, -hdr, rim, rim);
-    return out;
 }
 
 int TreemapLayout::build(int parentIndex, int prevSibling, const core::FsNode *node,

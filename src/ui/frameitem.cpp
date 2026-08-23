@@ -198,6 +198,11 @@ void FrameItem::rebuildInterior() {
     m_interior->setOwnerFrame(this); // so its double-clicks record this frame as the parent
     m_interior->setParentItem(this);
     m_interior->setPos(in.topLeft());
+    m_interior->adoptFocus(m_focusKey); // the surface's focus outlives its interiors
+}
+
+const core::FsNode *FrameItem::layoutFocus() const {
+    return m_interior ? m_interior->layoutFocus() : nullptr;
 }
 
 // Out-of-line so unique_ptr<core::FsNode> sees the complete type here (fsnode.h is

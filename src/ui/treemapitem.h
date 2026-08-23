@@ -16,6 +16,7 @@
 // so pans and plain repaints don't re-squarify. Pure view; no structural authority.
 #pragma once
 
+#include "core/group.h"
 #include "treemaplayout.h"
 
 #include <QGraphicsItem>
@@ -108,16 +109,27 @@ class TreemapItem : public QGraphicsItem {
     // The tree changed underneath (a deepened subtree): drop the cached geometry.
     void invalidateLayout();
 
-    // Layout focus (#40, spike). Decided in paint() from the current zoom and
-    // viewport: once one cell covers kFocusEngage of the viewport on both axes it
-    // becomes the focus — its subtree is re-squarified into the viewport's rect over
-    // the canonical map, its ancestors reduced to breadcrumb frames (TreemapLayout).
-    // It pops to its parent when it shrinks under kFocusRelease (hysteresis), and
-    // clears at the root. The change is told to the scene (setLayoutFocus) and the
-    // old→new cell rects are blended over a short animation so the eye can follow.
+    // Layout focus (ADR-305). Decided in paint() from the current zoom and viewport:
+    // once one subdivided cell's *visible* part covers kFocusEngage of the viewport on
+    // both axes it becomes the focus — its subtree is re-squarified into the
+    // viewport's rect over the canonical map, its ancestors reduced to breadcrumb
+    // frames (TreemapLayout). When its visible part falls under kFocusRelease
+    // (hysteresis) the focus pops: its parent is re-squarified into the viewport the
+    // same way; at the root the focus clears. The focus rect is the viewport at every
+    // change — nothing is pinned in item space. The owning frame is told the focus's
+    // identity key so the focus survives this item (a re-projection recreates it), and
+    // old→new cell rects blend over a short animation so the eye can follow.
     static constexpr double kFocusEngage = 0.6;
     static constexpr double kFocusRelease = 0.45;
     const core::FsNode *layoutFocus() const { return m_focus; }
+    // Resolve the owner's focus key under this root (a fresh interior after a
+    // re-projection): the focus is laid out into the viewport on the first paint with
+    // no morph. An empty or unresolvable key means no focus.
+    void adoptFocus(const core::MemberKey &key);
+    // The rect of the deepest cell under an item-space point — a breadcrumb frame's
+    // whole rect when its rim is hit (ADR-305: a frame is a drop target, and the
+    // highlight must show all of it). Null when no cell is hit.
+    QRectF cellRectAt(const QPointF &itemPos) const;
     ~TreemapItem() override;
 
     // The semantic-group overlay source (ADR-102), not owned. Per-cell membership
@@ -165,7 +177,7 @@ class TreemapItem : public QGraphicsItem {
     void decideFocus(TreemapLayout::Params &lp, const QRectF &vpDev, const QRectF &vpItem,
                      const QTransform &toDevice);
     void setFocus(const core::FsNode *focus, const QRectF &focusRect,
-                  const TreemapLayout::Params &lp);
+                  const TreemapLayout::Params &lp, bool animate = true);
     QRectF morphFrom(const LayoutCell &cell, const MorphParent *parent) const;
     double morphT() const; // eased animation progress, 1 when idle
     // The rung and glyph geometry of a leaf cell's files (LeafPlan, in the .cpp);
@@ -201,9 +213,14 @@ class TreemapItem : public QGraphicsItem {
 
     TreemapLayout m_layout; // cached geometry (see layout())
 
-    // Layout focus state (#40).
+    // Layout focus state (ADR-305).
     const core::FsNode *m_focus = nullptr;
-    QRectF m_focusRect; // outermost frame rect, item coords
+    QRectF m_focusRect; // outermost frame rect = the viewport at the last change, item coords
+    // A pop re-squarifies the parent into the viewport, where the child it came from
+    // may well cover 60% again: the child is not re-entered until the zoom rises above
+    // what it was at the pop — the user has to zoom back in, rather than bounce.
+    const core::FsNode *m_popped = nullptr;
+    qreal m_popZoom = 0;
     std::unique_ptr<QVariantAnimation> m_morph;
     std::unordered_map<const core::FsNode *, QRectF> m_fromCanon;   // canonical cells
     std::unordered_map<const core::FsNode *, QRectF> m_fromOverlay; // overlay cells
