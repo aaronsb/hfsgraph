@@ -47,14 +47,39 @@ constexpr double kHeaderPx = TreemapLayout::kHeaderPx;
 // so the rungs stay visually consistent and the spacing lives in a single tunable
 // place (a runtime control could drive these later instead of constants).
 struct GlyphGrid {
-    qreal size; // glyph edge, device px
-    qreal gap;  // space between glyphs, device px
-    qreal pitch() const { return size + gap; }
+    qreal size;    // glyph width (and height, unless `h` is set), device px
+    qreal gap;     // space between glyphs, device px
+    qreal h = 0.0; // glyph height when the glyph isn't square (0 = same as size)
+    constexpr qreal height() const { return h > 0.0 ? h : size; }
+    constexpr qreal pitch() const { return size + gap; }
+    constexpr qreal pitchY() const { return height() + gap; }
 };
-constexpr GlyphGrid kIconGlyph{18.0, 8.0}; // file icons (pitch 26)
-constexpr GlyphGrid kPixelGlyph{3.0, 2.0}; // pixel-dot density (pitch 5)
-constexpr GlyphGrid kNameGlyph{11.0, 3.0}; // filename text rows (pitch 14, full width)
-constexpr double kNameW = 90.0;            // min cell width to bother with filename rows
+constexpr GlyphGrid kIconGlyph{18.0, 8.0};        // file icons (pitch 26)
+constexpr GlyphGrid kNamedGlyph{48.0, 6.0, 40.0}; // icon + name beneath (pitch 54 × 46)
+constexpr GlyphGrid kPixelGlyph{3.0, 2.0};        // pixel-dot density (pitch 5)
+constexpr GlyphGrid kNameGlyph{11.0, 3.0};        // filename text rows (pitch 14, full width)
+constexpr double kNameW = 90.0;                   // min cell width to bother with filename rows
+constexpr double kDetailsW = 200.0;               // min cell width for the `ls -l` meta column
+
+// The file-rung table (#44): ONE place that says which rung needs how much cell, in
+// device px before the Detail factor scales it. Ordered richest → poorest; Auto walks
+// it top-down and takes the first rung that fits (skipping force-only ones), a forced
+// mode starts at its own row and walks down the same way, so a rung that doesn't fit
+// degrades to the next one instead of drawing nothing. Below the table sits the
+// dir-name / dots floor in drawLeafContents. Thresholds are on the whole cell (header
+// included); each rung's painter still self-guards on its content area.
+struct RungSpec {
+    TreemapItem::FileMode mode;
+    double minW, minH; // min cell size on screen, device px (× Detail)
+    bool forceOnly;    // never auto-picked — only reached by forcing it
+};
+constexpr RungSpec kRungs[] = {
+    {TreemapItem::Details, kDetailsW, kHeaderPx + kNameGlyph.pitch() * 2, true},
+    {TreemapItem::List, kNameW, kHeaderPx + kNameGlyph.pitch() * 2, false},
+    {TreemapItem::IconsNamed, 70.0, kHeaderPx + kNamedGlyph.pitchY(), false},
+    {TreemapItem::Icons, 70.0, kHeaderPx + kIconGlyph.pitch(), false},
+    {TreemapItem::Dots, kPixelGlyph.size, kPixelGlyph.size, false},
+};
 
 // How many columns/rows of `g` fit in `area`, and how many of `count` items to draw
 // (capped to capacity). Last glyph never overflows: (cols-1)*pitch + size <= width.
@@ -63,7 +88,7 @@ struct GridFit {
 };
 GridFit fitGlyphs(const QRectF &area, const GlyphGrid &g, int count) {
     const int cols = std::max(1, static_cast<int>((area.width() + g.gap) / g.pitch()));
-    const int rows = std::max(1, static_cast<int>((area.height() + g.gap) / g.pitch()));
+    const int rows = std::max(1, static_cast<int>((area.height() + g.gap) / g.pitchY()));
     return {cols, rows, std::min(count, cols * rows)};
 }
 
@@ -395,19 +420,20 @@ int TreemapItem::diffStepFor(const core::FsNode *node) const {
     return m_diffSteps.value(core::keyFor(*node), 0);
 }
 
-// The leaf rung: a cell's files drawn as a list (icon+name), icons, or pixel-dots
-// (or the cell's own name when it has none). The rung is chosen by cell size (Detail
-// LOD) in Auto,
-// or forced by m_fileMode. All three colour-match the file type (shared
-// fileTypeColor / fileTypeIcon). Each helper self-guards on room, so a forced rung
-// on a too-small cell simply draws nothing.
+// The leaf rung: a cell's files drawn per the rung table kRungs — details rows,
+// list (icon+name), icon+name tiles, bare icons, or pixel-dots — or the cell's own
+// name when none fits (or it has no files). Auto takes the richest rung that fits
+// the cell (Detail LOD); a forced m_fileMode starts at its rung and falls down the
+// table. All rungs colour-match the file type (shared fileTypeColor / fileTypeIcon).
+// Each painter self-guards on its content area and reports whether it drew, so a
+// rung that passes the table but not its own guard still falls through.
 void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const QRectF &dev,
                                    bool hasTitle, const QColor &body) const {
     const QRectF area = dev.adjusted(3, (hasTitle ? kHeaderPx : 2.0), -2, -2);
 
     auto drawIcons = [&] {
         if (area.width() < kIconGlyph.size || area.height() < kIconGlyph.size)
-            return;
+            return false;
         p->setWorldMatrixEnabled(false);
         const GridFit fit = fitGlyphs(area, kIconGlyph, static_cast<int>(node->files.size()));
         for (int i = 0; i < fit.count; ++i) {
@@ -418,11 +444,39 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
                           fileTypePixmap(node->files[i].name, static_cast<int>(kIconGlyph.size)));
         }
         p->setWorldMatrixEnabled(true);
+        return true;
+    };
+    auto drawIconsNamed = [&] {
+        // Icon with its name elided beneath, one tile per file, grid-packed like the
+        // bare icon grid but with a wider, taller glyph so the name has a line to sit
+        // on. The icon is the same theme icon as the other rungs; the name colour-
+        // matches the type, centred under it.
+        const GlyphGrid &g = kNamedGlyph;
+        if (area.width() < g.size || area.height() < g.height())
+            return false;
+        p->setWorldMatrixEnabled(false);
+        QFont f = p->font();
+        f.setPixelSize(10);
+        p->setFont(f);
+        const int icon = static_cast<int>(kIconGlyph.size);
+        const GridFit fit = fitGlyphs(area, g, static_cast<int>(node->files.size()));
+        for (int i = 0; i < fit.count; ++i) {
+            const int r = i / fit.cols, c = i % fit.cols;
+            const QString &name = node->files[i].name;
+            const double x = area.x() + c * g.pitch(), y = area.y() + r * g.pitchY();
+            p->drawPixmap(QPoint(static_cast<int>(x + (g.size - icon) / 2), static_cast<int>(y)),
+                          fileTypePixmap(name, icon));
+            p->setPen(fileTypeColor(name));
+            const QStaticText st = elidedName(f, name, g.size);
+            p->drawStaticText(QPointF(x + (g.size - st.size().width()) / 2.0, y + icon + 2.0), st);
+        }
+        p->setWorldMatrixEnabled(true);
+        return true;
     };
     auto drawDots = [&] {
         const GlyphGrid &g = kPixelGlyph;
         if (area.width() < g.size || area.height() < g.size)
-            return;
+            return false;
         p->setWorldMatrixEnabled(false);
         const GridFit fit = fitGlyphs(area, g, static_cast<int>(node->files.size()));
         for (int i = 0; i < fit.count; ++i) {
@@ -431,6 +485,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
                         fileTypeColor(node->files[i].name));
         }
         p->setWorldMatrixEnabled(true);
+        return true;
     };
     auto drawList = [&] {
         // Multi-column icon + name grid, filled column-major like `ls -a`, so a tall
@@ -439,7 +494,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         constexpr qreal kIcon = 13.0, kIconGap = 3.0, kColW = 150.0; // device px
         const qreal rowH = kNameGlyph.pitch();
         if (area.height() < rowH || area.width() < kIcon + 8.0)
-            return;
+            return false;
         p->setWorldMatrixEnabled(false);
         QFont f = p->font();
         f.setPixelSize(10);
@@ -461,6 +516,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
             p->drawStaticText(QPointF(tr.x(), tr.y() + (rowH - st.size().height()) / 2.0), st);
         }
         p->setWorldMatrixEnabled(true);
+        return true;
     };
     auto drawDetails = [&] {
         // One file per row with metadata, like `ls -l`: a muted fixed-width meta column
@@ -468,23 +524,23 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         // keeps the meta columns aligned across rows; needs the most width of any rung.
         const qreal rowH = kNameGlyph.pitch();
         if (area.height() < rowH)
-            return;
-        p->setWorldMatrixEnabled(false);
+            return false;
         QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         f.setPixelSize(10);
-        p->setFont(f);
         const QFontMetrics fm(f);
         // Measure the meta column from a worst-case sample (4-digit byte size + a real
         // mtime) so it never under-measures vs. a default FileEntry; gate on it *after*
-        // measuring — nothing here clips to the cell, so a too-narrow cell must draw
-        // nothing rather than bleed perms/name over its neighbours.
+        // measuring — nothing here clips to the cell, so a too-narrow cell must fall
+        // to a poorer rung rather than bleed perms/name over its neighbours.
         constexpr qreal kIcon = 12.0, kGap = 4.0, kMinName = 24.0;
         core::FileEntry sample;
         sample.sizeBytes = 1023; // widest sub-KiB form: "1023 bytes"
         sample.mtime = 1;        // force a rendered datetime, not the dashes placeholder
         const double metaW = fm.horizontalAdvance(detailMeta(sample));
         if (area.width() < metaW + kIcon + kGap + kMinName)
-            return;
+            return false;
+        p->setWorldMatrixEnabled(false);
+        p->setFont(f);
         QColor metaCol = textColorFor(body);
         metaCol.setAlpha(160); // de-emphasised next to the file name
         const int rows = std::max(1, static_cast<int>(area.height() / rowH));
@@ -506,6 +562,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
             }
         }
         p->setWorldMatrixEnabled(true);
+        return true;
     };
     auto drawDirName = [&] {
         p->setWorldMatrixEnabled(false);
@@ -521,27 +578,50 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         p->restore();
         p->setWorldMatrixEnabled(true);
     };
+    auto drawRung = [&](FileMode mode) {
+        switch (mode) {
+        case Details:
+            return drawDetails();
+        case List:
+            return drawList();
+        case IconsNamed:
+            return drawIconsNamed();
+        case Icons:
+            return drawIcons();
+        case Dots:
+            return drawDots();
+        case Auto:
+            break;
+        }
+        return false;
+    };
 
-    const bool hasFiles = !node->files.empty();
+    // Walk the rung table: Auto from the top (force-only rows skipped), a forced mode
+    // from its own row; the first rung that fits the cell and draws wins. Dots is the
+    // table's last row and Auto stops short of it — in Auto the cell's own name
+    // outranks dots, and that choice is the floor below the table.
     const bool forced = m_fileMode != Auto;
-    const bool listFit = dev.width() > kNameW * m_detail &&
-                         dev.height() > (kHeaderPx + kNameGlyph.pitch() * 2) * m_detail;
-    const bool iconsFit =
-        dev.width() > 70.0 * m_detail && dev.height() > (kHeaderPx + kIconGlyph.pitch()) * m_detail;
+    if (!node->files.empty()) {
+        bool started = !forced;
+        for (const RungSpec &r : kRungs) {
+            if (!started) {
+                started = r.mode == m_fileMode;
+                if (!started)
+                    continue;
+            } else if (!forced && (r.forceOnly || r.mode == Dots)) {
+                continue;
+            }
+            if (dev.width() > r.minW * m_detail && dev.height() > r.minH * m_detail &&
+                drawRung(r.mode))
+                return;
+        }
+    }
     const bool labelFits =
         !hasTitle && dev.width() > kLabelW * m_detail && dev.height() > kLabelH * m_detail;
-    if (hasFiles && m_fileMode == Details)
-        drawDetails(); // force-only: never auto-picked (needs the most room)
-    else if (hasFiles && (m_fileMode == List || (!forced && listFit)))
-        drawList();
-    else if (hasFiles && (m_fileMode == Icons || (!forced && iconsFit)))
-        drawIcons();
-    else if (hasFiles && m_fileMode == Dots)
-        drawDots();
-    else if (labelFits)
+    if (labelFits)
         drawDirName(); // the cell's own name (Auto fallback, or a fileless dir)
-    else if (hasFiles)
-        drawDots(); // Auto floor: density dots where even the name won't fit
+    else if (!node->files.empty())
+        drawDots(); // floor: density dots where even the name won't fit
 }
 
 void TreemapItem::drawUnscannedMark(QPainter *p, const QRectF &dev) const {
