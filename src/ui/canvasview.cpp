@@ -7,6 +7,7 @@
 
 #include <cmath>
 
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
@@ -19,9 +20,12 @@ CanvasView::CanvasView(QWidget *parent) : QGraphicsView(parent) {
     setRenderHint(QPainter::Antialiasing, true);
     setRenderHint(QPainter::TextAntialiasing, true);
     // NoDrag: the treemap fills the viewport and the left button is for cell
-    // select / (future) drag-to-reparent, so panning is on the middle button
-    // (handled below) instead of QGraphicsView's left-button ScrollHandDrag.
+    // select / (future) drag-to-reparent, so panning is handled below (middle
+    // button, Space+left, or left on empty background) instead of
+    // QGraphicsView's left-button ScrollHandDrag.
     setDragMode(QGraphicsView::NoDrag);
+    // Needed to receive the Space key for the Space+drag pan mode.
+    setFocusPolicy(Qt::StrongFocus);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -43,12 +47,45 @@ void CanvasView::wheelEvent(QWheelEvent *event) {
         gs->refreshCallouts(); // keep investigation-frame callouts anchored on zoom
 }
 
+void CanvasView::keyPressEvent(QKeyEvent *event) {
+    if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
+        m_spaceHeld = true;
+        if (!m_panning)
+            setCursor(Qt::OpenHandCursor);
+        event->accept();
+        return;
+    }
+    QGraphicsView::keyPressEvent(event);
+}
+
+void CanvasView::keyReleaseEvent(QKeyEvent *event) {
+    if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
+        m_spaceHeld = false;
+        if (!m_panning)
+            unsetCursor(); // an in-flight pan keeps its closed hand until release
+        event->accept();
+        return;
+    }
+    QGraphicsView::keyReleaseEvent(event);
+}
+
+void CanvasView::beginPan(QMouseEvent *event) {
+    m_panning = true;
+    m_panButton = event->button();
+    m_panLast = event->pos();
+    setCursor(Qt::ClosedHandCursor);
+    event->accept();
+}
+
 void CanvasView::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::MiddleButton) {
-        m_panning = true;
-        m_panLast = event->pos();
-        setCursor(Qt::ClosedHandCursor);
-        event->accept();
+        beginPan(event);
+        return;
+    }
+    // Left button pans too when Space is held, or when the press lands on empty
+    // background (no item to select or drag there).
+    if (event->button() == Qt::LeftButton && (m_spaceHeld || itemAt(event->pos()) == nullptr)) {
+        beginPan(event);
         return;
     }
     QGraphicsView::mousePressEvent(event);
@@ -69,9 +106,13 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
-    if (m_panning && event->button() == Qt::MiddleButton) {
+    if (m_panning && event->button() == m_panButton) {
         m_panning = false;
-        unsetCursor();
+        m_panButton = Qt::NoButton;
+        if (m_spaceHeld)
+            setCursor(Qt::OpenHandCursor);
+        else
+            unsetCursor();
         event->accept();
         return;
     }
