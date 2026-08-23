@@ -127,8 +127,11 @@ class TreemapItem : public QGraphicsItem {
                   const QRectF &exposed) const;
     // The leaf rung (files as names / icons / dots, or the cell's own name) — split
     // out of drawCell to keep it focused on cull / subdivide / chrome.
+    // `visibleDev` is the exposed viewport in device px: a cell larger than the view
+    // lays its files out against the part of itself that is on screen, so zooming
+    // into a directory reads as being inside it rather than as a bare wall.
     void drawLeafContents(QPainter *painter, const core::FsNode *node, const QRectF &dev,
-                          bool hasTitle, const QColor &body) const;
+                          bool hasTitle, const QColor &body, const QRectF &visibleDev) const;
     // The staged-move diff decoration (ADR-302 #12): a crosshatch + a step-number badge
     // marking a square the plan relocated, drawn on top of the cell (and its children).
     void drawDiffMark(QPainter *painter, const QRectF &dev, int step) const;

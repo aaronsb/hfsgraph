@@ -241,6 +241,9 @@ TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, Si
                          Ramp ramp, GraphScene *scene)
     : m_root(root), m_w(width), m_h(height), m_metric(metric), m_ramp(ramp), m_scene(scene) {
     m_layout.setRoot(root);
+    // Without this, option->exposedRect is just boundingRect(): the exposed-rect cull
+    // in drawCell never culled, and leaf contents couldn't anchor to the viewport.
+    setFlag(ItemUsesExtendedStyleOption, true);
     setAcceptedMouseButtons(Qt::LeftButton);
 }
 
@@ -415,7 +418,7 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
     if (node->truncatedDepth && node->children.empty())
         drawUnscannedMark(p, hasTitle ? dev.adjusted(0, kHeaderPx, 0, 0) : dev); // more below
     if (!m_interacting)
-        drawLeafContents(p, node, dev, hasTitle, body);
+        drawLeafContents(p, node, dev, hasTitle, body, toDevice.mapRect(exposed));
     dimScrim(); // leaf: dim the whole cell (body + contents) when de-emphasised
     if (const int step = diffStepFor(node))
         drawDiffMark(p, dev, step);
@@ -441,8 +444,17 @@ int TreemapItem::diffStepFor(const core::FsNode *node) const {
 // Each painter self-guards on its content area and reports whether it drew, so a
 // rung that passes the table but not its own guard still falls through.
 void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const QRectF &dev,
-                                   bool hasTitle, const QColor &body) const {
-    const QRectF area = dev.adjusted(3, (hasTitle ? kHeaderPx : 2.0), -2, -2);
+                                   bool hasTitle, const QColor &body,
+                                   const QRectF &visibleDev) const {
+    // The content area is the cell body clipped to what's on screen. Every rung packs
+    // its glyphs from this rect's top-left, so once the view is inside a cell the
+    // files sit at the viewport's corner instead of off-screen at the cell's; while
+    // the cell fits in view this is the cell body exactly. The rung choice below
+    // still reads the full cell size (`dev`), so it doesn't flicker with panning.
+    QRectF area = dev.adjusted(3, (hasTitle ? kHeaderPx : 2.0), -2, -2);
+    const QRectF onScreen = area.intersected(visibleDev.adjusted(3, 3, -3, -3));
+    if (onScreen.isValid())
+        area = onScreen;
 
     auto drawIcons = [&] {
         if (area.width() < kIconGlyph.size || area.height() < kIconGlyph.size)
