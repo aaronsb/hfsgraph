@@ -31,13 +31,17 @@
 //   set deepen 0|1           lazy deepening of truncated cells on (default) or off
 //   set fast 0|1             hold the interaction LOD (no leaf contents) on or off; a
 //                            later wheel/drag re-arms the idle timer and releases it
+//   set focus 0|1            layout focus (#40) on (default) or off, for comparison
 //   shot PATH [view]         save a PNG of the main window, or of the canvas viewport only
 //   check bases N            fail unless the scene holds N base surfaces
 //   check nodes N            fail unless the bases hold at least N directories (prints the count)
 //   mark                     remember the directory count; `check grew` fails unless it rose
 //   probe [X Y]              print the deepest cell under a viewport point (path, files, children)
-//                            and the file glyph there, if any
+//                            and the file glyph there, if any, and the layout focus
 //   check selected N         fail unless exactly N files are selected (prints the count)
+//   check focus PATH         fail unless the layout focus (#40) is the directory whose
+//                            path ends with PATH (a glob if PATH holds `*`), or `none`
+//                            for no focus (prints it)
 //   check file NAME          fail unless a file with base name NAME is selected
 //   check ops N              fail unless exactly N ops are staged in the ledger
 //   stage rename X Y NEW     stage a rename of the file glyph at (X,Y) (bypasses the menu);

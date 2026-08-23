@@ -325,6 +325,8 @@ bool Driver::run(const QString &line) {
             m_scene->setLazyDeepen(i != 0); // lazy deepening on/off (off = a fixed-depth control)
         else if (what == QLatin1String("fast"))
             m_scene->setInteracting(i != 0); // interaction LOD, held for benching
+        else if (what == QLatin1String("focus"))
+            m_scene->setLayoutFocusEnabled(i != 0); // layout focus (#40), off to compare
         else
             return false;
         return true;
@@ -380,6 +382,31 @@ bool Driver::run(const QString &line) {
             if (got != static_cast<int>(num(2))) {
                 std::fprintf(stderr, "driver: %d ops staged, expected %d\n", got,
                              static_cast<int>(num(2)));
+                return false;
+            }
+            return true;
+        }
+        if (what == QLatin1String("focus")) {
+            // The layout focus (#40) is the directory whose path ends with PATH, or
+            // `none`. A suffix so scripts stay fixture-location independent.
+            const core::FsNode *f = m_scene->layoutFocus();
+            const QString got = f ? f->path : QStringLiteral("none");
+            std::printf("focus %s\n", qPrintable(got));
+            const QString want = a.at(2);
+            bool ok = false;
+            if (want == QLatin1String("none"))
+                ok = f == nullptr;
+            else if (want.contains(QLatin1Char('*'))) // a glob, for synth trees whose
+                ok = f && QRegularExpression(         // sibling order follows readdir
+                              QRegularExpression::wildcardToRegularExpression(
+                                  want, QRegularExpression::NonPathWildcardConversion))
+                              .match(f->path)
+                              .hasMatch();
+            else
+                ok = f && f->path.endsWith(want);
+            if (!ok) {
+                std::fprintf(stderr, "driver: focus is %s, expected %s\n", qPrintable(got),
+                             qPrintable(want));
                 return false;
             }
             return true;
@@ -493,6 +520,8 @@ bool Driver::run(const QString &line) {
         std::printf("probe (%d,%d): %s files=%zu children=%zu truncated=%d lazy=%d\n", vp0.x(),
                     vp0.y(), qPrintable(best->path), best->files.size(), best->children.size(),
                     best->truncatedDepth ? 1 : 0, best->lazyChildren ? 1 : 0);
+        const core::FsNode *focus = m_scene->layoutFocus();
+        std::printf("probe focus: %s\n", focus ? qPrintable(focus->path) : "none");
         std::fflush(stdout);
         return true;
     }

@@ -175,6 +175,22 @@ GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {
     });
 }
 
+void GraphScene::setLayoutFocusEnabled(bool on) {
+    if (m_layoutFocusEnabled == on)
+        return;
+    m_layoutFocusEnabled = on;
+    for (FrameItem *f : m_frames)
+        f->update(); // each surface re-decides (and clears) its focus in paint
+}
+
+void GraphScene::setLayoutFocus(const core::FsNode *node) {
+    if (m_layoutFocus == node)
+        return;
+    m_layoutFocus = node;
+    // Called mid-paint: the callouts read the new geometry on the next turn.
+    QTimer::singleShot(0, this, [this] { refreshCallouts(); });
+}
+
 void GraphScene::noteInteraction() {
     setInteracting(true);
     m_idleTimer->start();

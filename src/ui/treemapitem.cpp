@@ -37,6 +37,8 @@
 #include <QStaticText>
 #include <QStyleOptionGraphicsItem>
 #include <QTransform>
+#include <QVariantAnimation>
+#include <QWidget>
 
 namespace ui {
 
@@ -378,6 +380,20 @@ QColor textColorFor(const QColor &bg) {
     return bg.lightness() < 140 ? QColor(238, 238, 238) : QColor(18, 18, 18);
 }
 
+QRectF lerpRect(const QRectF &a, const QRectF &b, double t) {
+    return QRectF(a.x() + (b.x() - a.x()) * t, a.y() + (b.y() - a.y()) * t,
+                  a.width() + (b.width() - a.width()) * t,
+                  a.height() + (b.height() - a.height()) * t);
+}
+
+// The affine map taking `from` onto `to` (rect → rect), for carrying a cell's inner
+// rect and holes along with its blended rect.
+QTransform rectMap(const QRectF &from, const QRectF &to) {
+    const qreal sx = from.width() > 0 ? to.width() / from.width() : 1.0;
+    const qreal sy = from.height() > 0 ? to.height() / from.height() : 1.0;
+    return QTransform(sx, 0, 0, sy, to.x() - from.x() * sx, to.y() - from.y() * sy);
+}
+
 } // namespace
 
 TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, SizeMetric metric,
@@ -394,6 +410,8 @@ TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, Si
     setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton); // right: context menu
     setAcceptDrops(true);                                      // file drop → staged move
 }
+
+TreemapItem::~TreemapItem() = default; // QVariantAnimation is complete here
 
 QColor TreemapItem::depthColor(Ramp ramp, int depth) {
     return rampColor(static_cast<int>(ramp), depth);
@@ -448,10 +466,46 @@ QRectF TreemapItem::boundingRect() const {
     return QRectF(0, 0, m_w, m_h);
 }
 
+double TreemapItem::morphT() const {
+    if (!m_morph || m_morph->state() != QAbstractAnimation::Running)
+        return 1.0;
+    return m_morph->currentValue().toDouble();
+}
+
+QRectF TreemapItem::morphFrom(const LayoutCell &cell, const MorphParent *parent) const {
+    // The rect this node showed before the change, by kind first (an ancestor has a
+    // canonical cell *and* a frame; the focus node a shadow and an overlay cell),
+    // then the other kind — so frames grow out of their canonical cells and a popped
+    // subtree settles from where the overlay showed it.
+    const auto &same = cell.overlay ? m_fromOverlay : m_fromCanon;
+    const auto &other = cell.overlay ? m_fromCanon : m_fromOverlay;
+    if (const auto it = same.find(cell.node); it != same.end())
+        return it->second;
+    if (const auto it = other.find(cell.node); it != other.end())
+        return it->second;
+    if (parent && parent->to.isValid())
+        return rectMap(parent->to, parent->from).mapRect(cell.rect); // carried with the parent
+    return cell.rect;
+}
+
 void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
-                           const QRectF &exposed) const {
+                           const QRectF &exposed, const MorphParent *parent) const {
     const LayoutCell &cell = m_layout.cells()[static_cast<std::size_t>(index)];
-    const QRectF &rect = cell.rect;
+    // Mid-morph (#40) a cell is drawn at a blend of where it was and where the new
+    // layout puts it; its inner rect and holes ride along under the same map.
+    const double t = morphT();
+    QRectF rect = cell.rect, inner = cell.inner;
+    std::vector<QRectF> morphedHoles;
+    MorphParent self{cell.rect, cell.rect};
+    if (t < 1.0) {
+        self.from = morphFrom(cell, parent);
+        rect = lerpRect(self.from, cell.rect, t);
+        const QTransform map = rectMap(cell.rect, rect);
+        inner = map.mapRect(cell.inner);
+        for (const QRectF &h : cell.holes)
+            morphedHoles.push_back(map.mapRect(h));
+    }
+    const std::vector<QRectF> &holes = t < 1.0 ? morphedHoles : cell.holes;
     if (!rect.intersects(exposed))
         return; // off-screen — cull (the layout is zoom-keyed, so this is the only per-pan test)
     const core::FsNode *node = cell.node;
@@ -503,19 +557,19 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
     // around the inner rect, and — if any child was culled for size — behind the
     // holes. Filling the whole rect every level meant each pixel of a deep map was
     // painted once per nesting level; this paints it once.
+    // A focus frame (#40) is all rim: it reads as a breadcrumb in the depth colour.
     const bool rimOnly = subdivide && !ovHighlight && !ovDim;
     if (rimOnly) {
-        const QRectF &inner = cell.inner;
-        p->fillRect(QRectF(rect.left(), rect.top(), rect.width(), inner.top() - rect.top()), body);
+        const QColor rim = cell.focusFrame ? title : body;
+        p->fillRect(QRectF(rect.left(), rect.top(), rect.width(), inner.top() - rect.top()), rim);
         p->fillRect(
-            QRectF(rect.left(), inner.bottom(), rect.width(), rect.bottom() - inner.bottom()),
-            body);
+            QRectF(rect.left(), inner.bottom(), rect.width(), rect.bottom() - inner.bottom()), rim);
         p->fillRect(QRectF(rect.left(), inner.top(), inner.left() - rect.left(), inner.height()),
-                    body);
+                    rim);
         p->fillRect(
-            QRectF(inner.right(), inner.top(), rect.right() - inner.right(), inner.height()), body);
+            QRectF(inner.right(), inner.top(), rect.right() - inner.right(), inner.height()), rim);
         // Children culled for size leave holes the rim fill skipped; fill just those.
-        for (const QRectF &hole : cell.holes)
+        for (const QRectF &hole : holes)
             p->fillRect(hole, body);
     } else {
         p->fillRect(rect, body);
@@ -555,12 +609,20 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
         dimScrim(); // dim this cell's chrome; children overdraw the inner and self-dim
         for (int c = cell.firstChild; c >= 0;
              c = m_layout.cells()[static_cast<std::size_t>(c)].nextSibling)
-            drawCell(p, c, toDevice, exposed);
+            drawCell(p, c, toDevice, exposed, &self);
         if (const int step = diffStepFor(node))
             drawDiffMark(p, dev, step); // on top of children, so a moved dir stays marked
         return;
     }
 
+    if (cell.focusShadow) {
+        // The focus node's canonical cell under the overlay (#40): a flat cell with its
+        // name — its contents live in the overlay, and it must not ask to deepen.
+        if (!hasTitle)
+            drawLeafContents(p, node, dev, hasTitle, body, toDevice.mapRect(exposed));
+        dimScrim();
+        return;
+    }
     if (cell.wantsChildren && m_scene)
         m_scene->requestDeepen(node); // the scan stopped here and the view wants more
     if (node->truncatedDepth && node->children.empty())
@@ -874,7 +936,113 @@ void TreemapItem::drawDiffMark(QPainter *p, const QRectF &dev, int step) const {
     p->restore();
 }
 
-void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) {
+void TreemapItem::setFocus(const core::FsNode *focus, const QRectF &focusRect,
+                           const TreemapLayout::Params &lp) {
+    // Snapshot where every cell is shown *now* (mid-morph included) so the next
+    // morph starts from what the eye sees, then switch and rebuild.
+    const double t = morphT();
+    const std::vector<LayoutCell> &cells = m_layout.cells();
+    std::vector<QRectF> from(cells.size()), shown(cells.size());
+    for (std::size_t i = 0; i < cells.size(); ++i) { // pre-order: parents resolve first
+        const LayoutCell &c = cells[i];
+        MorphParent parent;
+        if (c.parent >= 0)
+            parent = {from[static_cast<std::size_t>(c.parent)],
+                      cells[static_cast<std::size_t>(c.parent)].rect};
+        from[i] = t < 1.0 ? morphFrom(c, c.parent >= 0 ? &parent : nullptr) : c.rect;
+        shown[i] = lerpRect(from[i], c.rect, t);
+    }
+    m_fromCanon.clear();
+    m_fromOverlay.clear();
+    for (std::size_t i = 0; i < cells.size(); ++i)
+        (cells[i].overlay ? m_fromOverlay : m_fromCanon)[cells[i].node] = shown[i];
+    m_focus = focus;
+    m_focusRect = focusRect;
+    if (m_scene)
+        m_scene->setLayoutFocus(focus);
+    TreemapLayout::Params np = lp;
+    np.focus = m_focus;
+    np.focusRect = m_focusRect;
+    m_layout.ensure(np);
+    if (!m_morph) {
+        m_morph = std::make_unique<QVariantAnimation>();
+        m_morph->setDuration(220);
+        m_morph->setStartValue(0.0);
+        m_morph->setEndValue(1.0);
+        m_morph->setEasingCurve(QEasingCurve::OutCubic);
+        QObject::connect(m_morph.get(), &QVariantAnimation::valueChanged, m_morph.get(),
+                         [this] { update(); });
+        QObject::connect(m_morph.get(), &QVariantAnimation::finished, m_morph.get(), [this] {
+            m_fromCanon.clear();
+            m_fromOverlay.clear();
+            update();
+        });
+    }
+    m_morph->stop();
+    m_morph->start();
+}
+
+void TreemapItem::decideFocus(TreemapLayout::Params &lp, const QRectF &vpDev, const QRectF &vpItem,
+                              const QTransform &toDevice) {
+    const bool enabled = m_scene && m_scene->layoutFocusEnabled();
+    if (!enabled) {
+        if (m_focus)
+            setFocus(nullptr, QRectF(), lp);
+        return;
+    }
+    const std::vector<LayoutCell> &cells = m_layout.cells();
+    if (cells.empty() || !vpDev.isValid() || !vpItem.isValid())
+        return;
+    auto devSize = [&](const LayoutCell &c) { return toDevice.mapRect(c.rect).size(); };
+    auto covers = [&](const LayoutCell &c, double f) {
+        const QSizeF s = devSize(c);
+        return s.width() >= vpDev.width() * f && s.height() >= vpDev.height() * f;
+    };
+    // Release: the focus fell under the threshold → its parent takes over, placed so
+    // the old focus keeps its centre and area; at the root the focus clears.
+    if (m_focus) {
+        const LayoutCell *fc = m_layout.focusCell();
+        if (!fc || fc->node != m_focus) {
+            setFocus(nullptr, QRectF(), lp); // gone (tree changed, or culled)
+            return;
+        }
+        if (!covers(*fc, kFocusRelease)) {
+            const core::FsNode *parent = m_focus->parent;
+            if (!parent || parent == m_root) {
+                setFocus(nullptr, QRectF(), lp);
+                return;
+            }
+            const QRectF r = m_layout.focusRectAround(parent, m_focus, fc->rect, vpItem);
+            setFocus(r.isValid() ? parent : nullptr, r, lp);
+            return;
+        }
+    }
+    // Engage: the deepest *subdivided* cell under the current focus (or the root) that
+    // covers the viewport on both axes. At most one child can (two disjoint tiles
+    // can't both span 60% of the same axis), so this is a single descent. A leaf is
+    // never a focus: its files already crop to the viewport (drawLeafContents), and
+    // pinning a leaf to the viewport only blows its body up under further zoom.
+    const LayoutCell *start = m_focus ? m_layout.focusCell() : &cells[0];
+    const LayoutCell *deepest = nullptr;
+    for (const LayoutCell *c = start; c && c->subdivided;) {
+        const LayoutCell *next = nullptr;
+        for (int k = c->firstChild; k >= 0; k = cells[static_cast<std::size_t>(k)].nextSibling)
+            if (const LayoutCell &kc = cells[static_cast<std::size_t>(k)];
+                kc.subdivided && covers(kc, kFocusEngage)) {
+                next = &kc;
+                break;
+            }
+        if (!next)
+            break;
+        deepest = next;
+        c = next;
+    }
+    if (deepest && deepest->node != m_focus && deepest->node->parent)
+        setFocus(deepest->node, vpItem, lp);
+}
+
+void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
+                        QWidget *widget) {
     painter->setRenderHint(QPainter::Antialiasing, false); // crisp rectangle edges
     m_dark = qApp && qApp->palette().color(QPalette::Window).lightness() < 128;
     m_anyFocus = false; // focus mode dims every non-member; resolve it once per paint
@@ -905,9 +1073,26 @@ void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *optio
     lp.detail = m_detail;
     lp.zoom = toDevice.m11() > 0 ? toDevice.m11() : 1.0;
     lp.freezeLazy = m_interacting; // stable under the cursor; honest once idle
+    lp.focus = m_focus;
+    lp.focusRect = m_focusRect;
     m_layout.ensure(lp);
+    // Layout focus (#40): judged against the viewport — `widget` is the view's
+    // viewport, so its rect is the device-space window the eye has; clipped to this
+    // item so a focus never lays out past the surface.
+    if (widget && toDevice.isInvertible()) {
+        const QRectF vpDev(widget->rect());
+        const QRectF vpItem = toDevice.inverted().mapRect(vpDev).intersected(boundingRect());
+        decideFocus(lp, vpDev, vpItem, toDevice);
+    }
     if (!m_layout.cells().empty())
-        drawCell(painter, 0, toDevice, exposed);
+        drawCell(painter, 0, toDevice, exposed, nullptr);
+    if (m_layout.overlayRoot() >= 0) {
+        // The canonical map recedes under a scrim so the focus overlay reads as the
+        // subject and the surroundings as context (the scrim fades in with the morph).
+        const int alpha = static_cast<int>(70 * morphT());
+        painter->fillRect(exposed, m_dark ? QColor(0, 0, 0, alpha) : QColor(255, 255, 255, alpha));
+        drawCell(painter, m_layout.overlayRoot(), toDevice, exposed, nullptr); // over the map
+    }
     drawBand(painter); // rubber band, over everything
 }
 

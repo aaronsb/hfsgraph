@@ -67,6 +67,14 @@ class GraphScene : public QGraphicsScene {
     void setInteracting(bool on);
     bool interacting() const { return m_interacting; }
 
+    // Layout focus (#40, spike). A surface decides its own focus as it paints
+    // (TreemapItem) and reports it here so callouts re-anchor and the driver can see
+    // it; the enable flag is the comparison switch (driver `set focus 0|1`).
+    void setLayoutFocusEnabled(bool on);
+    bool layoutFocusEnabled() const { return m_layoutFocusEnabled; }
+    void setLayoutFocus(const core::FsNode *node); // called from paint: defers the refresh
+    const core::FsNode *layoutFocus() const { return m_layoutFocus; }
+
     int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)
     double reveal() const { return m_reveal; }      // current reveal LOD (for frames)
     double detail() const { return m_detail; }      // current detail LOD (for frames)
@@ -231,7 +239,9 @@ class GraphScene : public QGraphicsScene {
     bool m_lazyDeepen = true;         // requestDeepen is a no-op when false (tests, benches)
     int m_calloutMode = 0;            // 0 Filled, 1 Lines, 2 Off (ADR-304)
     bool m_interacting = false;       // a zoom/pan gesture is in flight (interaction LOD)
-    QTimer *m_idleTimer = nullptr;    // clears m_interacting after the gesture goes quiet
+    bool m_layoutFocusEnabled = true; // layout focus (#40) on
+    const core::FsNode *m_layoutFocus = nullptr; // the last surface-reported focus
+    QTimer *m_idleTimer = nullptr; // clears m_interacting after the gesture goes quiet
     // Move-drag gesture state (#10), live only between begin and end.
     MoveDragOverlay *m_dragOverlay = nullptr;   // top-Z arrow + target highlight, owned
     const core::FsNode *m_dragSource = nullptr; // node being dragged (a render node)
