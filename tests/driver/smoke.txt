@@ -1,0 +1,13 @@
+# Driver smoke script (see src/ui/driver.h for the grammar). Run by ctest with
+# QT_QPA_PLATFORM=offscreen and HFSGRAPH_FIXTURE pointing at the repo's src/ tree.
+resize 1200 800
+load $HFSGRAPH_FIXTURE 3
+wait
+shot driver_smoke_fit.png
+check nonblank driver_smoke_fit.png
+wheel 4 600 400
+settle
+shot driver_smoke_zoomed.png
+check nonblank driver_smoke_zoomed.png
+echo smoke ok
+quit
