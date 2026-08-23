@@ -30,7 +30,7 @@ _Reorganization engine — ledger, legality, commit, volumes, snapshots, immutab
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-200](./engine/ADR-200-changeset-legality-and-safety-model-ledger-dry-run-volumes-immutability-commit.md) | Changeset legality and safety model: ledger, dry-run, volumes, immutability, commit | Accepted |
-| [ADR-201](./engine/ADR-201-file-operations-on-the-ledger-tagged-moveop-file-identity-via-originalpath-immediate-vs-staged-actions.md) | File operations on the ledger: tagged MoveOp, file identity via originalPath, immediate vs staged actions | Proposed |
+| [ADR-201](./engine/ADR-201-file-operations-on-the-ledger-tagged-moveop-file-identity-via-originalpath-immediate-vs-staged-actions.md) | File operations on the ledger: tagged MoveOp, file identity via originalPath, immediate vs staged actions | Accepted |
 
 ## UI
 _Canvas, rendering, layout, visualization modes, interaction_
@@ -42,7 +42,7 @@ _Canvas, rendering, layout, visualization modes, interaction_
 | [ADR-302](./ui/ADR-302-move-staging-drag-arrow-gesture-queued-changeset-with-scrub-preview-atomic-commit.md) | Move staging: drag-arrow gesture, queued changeset with scrub preview, atomic commit | Accepted |
 | [ADR-303](./ui/ADR-303-investigation-frames-double-click-opens-a-floating-focused-treemap-with-callout-lines-one-shared-scene-and-ledger.md) | Investigation frames: double-click opens a floating focused treemap with callout lines, one shared scene and ledger | Accepted |
 | [ADR-304](./ui/ADR-304-frames-as-the-universal-surface-resizable-frames-level-0-as-a-root-frame-and-multiple-base-surfaces.md) | Frames as the universal surface: resizable frames, level 0 as a root frame, and multiple base surfaces | Accepted |
-| [ADR-305](./ui/ADR-305-layout-focus-viewport-anchored-re-root-of-the-layout-with-breadcrumb-frames-and-hysteresis.md) | Layout focus: viewport-anchored re-root of the layout with breadcrumb frames and hysteresis | Proposed |
+| [ADR-305](./ui/ADR-305-layout-focus-viewport-anchored-re-root-of-the-layout-with-breadcrumb-frames-and-hysteresis.md) | Layout focus: viewport-anchored re-root of the layout with breadcrumb frames and hysteresis | Accepted |
 
 ## Platform
 _Tech stack & toolkit, build/packaging, OS facilities, xattr/Baloo interop_

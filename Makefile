@@ -14,7 +14,11 @@ help: ## Show this help
 
 ## --- Build / run -----------------------------------------------------------
 
-configure: ## Configure the CMake build tree
+configure: ## Configure the CMake build tree (drops a cache made from another checkout path)
+	@if [ -f $(BUILD_DIR)/CMakeCache.txt ] && \
+	   ! grep -qx 'CMAKE_HOME_DIRECTORY:INTERNAL=$(CURDIR)' $(BUILD_DIR)/CMakeCache.txt; then \
+	   echo "$(BUILD_DIR)/ was configured from another source path; removing it"; \
+	   rm -rf $(BUILD_DIR); fi
 	cmake -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug
 
 build: configure ## Compile
