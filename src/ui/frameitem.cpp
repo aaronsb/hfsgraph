@@ -45,8 +45,7 @@ QBrush ditherBrush(const QColor &ink) {
     const auto it = cache.constFind(key);
     if (it != cache.constEnd())
         return it.value();
-    static const int bayer[4][4] = {
-        {0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    static const int bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
     QImage img(4, 4, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
     for (int y = 0; y < 4; ++y)
@@ -130,9 +129,9 @@ QRectF CalloutItem::boundingRect() const {
 }
 
 void CalloutItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) {
-    const auto mode = scene()
-                          ? static_cast<CalloutMode>(static_cast<GraphScene *>(scene())->calloutMode())
-                          : CalloutMode::Filled;
+    const auto mode =
+        scene() ? static_cast<CalloutMode>(static_cast<GraphScene *>(scene())->calloutMode())
+                : CalloutMode::Filled;
     if (mode == CalloutMode::Off)
         return;
 
@@ -251,15 +250,26 @@ void FrameItem::setDetail(qreal factor) {
         m_interior->setDetail(factor);
 }
 
+void FrameItem::setInteracting(bool on) {
+    if (m_interior)
+        m_interior->setInteracting(on);
+}
+
 void FrameItem::setFileMode(int mode) {
     if (m_interior)
         m_interior->setFileMode(mode);
 }
 
-QSizeF FrameItem::panelSize() const { return QSizeF(m_w, m_h); }
+QSizeF FrameItem::panelSize() const {
+    return QSizeF(m_w, m_h);
+}
 
-QRectF FrameItem::panelRect() const { return QRectF(0, 0, m_w, m_h); }
-QRectF FrameItem::headerRect() const { return QRectF(0, 0, m_w, kHeader); }
+QRectF FrameItem::panelRect() const {
+    return QRectF(0, 0, m_w, m_h);
+}
+QRectF FrameItem::headerRect() const {
+    return QRectF(0, 0, m_w, kHeader);
+}
 QRectF FrameItem::closeRect() const {
     // The × is drawn in device space at a constant 22px; size the hit-rect to match
     // (item units = device / zoom) so the clickable area lines up with the glyph
@@ -312,11 +322,12 @@ void FrameItem::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) 
     p->setFont(f);
     p->setPen(head.lightness() < 140 ? QColor(238, 238, 238) : QColor(18, 18, 18));
     const QRectF devTitle(devTL.x() + 6, devTL.y(), devW - 6 - closeDevW, devHdr);
-    p->drawText(devTitle, Qt::AlignVCenter | Qt::AlignLeft,
-                QFontMetrics(f).elidedText(m_node->name, Qt::ElideMiddle,
-                                           static_cast<int>(std::max<qreal>(8.0, devTitle.width()))));
-    p->drawText(QRectF(devTL.x() + devW - closeDevW, devTL.y(), closeDevW, devHdr),
-                Qt::AlignCenter, QStringLiteral("×"));
+    p->drawText(
+        devTitle, Qt::AlignVCenter | Qt::AlignLeft,
+        QFontMetrics(f).elidedText(m_node->name, Qt::ElideMiddle,
+                                   static_cast<int>(std::max<qreal>(8.0, devTitle.width()))));
+    p->drawText(QRectF(devTL.x() + devW - closeDevW, devTL.y(), closeDevW, devHdr), Qt::AlignCenter,
+                QStringLiteral("×"));
     p->setWorldMatrixEnabled(true);
 
     // Panel border.

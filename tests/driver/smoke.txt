@@ -7,6 +7,7 @@ check bases 1
 shot driver_smoke_fit.png view
 check nonblank driver_smoke_fit.png
 wheel 4
+sleep 200   # let the interaction LOD idle out so the shot has full detail
 settle
 shot driver_smoke_zoomed.png view
 check nonblank driver_smoke_zoomed.png

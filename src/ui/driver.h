@@ -14,8 +14,10 @@
 //   load PATH DEPTH          add PATH as a base, scanned to DEPTH
 //   wait                     block until no scan is pending (then settle a frame)
 //   settle [N]               spin N event-loop turns (default 3) — let paints land
+//   sleep MS                 wall-clock pause with the event loop running (timers fire)
 //   resize W H               resize the main window
 //   fit                      fit every surface in the view
+//   fitnames                 grow the bases so typical names fit (toolbar "Fit names")
 //   zoom F [X Y]             scale the view by F, anchored at viewport (X,Y) or centre
 //   wheel N                  N wheel notches (negative = out), anchored at the view centre
 //   pan DX DY                scroll the viewport by device pixels
@@ -26,10 +28,12 @@
 //   drag X1 Y1 X2 Y2 [MODS]  press, move in steps, release (left button)
 //   set reveal|detail F      the LOD sliders' factor
 //   set filemode|ramp|metric|callout N   the toolbar combos, by index
+//   set fast 0|1             hold the interaction LOD (no leaf contents) on or off
 //   shot PATH [view]         save a PNG of the main window, or of the canvas viewport only
 //   check bases N            fail unless the scene holds N base surfaces
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
 //   check differs A B        fail if the two PNGs are pixel-identical
+//   bench [N]                repaint the viewport N times (default 20), print ms/frame
 //   echo TEXT                print to stdout
 //   quit                     exit 0 (a failed command exits 2)
 #pragma once
@@ -71,6 +75,7 @@ class Driver : public QObject {
     QStringList m_lines;
     int m_pc = 0;           // next line to run
     int m_settle = 0;       // remaining idle turns before the next command
+    int m_sleepMs = 0;      // wall-clock delay before the next command (`sleep`)
     bool m_waiting = false; // parked on `wait` until scans are idle
 };
 

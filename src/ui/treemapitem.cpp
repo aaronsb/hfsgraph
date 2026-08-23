@@ -24,6 +24,7 @@
 #include <QLocale>
 #include <QPainter>
 #include <QPalette>
+#include <QStaticText>
 #include <QStyleOptionGraphicsItem>
 #include <QTransform>
 
@@ -32,13 +33,13 @@ namespace ui {
 namespace {
 // On-screen (device-pixel) thresholds — the whole point of semantic zoom is that
 // detail is decided by how big a cell is on screen, not by a fixed tree depth.
-constexpr double kMinDevPx = 3.0;    // smaller than this: don't bother drawing
-constexpr double kSubdivW = 150.0;   // subdivide into children only once this wide…
-constexpr double kSubdivH = 64.0;    // …and this tall on screen
-constexpr double kLabelW = 42.0;     // room to show a name
+constexpr double kMinDevPx = 3.0;  // smaller than this: don't bother drawing
+constexpr double kSubdivW = 150.0; // subdivide into children only once this wide…
+constexpr double kSubdivH = 64.0;  // …and this tall on screen
+constexpr double kLabelW = 42.0;   // room to show a name
 constexpr double kLabelH = 14.0;
-constexpr double kHeaderPx = 16.0;   // device-px label strip atop a subdivided cell
-constexpr double kPadPx = 2.0;       // device-px inset around a child block
+constexpr double kHeaderPx = 16.0; // device-px label strip atop a subdivided cell
+constexpr double kPadPx = 2.0;     // device-px inset around a child block
 
 // Unified per-file glyph layout (ADR-301). Every LOD rung that packs a directory's
 // files into its cell — the icon grid, the finer pixel-dot grid, and eventually
@@ -46,14 +47,14 @@ constexpr double kPadPx = 2.0;       // device-px inset around a child block
 // so the rungs stay visually consistent and the spacing lives in a single tunable
 // place (a runtime control could drive these later instead of constants).
 struct GlyphGrid {
-    qreal size;                              // glyph edge, device px
-    qreal gap;                               // space between glyphs, device px
+    qreal size; // glyph edge, device px
+    qreal gap;  // space between glyphs, device px
     qreal pitch() const { return size + gap; }
 };
-constexpr GlyphGrid kIconGlyph{18.0, 8.0};  // file icons (pitch 26)
-constexpr GlyphGrid kPixelGlyph{3.0, 2.0};  // pixel-dot density (pitch 5)
-constexpr GlyphGrid kNameGlyph{11.0, 3.0};  // filename text rows (pitch 14, full width)
-constexpr double kNameW = 90.0;             // min cell width to bother with filename rows
+constexpr GlyphGrid kIconGlyph{18.0, 8.0}; // file icons (pitch 26)
+constexpr GlyphGrid kPixelGlyph{3.0, 2.0}; // pixel-dot density (pitch 5)
+constexpr GlyphGrid kNameGlyph{11.0, 3.0}; // filename text rows (pitch 14, full width)
+constexpr double kNameW = 90.0;            // min cell width to bother with filename rows
 
 // How many columns/rows of `g` fit in `area`, and how many of `count` items to draw
 // (capped to capacity). Last glyph never overflows: (cols-1)*pitch + size <= width.
@@ -94,12 +95,34 @@ QString permString(const core::FileEntry &fe) {
 // font. Width 10 covers the widest traditional sub-KiB form ("1023 bytes"). mtime 0
 // (unknown) renders as dashes.
 QString detailMeta(const core::FileEntry &fe) {
-    const QString size = QLocale::system().formattedDataSize(
-        fe.sizeBytes, 1, QLocale::DataSizeTraditionalFormat);
+    const QString size =
+        QLocale::system().formattedDataSize(fe.sizeBytes, 1, QLocale::DataSizeTraditionalFormat);
     const QString when =
-        fe.mtime ? QDateTime::fromSecsSinceEpoch(fe.mtime).toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                 : QStringLiteral("     -          ");
+        fe.mtime
+            ? QDateTime::fromSecsSinceEpoch(fe.mtime).toString(QStringLiteral("yyyy-MM-dd HH:mm"))
+            : QStringLiteral("     -          ");
     return QStringLiteral("%1 %2 %3  ").arg(permString(fe)).arg(size, 10).arg(when);
+}
+
+// A file/dir name elided to `width`, laid out once and cached. Elision + text layout
+// per name per frame was the largest single paint cost at large window sizes; names
+// repeat heavily across a tree (README.md, .gitignore…) and the width is bucketed, so
+// the cache stays small and hits almost always. Keyed on font pixel size too, since
+// the rungs use 10px and the title 11px.
+const QStaticText &elidedName(const QFont &font, const QString &name, qreal width) {
+    static QHash<QString, QStaticText> cache;
+    const int bucket = static_cast<int>(width / 6.0); // re-elide only across 6px steps
+    const QString key = QString::number(font.pixelSize()) + QLatin1Char('|') +
+                        QString::number(bucket) + QLatin1Char('|') + name;
+    auto it = cache.find(key);
+    if (it == cache.end()) {
+        QStaticText st(QFontMetrics(font).elidedText(name, Qt::ElideMiddle, bucket * 6));
+        st.setTextFormat(Qt::PlainText);
+        st.setPerformanceHint(QStaticText::AggressiveCaching);
+        st.prepare(QTransform(), font);
+        it = cache.insert(key, st);
+    }
+    return it.value();
 }
 
 // Standard perceptually-uniform data-viz ramps, each as 8 RGB control points
@@ -107,20 +130,50 @@ QString detailMeta(const core::FileEntry &fe) {
 // turbo ramps — close enough for categorical depth shading.
 const unsigned char kRamps[5][8][3] = {
     // Viridis
-    {{68, 1, 84}, {72, 40, 120}, {62, 74, 137}, {49, 104, 142},
-     {38, 130, 142}, {31, 158, 137}, {53, 183, 121}, {253, 231, 37}},
+    {{68, 1, 84},
+     {72, 40, 120},
+     {62, 74, 137},
+     {49, 104, 142},
+     {38, 130, 142},
+     {31, 158, 137},
+     {53, 183, 121},
+     {253, 231, 37}},
     // Magma
-    {{0, 0, 4}, {28, 16, 68}, {79, 18, 123}, {129, 37, 129},
-     {181, 54, 122}, {229, 80, 100}, {251, 135, 97}, {252, 253, 191}},
+    {{0, 0, 4},
+     {28, 16, 68},
+     {79, 18, 123},
+     {129, 37, 129},
+     {181, 54, 122},
+     {229, 80, 100},
+     {251, 135, 97},
+     {252, 253, 191}},
     // Plasma
-    {{13, 8, 135}, {84, 2, 163}, {139, 10, 165}, {185, 50, 137},
-     {219, 92, 104}, {244, 136, 73}, {254, 188, 43}, {240, 249, 33}},
+    {{13, 8, 135},
+     {84, 2, 163},
+     {139, 10, 165},
+     {185, 50, 137},
+     {219, 92, 104},
+     {244, 136, 73},
+     {254, 188, 43},
+     {240, 249, 33}},
     // Cividis
-    {{0, 32, 76}, {0, 51, 110}, {57, 72, 107}, {87, 93, 109},
-     {112, 113, 115}, {138, 135, 121}, {180, 159, 105}, {255, 234, 70}},
+    {{0, 32, 76},
+     {0, 51, 110},
+     {57, 72, 107},
+     {87, 93, 109},
+     {112, 113, 115},
+     {138, 135, 121},
+     {180, 159, 105},
+     {255, 234, 70}},
     // Turbo
-    {{48, 18, 59}, {64, 91, 217}, {30, 192, 211}, {76, 240, 110},
-     {178, 242, 48}, {251, 128, 34}, {210, 49, 26}, {122, 4, 3}},
+    {{48, 18, 59},
+     {64, 91, 217},
+     {30, 192, 211},
+     {76, 240, 110},
+     {178, 242, 48},
+     {251, 128, 34},
+     {210, 49, 26},
+     {122, 4, 3}},
 };
 const char *const kRampNames[] = {"Viridis", "Magma", "Plasma", "Cividis", "Turbo", "Spectrum"};
 
@@ -180,6 +233,13 @@ void TreemapItem::setDetail(qreal factor) {
 void TreemapItem::setFileMode(int mode) {
     m_fileMode = mode;
     update(); // the rung is chosen in paint()
+}
+
+void TreemapItem::setInteracting(bool on) {
+    if (m_interacting == on)
+        return;
+    m_interacting = on;
+    update();
 }
 
 void TreemapItem::setGroupStore(const core::GroupStore *store) {
@@ -270,7 +330,8 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
     // sit on a low-key background and read clearly.
     const QColor title = rampColor(m_ramp, depth);
     const QColor body = m_dark ? title.darker(235) : title.lighter(168);
-    const bool hasTitle = dev.width() > kLabelW * m_detail && dev.height() > kHeaderPx * 1.5 * m_detail;
+    const bool hasTitle =
+        dev.width() > kLabelW * m_detail && dev.height() > kHeaderPx * 1.5 * m_detail;
 
     // Semantic-group overlay (ADR-102): highlight tints + borders a group's cells;
     // focus dims non-members; dim de-emphasises a group's own members.
@@ -304,7 +365,26 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
             p->fillRect(rect, m_dark ? QColor(0, 0, 0, 150) : QColor(255, 255, 255, 150));
     };
 
-    p->fillRect(rect, body);
+    // A subdivided cell's children tile its inner rect exactly (squarify partitions
+    // the area), so the body only needs painting where a child won't: the chrome rim
+    // around the inner rect, and — if any child is too small on screen to draw —
+    // behind the culled holes. Filling the whole rect every level meant each pixel
+    // of a deep map was painted once per nesting level; this paints it once.
+    const bool rimOnly = subdivide && !ovHighlight && !ovDim;
+    const qreal rimHdr = (hasTitle ? kHeaderPx : kPadPx) / zoom, rimPad = kPadPx / zoom;
+    if (rimOnly) {
+        const QRectF inner = rect.adjusted(rimPad, rimHdr, -rimPad, -rimPad);
+        p->fillRect(QRectF(rect.left(), rect.top(), rect.width(), inner.top() - rect.top()), body);
+        p->fillRect(
+            QRectF(rect.left(), inner.bottom(), rect.width(), rect.bottom() - inner.bottom()),
+            body);
+        p->fillRect(QRectF(rect.left(), inner.top(), inner.left() - rect.left(), inner.height()),
+                    body);
+        p->fillRect(
+            QRectF(inner.right(), inner.top(), rect.right() - inner.right(), inner.height()), body);
+    } else {
+        p->fillRect(rect, body);
+    }
     if (ovHighlight) {
         QColor tint = ovColor;
         tint.setAlpha(90);
@@ -317,10 +397,9 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
         f.setPixelSize(11);
         p->setFont(f);
         p->setPen(textColorFor(title));
-        p->drawText(QRectF(dev.x() + 4, dev.y(), dev.width() - 6, kHeaderPx),
-                    Qt::AlignVCenter | Qt::AlignLeft,
-                    QFontMetrics(f).elidedText(node->name, Qt::ElideMiddle,
-                                               static_cast<int>(dev.width() - 6)));
+        const QStaticText &st = elidedName(f, node->name, dev.width() - 6);
+        p->drawStaticText(QPointF(dev.x() + 4, dev.y() + (kHeaderPx - st.size().height()) / 2.0),
+                          st);
         p->setWorldMatrixEnabled(true);
     }
 
@@ -344,22 +423,31 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
         kids.reserve(node->children.size());
         for (const auto &c : node->children)
             kids.push_back(c.get());
-        std::sort(kids.begin(), kids.end(),
-                  [this](const core::FsNode *a, const core::FsNode *b) { return weight(a) > weight(b); });
+        std::sort(kids.begin(), kids.end(), [this](const core::FsNode *a, const core::FsNode *b) {
+            return weight(a) > weight(b);
+        });
         std::vector<double> ws;
         ws.reserve(kids.size());
         for (const auto *k : kids)
             ws.push_back(weight(k));
         const std::vector<QRectF> rects = squarify(ws, inner);
         dimScrim(); // dim this cell's chrome; children overdraw the inner and self-dim
-        for (size_t k = 0; k < kids.size(); ++k)
+        for (size_t k = 0; k < kids.size(); ++k) {
+            if (rimOnly) {
+                // The rim fill skipped this area; a child culled for size leaves a hole.
+                const QRectF cdev = toDevice.mapRect(rects[k]);
+                if (cdev.width() < kMinDevPx || cdev.height() < kMinDevPx)
+                    p->fillRect(rects[k], body);
+            }
             drawCell(p, kids[k], rects[k], depth + 1, toDevice, exposed);
+        }
         if (const int step = diffStepFor(node))
             drawDiffMark(p, dev, step); // on top of children, so a moved dir stays marked
         return;
     }
 
-    drawLeafContents(p, node, dev, hasTitle, body);
+    if (!m_interacting)
+        drawLeafContents(p, node, dev, hasTitle, body);
     dimScrim(); // leaf: dim the whole cell (body + contents) when de-emphasised
     if (const int step = diffStepFor(node))
         drawDiffMark(p, dev, step);
@@ -394,10 +482,10 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         const GridFit fit = fitGlyphs(area, kIconGlyph, static_cast<int>(node->files.size()));
         for (int i = 0; i < fit.count; ++i) {
             const int r = i / fit.cols, c = i % fit.cols;
-            const QRect ir(static_cast<int>(area.x() + c * kIconGlyph.pitch()),
-                           static_cast<int>(area.y() + r * kIconGlyph.pitch()),
-                           static_cast<int>(kIconGlyph.size), static_cast<int>(kIconGlyph.size));
-            fileTypeIcon(node->files[i].name).paint(p, ir);
+            const QPoint at(static_cast<int>(area.x() + c * kIconGlyph.pitch()),
+                            static_cast<int>(area.y() + r * kIconGlyph.pitch()));
+            p->drawPixmap(at,
+                          fileTypePixmap(node->files[i].name, static_cast<int>(kIconGlyph.size)));
         }
         p->setWorldMatrixEnabled(true);
     };
@@ -435,13 +523,12 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
             const int col = i / rows, row = i % rows; // column-major, like ls
             const double x = area.x() + col * colW, y = area.y() + row * rowH;
             const QString &name = node->files[i].name;
-            const QRect ir(static_cast<int>(x), static_cast<int>(y + (rowH - kIcon) / 2),
-                           static_cast<int>(kIcon), static_cast<int>(kIcon));
-            fileTypeIcon(name).paint(p, ir);
+            p->drawPixmap(QPoint(static_cast<int>(x), static_cast<int>(y + (rowH - kIcon) / 2)),
+                          fileTypePixmap(name, static_cast<int>(kIcon)));
             p->setPen(fileTypeColor(name));
             const QRectF tr(x + kIcon + kIconGap, y, colW - kIcon - kIconGap - 4.0, rowH);
-            p->drawText(tr, Qt::AlignVCenter | Qt::AlignLeft,
-                        fm.elidedText(name, Qt::ElideMiddle, static_cast<int>(tr.width())));
+            const QStaticText &st = elidedName(f, name, tr.width());
+            p->drawStaticText(QPointF(tr.x(), tr.y() + (rowH - st.size().height()) / 2.0), st);
         }
         p->setWorldMatrixEnabled(true);
     };
@@ -464,7 +551,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         constexpr qreal kIcon = 12.0, kGap = 4.0, kMinName = 24.0;
         core::FileEntry sample;
         sample.sizeBytes = 1023; // widest sub-KiB form: "1023 bytes"
-        sample.mtime = 1; // force a rendered datetime, not the dashes placeholder
+        sample.mtime = 1;        // force a rendered datetime, not the dashes placeholder
         const double metaW = fm.horizontalAdvance(detailMeta(sample));
         if (area.width() < metaW + kIcon + kGap + kMinName)
             return;
@@ -479,14 +566,14 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
             p->drawText(QRectF(area.x(), y, metaW, rowH), Qt::AlignVCenter | Qt::AlignLeft,
                         detailMeta(fe));
             const double nx = area.x() + metaW;
-            const QRect ir(static_cast<int>(nx), static_cast<int>(y + (rowH - kIcon) / 2),
-                           static_cast<int>(kIcon), static_cast<int>(kIcon));
-            fileTypeIcon(fe.name).paint(p, ir);
+            p->drawPixmap(QPoint(static_cast<int>(nx), static_cast<int>(y + (rowH - kIcon) / 2)),
+                          fileTypePixmap(fe.name, static_cast<int>(kIcon)));
             p->setPen(fileTypeColor(fe.name));
             const QRectF tr(nx + kIcon + kGap, y, area.right() - (nx + kIcon + kGap), rowH);
-            if (tr.width() > 8.0)
-                p->drawText(tr, Qt::AlignVCenter | Qt::AlignLeft,
-                            fm.elidedText(fe.name, Qt::ElideMiddle, static_cast<int>(tr.width())));
+            if (tr.width() > 8.0) {
+                const QStaticText &st = elidedName(f, fe.name, tr.width());
+                p->drawStaticText(QPointF(tr.x(), tr.y() + (rowH - st.size().height()) / 2.0), st);
+            }
         }
         p->setWorldMatrixEnabled(true);
     };
@@ -496,9 +583,9 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         f.setPixelSize(11);
         p->setFont(f);
         p->setPen(textColorFor(body));
-        p->drawText(dev.adjusted(3, 2, -3, -2), Qt::AlignCenter,
-                    QFontMetrics(f).elidedText(node->name, Qt::ElideMiddle,
-                                               static_cast<int>(dev.width() - 6)));
+        const QStaticText &st = elidedName(f, node->name, dev.width() - 6);
+        p->drawStaticText(dev.center() - QPointF(st.size().width() / 2.0, st.size().height() / 2.0),
+                          st);
         p->setWorldMatrixEnabled(true);
     };
 
@@ -506,10 +593,10 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
     const bool forced = m_fileMode != Auto;
     const bool listFit = dev.width() > kNameW * m_detail &&
                          dev.height() > (kHeaderPx + kNameGlyph.pitch() * 2) * m_detail;
-    const bool iconsFit = dev.width() > 70.0 * m_detail &&
-                          dev.height() > (kHeaderPx + kIconGlyph.pitch()) * m_detail;
-    const bool labelFits = !hasTitle && dev.width() > kLabelW * m_detail &&
-                           dev.height() > kLabelH * m_detail;
+    const bool iconsFit =
+        dev.width() > 70.0 * m_detail && dev.height() > (kHeaderPx + kIconGlyph.pitch()) * m_detail;
+    const bool labelFits =
+        !hasTitle && dev.width() > kLabelW * m_detail && dev.height() > kLabelH * m_detail;
     if (hasFiles && m_fileMode == Details)
         drawDetails(); // force-only: never auto-picked (needs the most room)
     else if (hasFiles && (m_fileMode == List || (!forced && listFit)))
@@ -628,8 +715,8 @@ void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
 void TreemapItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
     if (m_pressNode && (event->buttons() & Qt::LeftButton)) {
         constexpr int kDragThreshold = 6; // px in scene space before a press becomes a drag
-        if (!m_dragging &&
-            (event->scenePos() - m_pressScene).manhattanLength() > kDragThreshold && m_scene)
+        if (!m_dragging && (event->scenePos() - m_pressScene).manhattanLength() > kDragThreshold &&
+            m_scene)
             m_dragging = m_scene->beginMoveDrag(m_pressNode, m_pressCenterScene);
         if (m_dragging && m_scene)
             m_scene->updateMoveDrag(event->scenePos());

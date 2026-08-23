@@ -56,6 +56,14 @@ class GraphScene : public QGraphicsScene {
     void setDetail(double factor);  // contents-crossover LOD (live; no rebuild)
     void setFileMode(int mode);     // force file rung (TreemapItem::FileMode) or Auto
 
+    // Interaction LOD. The view calls noteInteraction() on every wheel/pan step: every
+    // surface drops to its fast path (no leaf contents) for the gesture, and a short
+    // idle timer restores full detail with one repaint. setInteracting() forces the
+    // state (the driver benches both paths with it).
+    void noteInteraction();
+    void setInteracting(bool on);
+    bool interacting() const { return m_interacting; }
+
     int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)
     double reveal() const { return m_reveal; }      // current reveal LOD (for frames)
     double detail() const { return m_detail; }      // current detail LOD (for frames)
@@ -71,10 +79,10 @@ class GraphScene : public QGraphicsScene {
     // removes it; raiseFrame brings it to the front of the frame stack.
     void openFrame(const core::FsNode *node, const QRectF &originSceneRect,
                    FrameItem *parentFrame = nullptr);
-    void closeFrame(FrameItem *frame); // also closes frames opened from within it
-    void raiseFrame(FrameItem *frame);          // raises the frame and its descendants
-    void refreshCallouts();                     // re-anchor every callout (view change)
-    void refreshCalloutsFor(FrameItem *frame);  // only the callouts a move/resize affects
+    void closeFrame(FrameItem *frame);         // also closes frames opened from within it
+    void raiseFrame(FrameItem *frame);         // raises the frame and its descendants
+    void refreshCallouts();                    // re-anchor every callout (view change)
+    void refreshCalloutsFor(FrameItem *frame); // only the callouts a move/resize affects
 
     // Callout draw mode (0 = Filled frustum, 1 = Lines, 2 = Off). Toolbar-controlled.
     void setCalloutMode(int mode);
@@ -116,10 +124,10 @@ class GraphScene : public QGraphicsScene {
     // projects every base, and emits ledgerChanged() so the dock refreshes. scrubTo
     // previews the state after `step` ops (0 = the un-staged base); clearMoves drops
     // the whole plan. (Append happens via the drag gesture, not here.)
-    void undoMove();         // pop the tail op onto the redo stack
-    void redoMove();         // restore the last undone op
-    void clearMoves();       // drop all staged ops + redo history
-    void scrubTo(int step);  // preview ops [0, step); clamps to [0, size]
+    void undoMove();        // pop the tail op onto the redo stack
+    void redoMove();        // restore the last undone op
+    void clearMoves();      // drop all staged ops + redo history
+    void scrubTo(int step); // preview ops [0, step); clamps to [0, size]
 
     // Drag-to-move gesture (ADR-302 #10, cross-frame in #13). Any surface's treemap —
     // a base or a lens — arms a drag on press; past a small threshold it calls
@@ -156,8 +164,8 @@ class GraphScene : public QGraphicsScene {
     // the move-drag drop target (bases render the projection; lens targets are #13).
     std::pair<FrameItem *, const core::FsNode *> surfaceCellAt(const QPointF &scenePos) const;
 
-    core::GroupStore m_groups;                // semantic groups (ADR-102), owned
-    core::Ledger m_ledger;                     // staged move plan (ADR-302), owned
+    core::GroupStore m_groups; // semantic groups (ADR-102), owned
+    core::Ledger m_ledger;     // staged move plan (ADR-302), owned
     // Projected base forest (scanned trees + active ops replayed), owned here and
     // index-aligned with baseFrames(); empty while the ledger has no active ops (the
     // bases then render their scanned sources directly).
@@ -173,13 +181,15 @@ class GraphScene : public QGraphicsScene {
     bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
     int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
     QSet<QString> m_loadedWorkspaces; // roots whose sidecar we've loaded (load once, ADR-102 #15)
-    int m_calloutMode = 0;           // 0 Filled, 1 Lines, 2 Off (ADR-304)
+    int m_calloutMode = 0;            // 0 Filled, 1 Lines, 2 Off (ADR-304)
+    bool m_interacting = false;       // a zoom/pan gesture is in flight (interaction LOD)
+    QTimer *m_idleTimer = nullptr;    // clears m_interacting after the gesture goes quiet
     // Move-drag gesture state (#10), live only between begin and end.
     MoveDragOverlay *m_dragOverlay = nullptr;   // top-Z arrow + target highlight, owned
     const core::FsNode *m_dragSource = nullptr; // node being dragged (a render node)
-    QPointF m_dragSourceCenter;                  // drag-source square centre, scene coords
+    QPointF m_dragSourceCenter;                 // drag-source square centre, scene coords
     const core::FsNode *m_dragTarget = nullptr; // current drop target, or null
-    bool m_dragLegal = false;                    // is the current target a legal drop?
+    bool m_dragLegal = false;                   // is the current target a legal drop?
     // key → node in the base projection, built at drag start (the projection is fixed
     // for the drag's duration). Lets updateMoveDrag resolve a dragged/target node — which
     // may live in a lens's independent tree — to the base node replay will actually move,

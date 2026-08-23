@@ -45,11 +45,12 @@ class CalloutItem : public QGraphicsItem {
   public:
     CalloutItem(const core::FsNode *originNode, FrameItem *sourceFrame, FrameItem *frame);
     QRectF boundingRect() const override;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
-               QWidget *widget) override;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
 
-    void refresh();    // recompute the origin from the source layout + repaint
-    FrameItem *sourceFrame() const { return m_sourceFrame; } // frame holding the origin (or null=base)
+    void refresh(); // recompute the origin from the source layout + repaint
+    FrameItem *sourceFrame() const {
+        return m_sourceFrame;
+    } // frame holding the origin (or null=base)
     void setSource(const core::FsNode *originNode, FrameItem *sourceFrame);
 
   private:
@@ -74,7 +75,7 @@ class FrameItem : public QGraphicsObject {
     // so the independent per-lens scan never leaks.
     void adoptTree(std::unique_ptr<core::FsNode> tree);
 
-    int level() const { return m_level; }   // 0 for a base, 1 for a top lens, +1 per nesting
+    int level() const { return m_level; } // 0 for a base, 1 for a top lens, +1 per nesting
     void setLevel(int level) { m_level = level; }
     bool isBase() const { return m_level == 0; } // a level-0 root surface (ADR-304)
 
@@ -84,8 +85,7 @@ class FrameItem : public QGraphicsObject {
     void rebuildInterior();
 
     QRectF boundingRect() const override;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
-               QWidget *widget) override;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
 
     const core::FsNode *node() const { return m_node; } // current render root (may be projected)
 
@@ -101,6 +101,7 @@ class FrameItem : public QGraphicsObject {
     void setReveal(qreal factor); // forward to the interior treemap (subdivision LOD)
     void setDetail(qreal factor); // forward to the interior treemap (contents LOD)
     void setFileMode(int mode);   // forward to the interior treemap (forced file rung)
+    void setInteracting(bool on); // forward to the interior treemap (interaction LOD)
 
     // Resize the panel + re-squarify the interior (ADR-304), clamped to a minimum.
     // Driven by the corner ResizeGrip; gives every cell more room for its label.
@@ -136,14 +137,14 @@ class FrameItem : public QGraphicsObject {
     qreal m_h;
     GraphScene *m_scene;
     TreemapItem *m_interior = nullptr;
-    CalloutItem *m_callout = nullptr;     // tie to the origin square (not owned)
-    FrameItem *m_parentFrame = nullptr;   // frame that spawned this one (not owned)
-    ResizeGrip *m_grip = nullptr;         // bottom-right resize handle (child item)
+    CalloutItem *m_callout = nullptr;   // tie to the origin square (not owned)
+    FrameItem *m_parentFrame = nullptr; // frame that spawned this one (not owned)
+    ResizeGrip *m_grip = nullptr;       // bottom-right resize handle (child item)
     bool m_dragging = false;
     bool m_pendingClose = false; // × pressed; the close fires on release (avoids a grab race)
-    QPointF m_dragOffset;   // cursor → item-origin offset while dragging
-    qreal m_lastZoom = 1.0; // view zoom from the last paint (for device-aligned closeRect)
-    int m_level = 1;        // lens nesting level (1 = top lens); deepens the scan
+    QPointF m_dragOffset;        // cursor → item-origin offset while dragging
+    qreal m_lastZoom = 1.0;      // view zoom from the last paint (for device-aligned closeRect)
+    int m_level = 1;             // lens nesting level (1 = top lens); deepens the scan
     std::unique_ptr<core::FsNode> m_ownTree; // the frame's own deep scan (owned; RAII)
 };
 
@@ -154,8 +155,7 @@ class ResizeGrip : public QGraphicsItem {
   public:
     explicit ResizeGrip(FrameItem *frame);
     QRectF boundingRect() const override;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
-               QWidget *widget) override;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
 
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
