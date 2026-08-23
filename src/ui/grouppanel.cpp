@@ -7,14 +7,16 @@
 #include "core/group.h"
 #include "frameitem.h"
 #include "graphscene.h"
+#include "rotatedheader.h"
 #include "treemapitem.h"
 
+#include <QAction>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
-#include <QItemSelection>
 #include <QItemSelectionModel>
 #include <QLabel>
+#include <QMenu>
 #include <QPainter>
 #include <QPixmap>
 #include <QSet>
@@ -27,7 +29,7 @@ namespace ui {
 
 namespace {
 // Column layout of the group table. The first two are read-only; the last four are
-// checkable view-state toggles (order matches the bulk buttons + onItemChanged).
+// checkable view-state toggles (order matches the context-menu actions + onItemChanged).
 enum Col { ColName = 0, ColMembers, ColShow, ColHi, ColFocus, ColDim, NumCols };
 constexpr bool isStateCol(int c) {
     return c >= ColShow;
@@ -56,63 +58,21 @@ GroupPanel::GroupPanel(GraphScene *scene, QWidget *parent) : QWidget(parent), m_
 
     outer->addWidget(boldLabel(QStringLiteral("Groups")));
 
-    // Bulk-action bars. A row of small buttons that drive row selection, and a row
-    // that applies a view state to every selected group (or all, if none selected).
-    auto mkBtn = [this](const QString &text, const QString &tip, std::function<void()> onClick) {
-        auto *b = new QToolButton(this);
-        b->setText(text);
-        b->setToolTip(tip);
-        b->setAutoRaise(true);
-        connect(b, &QToolButton::clicked, this, std::move(onClick));
-        return b;
-    };
-
-    auto *selRow = new QHBoxLayout;
-    selRow->setContentsMargins(0, 0, 0, 0);
-    selRow->setSpacing(2);
-    selRow->addWidget(new QLabel(QStringLiteral("Select:"), this));
-    selRow->addWidget(mkBtn(QStringLiteral("All"), QStringLiteral("Select every group"),
-                            [this] { selectAllRows(true); }));
-    selRow->addWidget(mkBtn(QStringLiteral("None"), QStringLiteral("Clear the selection"),
-                            [this] { selectAllRows(false); }));
-    selRow->addWidget(mkBtn(QStringLiteral("Invert"), QStringLiteral("Invert the selection"),
-                            [this] { invertSelection(); }));
-    selRow->addStretch(1);
-    outer->addLayout(selRow);
-
-    auto *appRow = new QHBoxLayout;
-    appRow->setContentsMargins(0, 0, 0, 0);
-    appRow->setSpacing(2);
-    const QString to = QStringLiteral(" the selected groups (or all if none selected)");
-    appRow->addWidget(new QLabel(QStringLiteral("Set:"), this));
-    appRow->addWidget(mkBtn(QStringLiteral("Hi"), QStringLiteral("Highlight") + to, [this] {
-        applyToTargets([](core::Group &g) { g.view.highlight = true; });
-    }));
-    appRow->addWidget(mkBtn(QStringLiteral("No Hi"), QStringLiteral("Un-highlight") + to, [this] {
-        applyToTargets([](core::Group &g) { g.view.highlight = false; });
-    }));
-    appRow->addWidget(mkBtn(QStringLiteral("Show"), QStringLiteral("Show") + to, [this] {
-        applyToTargets([](core::Group &g) { g.view.visible = true; });
-    }));
-    appRow->addWidget(mkBtn(QStringLiteral("Hide"), QStringLiteral("Hide") + to, [this] {
-        applyToTargets([](core::Group &g) { g.view.visible = false; });
-    }));
-    appRow->addWidget(
-        mkBtn(QStringLiteral("Clear"), QStringLiteral("Clear Hi / Focus / Dim on") + to, [this] {
-            applyToTargets(
-                [](core::Group &g) { g.view.highlight = g.view.focus = g.view.dim = false; });
-        }));
-    appRow->addStretch(1);
-    outer->addLayout(appRow);
-
     // The group table. Rows are the selection unit for bulk ops; the four state
     // columns are per-group checkboxes.
     m_table = new QTableWidget(0, NumCols, this);
-    // Compact single-letter headers for the state columns (with tooltips) so the
-    // Group name column keeps the width — repo names can be long.
-    m_table->setHorizontalHeaderLabels({QStringLiteral("Group"), QStringLiteral("N"),
-                                        QStringLiteral("S"), QStringLiteral("H"),
-                                        QStringLiteral("F"), QStringLiteral("D")});
+    // Full-word headers: the narrow count + state columns paint theirs rotated
+    // (RotatedHeader) so the Group name column keeps the width — repo names can
+    // be long. The Group header stays horizontal and left-aligned.
+    auto *hh = new RotatedHeader(m_table);
+    m_table->setHorizontalHeader(hh);
+    hh->setSectionsClickable(true); // a replaced header defaults off; keeps click → select-all
+    m_table->setHorizontalHeaderLabels({QStringLiteral("Group"), QStringLiteral("Members"),
+                                        QStringLiteral("Show"), QStringLiteral("Highlight"),
+                                        QStringLiteral("Focus"), QStringLiteral("Dim")});
+    for (int c = ColMembers; c < NumCols; ++c)
+        hh->setSectionRotated(c);
+    m_table->horizontalHeaderItem(ColName)->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     const std::pair<int, QString> hints[] = {
         {ColMembers, QStringLiteral("Member count")},
         {ColShow, QStringLiteral("Show in the overlay")},
@@ -130,7 +90,6 @@ GroupPanel::GroupPanel(GraphScene *scene, QWidget *parent) : QWidget(parent), m_
     m_table->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     // Name takes the remaining width; the count + state columns are fixed and narrow
     // so a long group name isn't squeezed to an ellipsis.
-    auto *hh = m_table->horizontalHeader();
     hh->setMinimumSectionSize(22);
     hh->setSectionResizeMode(ColName, QHeaderView::Stretch);
     hh->setSectionResizeMode(ColMembers, QHeaderView::Fixed);
@@ -139,6 +98,10 @@ GroupPanel::GroupPanel(GraphScene *scene, QWidget *parent) : QWidget(parent), m_
         hh->setSectionResizeMode(c, QHeaderView::Fixed);
         m_table->setColumnWidth(c, 28);
     }
+    // Bulk "Set" actions live in the table's right-click menu; they apply to the
+    // selected groups (or all, if none selected) via applyToTargets.
+    m_table->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_table, &QTableWidget::customContextMenuRequested, this, &GroupPanel::showContextMenu);
     connect(m_table, &QTableWidget::itemChanged, this, &GroupPanel::onItemChanged);
     outer->addWidget(m_table, 1);
 
@@ -315,24 +278,36 @@ void GroupPanel::applyToTargets(const std::function<void(core::Group &)> &fn) {
     m_scene->updateGroupOverlay();
 }
 
-void GroupPanel::selectAllRows(bool on) {
-    if (on)
-        m_table->selectAll();
-    else
-        m_table->clearSelection();
-}
-
-void GroupPanel::invertSelection() {
-    QSet<int> selected;
-    for (const QModelIndex &idx : m_table->selectionModel()->selectedRows())
-        selected.insert(idx.row());
-    QItemSelection inverted;
-    for (int r = 0; r < m_table->rowCount(); ++r) {
-        if (selected.contains(r))
-            continue;
-        inverted.select(m_table->model()->index(r, 0), m_table->model()->index(r, NumCols - 1));
-    }
-    m_table->selectionModel()->select(inverted, QItemSelectionModel::ClearAndSelect);
+void GroupPanel::showContextMenu(const QPoint &pos) {
+    // A right-click on an unselected row targets that row (not every group): fold
+    // it into the selection first, as a file manager would.
+    const QModelIndex hit = m_table->indexAt(pos);
+    if (hit.isValid() && !m_table->selectionModel()->isRowSelected(hit.row(), QModelIndex()))
+        m_table->selectRow(hit.row());
+    const int n = m_table->selectionModel()->selectedRows().size();
+    const QString to = n ? QStringLiteral(" the selected groups") : QStringLiteral(" all groups");
+    QMenu menu(this);
+    menu.setToolTipsVisible(true);
+    menu.addSection(n ? QStringLiteral("Selected groups (%1)").arg(n)
+                      : QStringLiteral("All groups"));
+    auto add = [&](const QString &text, const QString &tip, std::function<void(core::Group &)> fn) {
+        QAction *a = menu.addAction(text);
+        a->setToolTip(tip + to);
+        connect(a, &QAction::triggered, this, [this, fn = std::move(fn)] { applyToTargets(fn); });
+    };
+    add(QStringLiteral("Highlight"), QStringLiteral("Highlight"),
+        [](core::Group &g) { g.view.highlight = true; });
+    add(QStringLiteral("Un-highlight"), QStringLiteral("Un-highlight"),
+        [](core::Group &g) { g.view.highlight = false; });
+    menu.addSeparator();
+    add(QStringLiteral("Show"), QStringLiteral("Show"),
+        [](core::Group &g) { g.view.visible = true; });
+    add(QStringLiteral("Hide"), QStringLiteral("Hide"),
+        [](core::Group &g) { g.view.visible = false; });
+    menu.addSeparator();
+    add(QStringLiteral("Clear Hi / Focus / Dim"), QStringLiteral("Clear Hi / Focus / Dim on"),
+        [](core::Group &g) { g.view.highlight = g.view.focus = g.view.dim = false; });
+    menu.exec(m_table->viewport()->mapToGlobal(pos));
 }
 
 } // namespace ui

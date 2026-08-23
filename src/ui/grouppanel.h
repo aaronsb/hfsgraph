@@ -5,12 +5,13 @@
 // list of the open *base* surfaces (ADR-304), each removable. Below, a **table** of
 // the semantic groups (ADR-102) — one row per group with a colour swatch, name,
 // member count, and the four view-state toggles (Show / Hi / Focus / Dim) as
-// checkable columns driving the treemap overlay (ADR-301). Rows are multi-selectable
-// and a bulk-action bar applies a state to all selected groups at once (the
-// git-worktree rule can resolve many groups at depth, so per-row clicking does not
-// scale). A depth-ramp legend sits at the bottom. The panel reads and mutates
-// GraphScene's surfaces + GroupStore and asks it to repaint after each change; it
-// refreshes itself on GraphScene::surfacesChanged.
+// checkable columns driving the treemap overlay (ADR-301). The narrow columns carry
+// full-word headers painted vertically (RotatedHeader) so the name column keeps the
+// width. Rows are multi-selectable and a right-click menu applies a state to all
+// selected groups at once (the git-worktree rule can resolve many groups at depth,
+// so per-row clicking does not scale). A depth-ramp legend sits at the bottom. The panel reads and
+// mutates GraphScene's surfaces + GroupStore and asks it to repaint after each change; it refreshes
+// itself on GraphScene::surfacesChanged.
 #pragma once
 
 #include <QWidget>
@@ -48,8 +49,7 @@ class GroupPanel : public QWidget {
 
     // Bulk operations over the selected rows (or every row when nothing is selected).
     void applyToTargets(const std::function<void(core::Group &)> &fn);
-    void selectAllRows(bool on);
-    void invertSelection();
+    void showContextMenu(const QPoint &pos); // the bulk "Set" actions
 
     GraphScene *m_scene = nullptr;
     QVBoxLayout *m_basesLayout = nullptr; // holds the base rows (no trailing stretch)
