@@ -71,39 +71,44 @@ constexpr GlyphGrid kPixelGlyph{3.0, 2.0};        // pixel-dot density (pitch 5)
 constexpr GlyphGrid kNameGlyph{11.0, 3.0};        // filename text rows (pitch 14, full width)
 constexpr double kNameW = 90.0;                   // min cell width to bother with filename rows
 
-// The file-rung table (#44): ONE place that lists the rungs, richest → poorest, and
-// what each needs. The numbers are AUTO-QUALITY GATES, not physical fit: the on-screen
-// cell size (header included, device px, × the Detail factor) at which Auto considers
-// the rung worth showing. Auto walks top-down and takes the first row whose gates pass
-// and whose painter draws; rows flagged forceOnly or autoSkip are stepped over. A
-// FORCED mode ignores the gates entirely: it starts at its own row and walks down,
-// trying each painter in turn, so the painter's own fit guard (does the content area
-// physically hold one glyph / one row?) is the only thing that sends it to the next
-// rung — no Detail scaling, no blank cell. Below the table sits the dir-name / dots
-// floor in drawLeafContents.
-//   Details    force-only: `ls -l` rows need more width than any Auto cell earns; its
-//              painter measures the meta column and guards on that, so the gates are
-//              moot and left at 0.
-//   List       outranks IconsNamed on purpose — one 14px row per file shows more
-//              legible names per cell than a 48×40 tile does.
-//   IconsNamed the forced icon view ("Files: Icons"); Auto reaches it only for cells
-//              too narrow for List yet tall enough for a tile (w in (70, 90], h > 62).
-//   Icons      the bare grid, Auto-only: the step below a tile when height runs out.
-//   Dots       autoSkip: in Auto the cell's own name outranks dots, so that choice is
-//              the floor below the table; the row exists so forced Dots starts here.
+// The ladders (ADR-301): one per view style, richest → poorest, each rung with its
+// AUTO-QUALITY GATE — the on-screen cell size (header included, device px, × the
+// Detail factor) at which the rung is worth showing. planLeaf walks the style's
+// ladder top-down and takes the first rung whose gate passes and whose planner fits
+// (does the content area physically hold one glyph / one row?). Dots sit below every
+// ladder as the floor in drawLeafContents, under the dir-name fallback.
+//   IconsNamed  a 48×40 icon + name tile per file.
+//   IconGrid    the bare 18px icon grid.
+//   Columns     14px icon + name rows filled down columns like `ls -a`.
+//   DetailsSize one file per row, a right-aligned size before the name.
+//   DetailsFull `ls -l`: perms · size · mtime before the name. The planners measure
+//               the meta column and guard on it, so their width gates are 0.
 struct RungSpec {
-    TreemapItem::FileMode mode;
-    double minW, minH; // Auto gate: min cell size on screen, device px (× Detail)
-    bool forceOnly;    // Auto never picks it; reached by forcing it (or falling past)
-    bool autoSkip;     // Auto never picks it; the floor handles the case instead
+    TreemapItem::Rung rung;
+    double minW, minH; // quality gate: min cell size on screen, device px (× Detail)
 };
-constexpr RungSpec kRungs[] = {
-    {TreemapItem::Details, 0.0, 0.0, true, false},
-    {TreemapItem::List, kNameW, kHeaderPx + kNameGlyph.pitch() * 2, false, false},
-    {TreemapItem::IconsNamed, 70.0, kHeaderPx + kNamedGlyph.pitchY(), false, false},
-    {TreemapItem::Icons, 70.0, kHeaderPx + kIconGlyph.pitch(), false, false},
-    {TreemapItem::Dots, kPixelGlyph.size, kPixelGlyph.size, false, true},
+constexpr RungSpec kIconsLadder[] = {
+    {TreemapItem::IconsNamed, 70.0, kHeaderPx + kNamedGlyph.pitchY()},
+    {TreemapItem::IconGrid, 70.0, kHeaderPx + kIconGlyph.pitch()},
 };
+constexpr RungSpec kListLadder[] = {
+    {TreemapItem::Columns, kNameW, kHeaderPx + kNameGlyph.pitch() * 2},
+};
+constexpr RungSpec kDetailsLadder[] = {
+    {TreemapItem::DetailsFull, 0.0, kHeaderPx + kNameGlyph.pitch() * 2},
+    {TreemapItem::DetailsSize, 0.0, kHeaderPx + kNameGlyph.pitch() * 2},
+    {TreemapItem::Columns, kNameW, kHeaderPx + kNameGlyph.pitch() * 2},
+};
+std::pair<const RungSpec *, std::size_t> ladderFor(int style) {
+    switch (style) {
+    case TreemapItem::List:
+        return {kListLadder, std::size(kListLadder)};
+    case TreemapItem::Details:
+        return {kDetailsLadder, std::size(kDetailsLadder)};
+    default:
+        return {kIconsLadder, std::size(kIconsLadder)};
+    }
+}
 
 // How many columns/rows of `g` fit in `area`, and how many of `count` items to draw
 // (capped to capacity). Last glyph never overflows: (cols-1)*pitch + size <= width.
@@ -141,18 +146,35 @@ Span visibleSlots(qreal origin, qreal pitch, qreal size, int n, qreal lo, qreal 
 } // namespace
 
 struct LeafPlan {
-    TreemapItem::FileMode rung = TreemapItem::Auto; // Auto = no file rung (name or nothing)
-    QRectF area;                                    // content area
-    int cols = 0, rows = 0, count = 0;              // grid and files shown
+    TreemapItem::Rung rung = TreemapItem::NoRung; // NoRung = no file rung (name or nothing)
+    QRectF area;                                  // content area
+    int cols = 0, rows = 0, count = 0;            // the rung's grid and the files it shows
     qreal pitchX = 0, pitchY = 0, glyphW = 0, glyphH = 0;
-    bool columnMajor = false; // List fills down columns like `ls`
-    double metaW = 0;         // Details: width of the perms/size/mtime column
+    bool columnMajor = false; // Columns fills down columns like `ls`
+    double metaW = 0;         // Details: width of the meta column
+    // Fractional fit: files [count, count + bandCount) are dots in `band`, under the
+    // grid, kPixelGlyph-pitched and row-major.
+    QRectF band;
+    int bandCols = 0, bandCount = 0;
+    int total() const { return count + bandCount; } // every file placed
     QRectF glyph(int i) const {
+        if (i >= count) {
+            const int j = i - count;
+            return QRectF(band.x() + (j % bandCols) * kPixelGlyph.pitch(),
+                          band.y() + (j / bandCols) * kPixelGlyph.pitchY(), kPixelGlyph.size,
+                          kPixelGlyph.size);
+        }
         const int col = columnMajor ? i / rows : i % cols;
         const int row = columnMajor ? i % rows : i / cols;
         return QRectF(area.x() + col * pitchX, area.y() + row * pitchY, glyphW, glyphH);
     }
     int indexAt(const QPointF &p) const {
+        if (bandCount > 0 && band.contains(p)) {
+            const int col = static_cast<int>((p.x() - band.x()) / kPixelGlyph.pitch());
+            const int row = static_cast<int>((p.y() - band.y()) / kPixelGlyph.pitchY());
+            const int j = row * bandCols + col;
+            return col < bandCols && j < bandCount && glyph(count + j).contains(p) ? count + j : -1;
+        }
         if (count <= 0 || !area.contains(p))
             return -1;
         const int col = static_cast<int>((p.x() - area.x()) / pitchX);
@@ -166,7 +188,7 @@ struct LeafPlan {
 
 namespace {
 
-QString detailMeta(const core::FileEntry &fe); // defined below; Details measures it
+QString detailMeta(const core::FileEntry &fe, bool full); // below; Details measures it
 
 // Marks a drag that carries hfsgraph's own selection (alongside text/uri-list for
 // other applications), so a drop onto a cell stages a move only for those.
@@ -174,12 +196,43 @@ const char kSelectionMime[] = "application/x-hfsgraph-selection";
 
 // Lay out `node`'s files for `mode` in `area` (device px). Returns false when the rung
 // can't fit — the painter's former self-guard, now shared with hit-testing.
-bool planRung(TreemapItem::FileMode mode, const core::FsNode *node, const QRectF &area,
-              LeafPlan &out) {
+// Fractional fit: a rung whose grid holds fewer than `nfiles` gives up rows from the
+// bottom until the files it drops fit as a band of dots there. The rung keeps the
+// most rows it can; the next rung up (or a larger cell) replaces dots with detail.
+// Returns false when not even one row survives.
+bool fitRemainder(LeafPlan &out, int nfiles) {
+    if (out.count >= nfiles)
+        return true;
+    const QRectF &area = out.area;
+    const int dotCols =
+        std::max(1, static_cast<int>((area.width() + kPixelGlyph.gap) / kPixelGlyph.pitch()));
+    const int perRow = out.columnMajor ? out.rows : out.cols; // files a grid row/column holds
+    for (int rows = out.rows; rows >= 1; --rows) {
+        const int shown = std::min(nfiles, out.columnMajor ? out.cols * rows : out.cols * rows);
+        const int rest = nfiles - shown;
+        const int dotRows = (rest + dotCols - 1) / dotCols;
+        const qreal gridH = rows * out.pitchY;
+        const qreal bandH = dotRows * kPixelGlyph.pitchY() - kPixelGlyph.gap;
+        if (gridH + kPixelGlyph.gap + bandH <= area.height()) {
+            out.rows = rows;
+            out.count = shown;
+            out.band = QRectF(area.x(), area.y() + gridH + kPixelGlyph.gap, area.width(),
+                              area.height() - gridH - kPixelGlyph.gap);
+            out.bandCols = dotCols;
+            out.bandCount = std::min(
+                rest, dotCols * static_cast<int>(out.band.height() / kPixelGlyph.pitchY() + 1));
+            return true;
+        }
+    }
+    (void)perRow;
+    return false;
+}
+
+bool planRung(TreemapItem::Rung rung, const core::FsNode *node, const QRectF &area, LeafPlan &out) {
     const int nfiles = static_cast<int>(node->files.size());
     out = LeafPlan();
     out.area = area;
-    out.rung = mode;
+    out.rung = rung;
     auto grid = [&](const GlyphGrid &g) {
         if (area.width() < g.size || area.height() < g.height())
             return false;
@@ -193,14 +246,23 @@ bool planRung(TreemapItem::FileMode mode, const core::FsNode *node, const QRectF
         out.glyphH = g.height();
         return true;
     };
-    switch (mode) {
-    case TreemapItem::Icons:
-        return grid(kIconGlyph);
+    auto rowsOf = [&](qreal rowH) {
+        out.cols = 1;
+        out.rows = std::max(1, static_cast<int>(area.height() / rowH));
+        out.count = std::min(nfiles, out.rows);
+        out.pitchX = area.width();
+        out.pitchY = rowH;
+        out.glyphW = area.width();
+        out.glyphH = rowH;
+    };
+    switch (rung) {
+    case TreemapItem::IconGrid:
+        return grid(kIconGlyph) && fitRemainder(out, nfiles);
     case TreemapItem::IconsNamed:
-        return grid(kNamedGlyph);
+        return grid(kNamedGlyph) && fitRemainder(out, nfiles);
     case TreemapItem::Dots:
-        return grid(kPixelGlyph);
-    case TreemapItem::List: {
+        return grid(kPixelGlyph); // the floor: capped, no remainder
+    case TreemapItem::Columns: {
         constexpr qreal kIcon = 13.0, kColW = 150.0;
         const qreal rowH = kNameGlyph.pitch();
         if (area.height() < rowH || area.width() < kIcon + 8.0)
@@ -213,9 +275,10 @@ bool planRung(TreemapItem::FileMode mode, const core::FsNode *node, const QRectF
         out.glyphW = out.pitchX;
         out.glyphH = rowH;
         out.columnMajor = true;
-        return true;
+        return fitRemainder(out, nfiles);
     }
-    case TreemapItem::Details: {
+    case TreemapItem::DetailsSize:
+    case TreemapItem::DetailsFull: {
         const qreal rowH = kNameGlyph.pitch();
         if (area.height() < rowH)
             return false;
@@ -227,19 +290,14 @@ bool planRung(TreemapItem::FileMode mode, const core::FsNode *node, const QRectF
         core::FileEntry sample;
         sample.sizeBytes = 1023; // widest sub-KiB form: "1023 bytes"
         sample.mtime = 1;        // force a rendered datetime, not the dashes placeholder
-        out.metaW = QFontMetrics(f).horizontalAdvance(detailMeta(sample));
+        out.metaW =
+            QFontMetrics(f).horizontalAdvance(detailMeta(sample, rung == TreemapItem::DetailsFull));
         if (area.width() < out.metaW + kIcon + kGap + kMinName)
             return false;
-        out.cols = 1;
-        out.rows = std::max(1, static_cast<int>(area.height() / rowH));
-        out.count = std::min(nfiles, out.rows);
-        out.pitchX = area.width();
-        out.pitchY = rowH;
-        out.glyphW = area.width();
-        out.glyphH = rowH;
-        return true;
+        rowsOf(rowH);
+        return fitRemainder(out, nfiles);
     }
-    case TreemapItem::Auto:
+    case TreemapItem::NoRung:
         break;
     }
     return false;
@@ -250,9 +308,6 @@ QRectF contentArea(const QRectF &dev, bool hasTitle) {
     return dev.adjusted(3, (hasTitle ? kHeaderPx : 2.0), -2, -2);
 }
 
-// `ls -l`-style permission string for a file entry: a 10-char "lrwxr-xr-x" — leading
-// type char ('l' symlink, else '-'), then owner/group/other rwx triples decoded from
-// the stored QFileDevice::Permissions bits.
 QString permString(const core::FileEntry &fe) {
     const QFileDevice::Permissions p(QFlag(static_cast<int>(fe.perms)));
     auto bit = [&](QFileDevice::Permission b, char c) {
@@ -277,9 +332,11 @@ QString permString(const core::FileEntry &fe) {
 // human-readable and right-aligned (left-padded) so columns line up under a monospace
 // font. Width 10 covers the widest traditional sub-KiB form ("1023 bytes"). mtime 0
 // (unknown) renders as dashes.
-QString detailMeta(const core::FileEntry &fe) {
+QString detailMeta(const core::FileEntry &fe, bool full) {
     const QString size =
         QLocale::system().formattedDataSize(fe.sizeBytes, 1, QLocale::DataSizeTraditionalFormat);
+    if (!full)
+        return QStringLiteral("%1  ").arg(size, 10); // DetailsSize: the size alone
     const QString when =
         fe.mtime
             ? QDateTime::fromSecsSinceEpoch(fe.mtime).toString(QStringLiteral("yyyy-MM-dd HH:mm"))
@@ -685,33 +742,26 @@ int TreemapItem::diffStepFor(const core::FsNode *node) const {
     return m_diffSteps.value(core::keyFor(*node), 0);
 }
 
-// Choose the rung for a leaf cell (Auto: the richest whose gates and geometry fit;
-// forced: from the requested rung, falling down the table until one fits) and lay it
-// out. Returns a plan with rung == Auto when no file rung applies.
+// Choose the rung for a leaf cell — the style's richest whose gate and geometry fit,
+// the remainder as dots — and lay it out. Returns a plan with rung == NoRung when no
+// file rung applies.
 LeafPlan TreemapItem::planLeaf(const core::FsNode *node, const QRectF &dev, bool hasTitle) const {
     LeafPlan plan;
     plan.area = contentArea(dev, hasTitle);
     if (node->files.empty())
         return plan;
-    const bool forced = m_fileMode != Auto;
-    bool started = !forced;
-    for (const RungSpec &r : kRungs) {
-        if (!started) {
-            started = r.mode == m_fileMode;
-            if (!started)
-                continue;
-        } else if (forced ? r.forceOnly : (r.forceOnly || r.autoSkip)) {
-            continue;
-        }
-        const bool gated =
-            !forced && !(dev.width() > r.minW * m_detail && dev.height() > r.minH * m_detail);
-        if (gated)
+    // The style's ladder, richest first: the first rung whose quality gate the cell
+    // passes and whose planner fits (with the remainder as dots) is the rung.
+    const auto [ladder, n] = ladderFor(m_fileMode);
+    for (std::size_t k = 0; k < n; ++k) {
+        const RungSpec &r = ladder[k];
+        if (!(dev.width() > r.minW * m_detail && dev.height() > r.minH * m_detail))
             continue;
         LeafPlan candidate;
-        if (planRung(r.mode, node, plan.area, candidate))
+        if (planRung(r.rung, node, plan.area, candidate))
             return candidate;
     }
-    // Floor: density dots where even the name won't fit (Auto never picks Dots above).
+    // Floor: the cell's own name where it fits, else density dots.
     const bool labelFits =
         !hasTitle && dev.width() > kLabelW * m_detail && dev.height() > kLabelH * m_detail;
     LeafPlan dots;
@@ -746,11 +796,11 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         p->restore();
         p->setWorldMatrixEnabled(true);
     };
-    if (plan.rung == Auto) {
+    if (plan.rung == NoRung) {
         const bool labelFits =
             !hasTitle && dev.width() > kLabelW * m_detail && dev.height() > kLabelH * m_detail;
         if (labelFits)
-            drawDirName(); // the cell's own name (Auto fallback, or a fileless dir)
+            drawDirName(); // the cell's own name (the fallback, or a fileless dir)
         return;
     }
     if (!onScreen.isValid())
@@ -780,13 +830,40 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
                     draw(i, plan.glyph(i));
             }
     };
+    // The dots band (fractional fit): the files the rung had no room for.
+    auto drawBand = [&] {
+        if (plan.bandCount <= 0)
+            return;
+        const QRectF on = plan.band.intersected(visibleDev);
+        if (!on.isValid())
+            return;
+        const int bandRows = (plan.bandCount + plan.bandCols - 1) / plan.bandCols;
+        const Span br = visibleSlots(plan.band.y(), kPixelGlyph.pitchY(), kPixelGlyph.size,
+                                     bandRows, on.top(), on.bottom());
+        const Span bc = visibleSlots(plan.band.x(), kPixelGlyph.pitch(), kPixelGlyph.size,
+                                     plan.bandCols, on.left(), on.right());
+        for (int r = br.first; r < br.last; ++r)
+            for (int c = bc.first; c < bc.last; ++c) {
+                const int j = r * plan.bandCols + c;
+                if (j >= plan.bandCount)
+                    break;
+                const int i = plan.count + j;
+                const QRectF g = plan.glyph(i);
+                const QString &name = node->files[i].name;
+                if (selected && selected->contains(name)) {
+                    QColor fill = hl;
+                    p->fillRect(g.adjusted(-1, -1, 1, 1), fill);
+                }
+                p->fillRect(g, fileTypeColor(name));
+            }
+    };
 
     p->setWorldMatrixEnabled(false);
     QFont f = p->font();
     f.setPixelSize(10);
     const QFontMetrics fm(f);
     switch (plan.rung) {
-    case Icons:
+    case IconGrid:
         forVisible([&](int i, const QRectF &g) {
             const QString &name = node->files[i].name;
             if (selected && selected->contains(name))
@@ -821,7 +898,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
             p->fillRect(g, fileTypeColor(name));
         });
         break;
-    case List: {
+    case Columns: {
         // Multi-column icon + name grid, filled column-major like `ls -a`, so a tall
         // cell uses its full width instead of one wasteful column.
         constexpr qreal kIcon = 13.0, kIconGap = 3.0;
@@ -842,9 +919,11 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         });
         break;
     }
-    case Details: {
-        // One file per row with metadata, like `ls -l`: a muted fixed-width meta column
-        // (perms · size · mtime) then the type-coloured icon + name, in a monospace font.
+    case DetailsSize:
+    case DetailsFull: {
+        // One file per row with metadata: a muted fixed-width meta column (the size, or
+        // `ls -l`'s perms · size · mtime) then the type-coloured icon + name, monospace.
+        const bool full = plan.rung == DetailsFull;
         QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         mono.setPixelSize(10);
         p->setFont(mono);
@@ -857,7 +936,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
                 highlight(g, 0);
             p->setPen(metaCol);
             p->drawText(QRectF(g.x(), g.y(), plan.metaW, g.height()),
-                        Qt::AlignVCenter | Qt::AlignLeft, detailMeta(fe));
+                        Qt::AlignVCenter | Qt::AlignLeft, detailMeta(fe, full));
             const double nx = g.x() + plan.metaW;
             p->drawPixmap(
                 QPoint(static_cast<int>(nx), static_cast<int>(g.y() + (g.height() - kIcon) / 2)),
@@ -872,9 +951,10 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         });
         break;
     }
-    case Auto:
+    case NoRung:
         break;
     }
+    drawBand();
     p->setWorldMatrixEnabled(true);
 }
 
@@ -886,7 +966,7 @@ int TreemapItem::fileIndexIn(const LayoutCell &cell, const QPointF &itemPos) con
     const qreal z = m_layout.params().zoom;
     const QRectF dev(0, 0, cell.rect.width() * z, cell.rect.height() * z);
     const LeafPlan plan = planLeaf(cell.node, dev, cell.hasTitle);
-    if (plan.rung == Auto)
+    if (plan.rung == NoRung)
         return -1;
     return plan.indexAt((itemPos - cell.rect.topLeft()) * z);
 }
@@ -899,10 +979,10 @@ std::vector<int> TreemapItem::filesIn(const core::FsNode *node, const QRectF &ce
     const qreal z = m_layout.params().zoom;
     const QRectF dev(0, 0, cellRect.width() * z, cellRect.height() * z);
     const LeafPlan plan = planLeaf(node, dev, hasTitle);
-    if (plan.rung == Auto)
+    if (plan.rung == NoRung)
         return out;
     const QRectF band = QRectF((itemRect.topLeft() - cellRect.topLeft()) * z, itemRect.size() * z);
-    for (int i = 0; i < plan.count; ++i)
+    for (int i = 0; i < plan.total(); ++i)
         if (plan.glyph(i).intersects(band))
             out.push_back(i);
     return out;

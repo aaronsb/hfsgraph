@@ -1,6 +1,7 @@
 # Driver smoke script (see src/ui/driver.h for the grammar). Run by ctest with
 # QT_QPA_PLATFORM=offscreen and HFSGRAPH_FIXTURE pointing at the repo's src/ tree.
 resize 1200 800
+set filemode 1   # List style: its columns reach the viewport centre after the wheel below
 load $HFSGRAPH_FIXTURE 3
 wait
 check bases 1

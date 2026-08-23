@@ -51,19 +51,19 @@ class TreemapItem : public QGraphicsItem {
     // categorical HSL hue cycle. Keep in sync with kRampNames in the .cpp.
     enum Ramp { Viridis, Magma, Plasma, Cividis, Turbo, Spectrum };
 
-    // How a cell's files are drawn. The rungs, richest → poorest: Details is one file
-    // per row with metadata (perms/size/mtime), like `ls -l` (force-only — never
-    // auto-picked, it needs the most room); List is a multi-column icon+name grid
-    // (like `ls -a`); IconsNamed is an icon with its name elided beneath, grid-packed;
-    // Icons is the bare icon grid; Dots is the pixel-dot density grid. Auto picks the
-    // richest rung that fits the cell (list → icon+name → icons → dots as it shrinks);
-    // a forced mode prefers its rung and falls down the table to the next one that
-    // fits instead of drawing nothing (ADR-301, #44); the table's size gates are Auto-only,
-    // a forced rung is gated by its painter's own fit alone. The rung table lives in
-    // the .cpp. Keep in sync with the toolbar combo order in MainWindow: the combo is
-    // a prefix of this enum, so Icons — the Auto-only intermediate the toolbar never
-    // offers ("Files: Icons" means IconsNamed) — sits last, past the combo.
-    enum FileMode { Auto, Dots, IconsNamed, List, Details, Icons };
+    // How a cell's files are drawn: the *view style*, chosen like a file browser's
+    // (ADR-301). Each style has its own ladder of rungs, poorest → richest, and a cell
+    // climbs it as it grows on screen:
+    //   Icons    shaded box → dots → icon grid → icons with names
+    //   List     shaded box → dots → columns of names (`ls -a`)
+    //   Details  shaded box → dots → columns → rows with size → rows with perms/size/mtime
+    // A rung that cannot hold every file shows the files that fit and the remainder as
+    // a band of dots beneath, which the next rung up replaces as room appears
+    // (fractional fit). The ladders live in the .cpp (ladderFor). Keep in sync with the
+    // toolbar combo order in MainWindow.
+    enum FileMode { Icons, List, Details };
+    // The rungs themselves (the plan's vocabulary), poorest → richest.
+    enum Rung { NoRung, Dots, IconGrid, IconsNamed, Columns, DetailsSize, DetailsFull };
 
     // Identity colour for a nesting depth under a ramp (depth spans 0..6). Shared so
     // the group panel's depth legend matches what the treemap paints.
@@ -83,13 +83,13 @@ class TreemapItem : public QGraphicsItem {
     void setReveal(qreal factor); // subdivision / nesting depth
     void setDetail(qreal factor); // contents rung crossover (dots/icons/name)
 
-    // Force the file rung (FileMode), or Auto to pick by size. Paint-only.
+    // The view style (FileMode). Paint-only.
     void setFileMode(int mode);
 
-    // Interaction LOD: while a zoom/pan gesture is in flight the leaf rungs (names,
-    // icons, dots) are skipped — they're the bulk of a large frame's raster cost and
-    // unreadable mid-motion anyway. The scene sets this for the gesture and clears it
-    // after a short idle, which repaints at full detail. Paint-only.
+    // Gesture state: while a zoom/pan is in flight, grafts that land keep their scanned
+    // weight (TreemapLayout::Params::freezeLazy) so the map doesn't re-flow under the
+    // cursor. The scene sets this for the gesture and clears it after a short idle.
+    // Nothing about what is painted changes with it.
     void setInteracting(bool on);
 
     // Re-squarify into new bounds (ADR-304). Larger bounds give each cell more
@@ -257,7 +257,7 @@ class TreemapItem : public QGraphicsItem {
     bool m_dragging = false;                   // past the threshold: a drag is live
     qreal m_reveal = 1.0;                      // subdivision gate multiplier; <1 = subdivide sooner
     qreal m_detail = 1.0;            // contents-crossover gate multiplier; <1 = icons/name sooner
-    int m_fileMode = Auto;           // forced file rung, or Auto (size-driven)
+    int m_fileMode = Icons;          // view style (FileMode)
     bool m_interacting = false;      // gesture in flight: lazy weights frozen
     mutable bool m_dark = true;      // resolved from the palette each paint
     mutable bool m_anyFocus = false; // any visible group in focus mode (resolved each paint)

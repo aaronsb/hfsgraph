@@ -27,7 +27,8 @@
 //   dblclick X Y [MODS]
 //   drag X1 Y1 X2 Y2 [MODS]  press, move in steps, release (left button)
 //   set reveal|detail F      the LOD sliders' factor
-//   set filemode|ramp|metric|callout N   the toolbar combos, by index
+//   set filemode|ramp|metric|callout N   the toolbar combos, by index (filemode: the view
+//                            style — 0 Icons, 1 List, 2 Details)
 //   set deepen 0|1           lazy deepening of truncated cells on (default) or off
 //   set fast 0|1             hold the gesture state (lazy weights frozen) on or off; a
 //                            later wheel/drag re-arms the idle timer and releases it

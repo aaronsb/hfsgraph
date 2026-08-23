@@ -83,17 +83,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             [this](int i) { m_scene->setCalloutMode(i); });
     toolbar->addWidget(calloutCombo);
 
-    // TreemapItem::FileMode order (a prefix of it: the bare icon grid, FileMode::Icons,
-    // is an Auto-only intermediate and sits past the end — "Files: Icons" here is the
-    // icon+name rung, IconsNamed).
+    // TreemapItem::FileMode order: the view style, as a file browser offers it. Each
+    // style climbs its own ladder of detail as cells grow (ADR-301).
     auto *fileCombo = new QComboBox(this);
-    fileCombo->addItems({QStringLiteral("Files: Auto"), QStringLiteral("Files: Dots"),
-                         QStringLiteral("Files: Icons"), QStringLiteral("Files: List"),
+    fileCombo->addItems({QStringLiteral("Files: Icons"), QStringLiteral("Files: List"),
                          QStringLiteral("Files: Details")});
-    fileCombo->setToolTip(QStringLiteral("How files in a cell are drawn: Auto picks by size "
-                                         "(names → icons → dots), or force one (a forced rung "
-                                         "falls back to the next one that fits on cells too "
-                                         "small for it)"));
+    fileCombo->setToolTip(QStringLiteral("How files in a cell are drawn as the cell grows: "
+                                         "Icons (dots → icons → icons with names), List "
+                                         "(dots → columns of names), Details (dots → columns "
+                                         "→ rows with size → rows with perms/size/mtime). "
+                                         "Files that don't fit the current rung show as dots."));
     connect(fileCombo, &QComboBox::currentIndexChanged, this,
             [this](int i) { m_scene->setFileMode(i); });
     toolbar->addWidget(fileCombo);
