@@ -5,8 +5,8 @@ holds the ADRs (`make adr CMD="list"`); `.claude/ways/` holds project ways.
 
 ## Build and test
 
-- `make build BUILD_DIR=build-dev` then `ctest --test-dir build-dev`. The checked-in
-  `build/` may carry a CMake cache from an earlier checkout path; use a fresh dir.
+- `make build` then `make test` (or `BUILD_DIR=build-dev` for a side tree). `make configure`
+  drops a `build/` cache that was made from another checkout path.
 - `make lint` (clang-format 22) is green on `main`; run `clang-format -i` on the files
   you touch before committing so it stays that way.
 
