@@ -96,6 +96,7 @@ std::unique_ptr<FsNode> deepCopy(const FsNode *src, FsNode *parent,
     n->fileCount = src->fileCount;
     n->sizeBytes = src->sizeBytes;
     n->truncatedDepth = src->truncatedDepth;
+    n->lazyChildren = src->lazyChildren; // the deepen-freeze must survive projection
     n->originalPath = src->originalPath; // the scanned location; a move rewrites path, not this
     n->fp = src->fp;                     // carry the runtime fingerprint into the projection
     n->parent = parent;
@@ -190,6 +191,11 @@ std::vector<MoveLegality> replayLegality(const std::vector<const FsNode *> &root
             applyMoveTo(src, dst); // apply so later ops see the evolving tree
     }
     return out;
+}
+
+std::unique_ptr<FsNode> cloneSubtree(const FsNode &src, FsNode *parent) {
+    QHash<MemberKey, FsNode *> scratch; // deepCopy's key index, unused here
+    return deepCopy(&src, parent, scratch);
 }
 
 } // namespace core

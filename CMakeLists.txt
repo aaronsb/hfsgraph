@@ -125,6 +125,14 @@ add_test(NAME treemaplayout_test COMMAND treemaplayout_test)
 add_test(NAME driver_smoke
          COMMAND hfsgraph --script ${CMAKE_SOURCE_DIR}/tests/driver/smoke.txt
          WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+# Lazy deepening: a synthetic fixture (deterministic, no dependence on the repo's
+# own layout or on build dirs) generated into the build tree first.
+add_test(NAME driver_deepen
+         COMMAND sh -c "python3 '${CMAKE_SOURCE_DIR}/tests/driver/make_synth.py' synth_deepen --depth 2 >/dev/null && '$<TARGET_FILE:hfsgraph>' --script '${CMAKE_SOURCE_DIR}/tests/driver/deepen.txt'"
+         WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_tests_properties(driver_deepen PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_deepen"
+    TIMEOUT 60)
 set_tests_properties(driver_smoke PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_SOURCE_DIR}/src"
     TIMEOUT 60)

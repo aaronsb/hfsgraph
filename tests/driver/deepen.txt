@@ -1,0 +1,19 @@
+# Lazy deepening (#36) on a synthetic tree (tests/driver/make_synth.py, built by the
+# ctest command): load at depth 1 — every child is a truncated leaf. With deepening
+# held off the map shows them hatched; switched on, the forced paint in `wait`
+# requests their children and `wait` parks on those scans. Then there are more
+# directories than depth 1 gave, and the capture changed.
+resize 1200 800
+set deepen 0
+load $HFSGRAPH_FIXTURE 1
+wait
+check bases 1
+mark
+shot driver_deepen_before.png view
+set deepen 1
+wait
+check grew
+shot driver_deepen_after.png view
+check differs driver_deepen_before.png driver_deepen_after.png
+echo deepen ok
+quit

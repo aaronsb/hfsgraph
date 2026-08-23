@@ -13,7 +13,7 @@ namespace ui {
 
 bool TreemapLayout::Params::operator==(const Params &o) const {
     return width == o.width && height == o.height && metric == o.metric && reveal == o.reveal &&
-           detail == o.detail && zoom == o.zoom;
+           detail == o.detail && zoom == o.zoom && freezeLazy == o.freezeLazy;
 }
 
 void TreemapLayout::setRoot(const core::FsNode *root) {
@@ -33,8 +33,9 @@ double TreemapLayout::weight(const core::FsNode *n) const {
     if (it != m_weight.end())
         return it->second;
     double w = m_params.metric == Bytes ? static_cast<double>(n->sizeBytes) : n->fileCount;
-    for (const auto &c : n->children)
-        w += weight(c.get());
+    if (!(n->lazyChildren && m_params.freezeLazy)) // frozen mid-gesture only
+        for (const auto &c : n->children)
+            w += weight(c.get());
     w = std::max(w, 1.0);
     m_weight[n] = w;
     return w;
@@ -65,9 +66,9 @@ QRectF TreemapLayout::innerRect(const QRectF &rect, bool hasTitle) const {
 bool TreemapLayout::ensure(const Params &p) {
     if (m_valid && p == m_params)
         return false;
-    const bool metricChanged = p.metric != m_params.metric;
+    const bool weightsChanged = p.metric != m_params.metric || p.freezeLazy != m_params.freezeLazy;
     m_params = p;
-    if (metricChanged)
+    if (weightsChanged)
         m_weight.clear();
     m_cells.clear();
     m_index.clear();
@@ -91,8 +92,9 @@ int TreemapLayout::build(int parentIndex, int prevSibling, const core::FsNode *n
     cell.depth = depth;
     cell.parent = parentIndex;
     cell.hasTitle = devW > kLabelW * m_params.detail && devH > kHeaderPx * 1.5 * m_params.detail;
-    cell.subdivided = !node->children.empty() && devW > kSubdivW * m_params.reveal &&
-                      devH > kSubdivH * m_params.reveal;
+    const bool gate = devW > kSubdivW * m_params.reveal && devH > kSubdivH * m_params.reveal;
+    cell.subdivided = gate && !node->children.empty();
+    cell.wantsChildren = gate && node->children.empty() && node->truncatedDepth;
     cell.inner = innerRect(rect, cell.hasTitle);
     m_cells.push_back(cell);
     m_index[node] = index;

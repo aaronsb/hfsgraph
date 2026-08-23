@@ -21,11 +21,11 @@ namespace core {
 // is a fingerprint, *never* the durable key (inodes recycle, are per-filesystem, and
 // don't survive backup/restore). `valid` is false when the stat failed.
 struct Fingerprint {
-    quint64 dev = 0;       // st_dev (filesystem / btrfs subvolume id)
-    quint64 ino = 0;       // st_ino (recycled after delete — not durable)
-    qint64 mtime = 0;      // st_mtime, Unix epoch seconds
-    qint64 size = 0;       // st_size
-    bool valid = false;    // false if the node couldn't be stat'd
+    quint64 dev = 0;    // st_dev (filesystem / btrfs subvolume id)
+    quint64 ino = 0;    // st_ino (recycled after delete — not durable)
+    qint64 mtime = 0;   // st_mtime, Unix epoch seconds
+    qint64 size = 0;    // st_size
+    bool valid = false; // false if the node couldn't be stat'd
 };
 
 // One non-directory entry directly inside a node (a regular file, or a symlink —
@@ -33,12 +33,12 @@ struct Fingerprint {
 // descending). Carries the metadata the `ls -l`/Details rung renders; `name` is the
 // stable identity used by groups (ADR-102) and move keys (ADR-302).
 struct FileEntry {
-    QString name;            // basename (display + identity)
-    qint64 sizeBytes = 0;    // size on disk
-    qint64 mtime = 0;        // last-modified, Unix epoch seconds (0 = unknown)
-    uint perms = 0;          // QFileDevice::Permissions bits (decoded by the UI)
-    bool isSymlink = false;  // a symbolic link (rendered with a leading 'l')
-    QString linkTarget;      // symlink destination, empty for a plain file
+    QString name;           // basename (display + identity)
+    qint64 sizeBytes = 0;   // size on disk
+    qint64 mtime = 0;       // last-modified, Unix epoch seconds (0 = unknown)
+    uint perms = 0;         // QFileDevice::Permissions bits (decoded by the UI)
+    bool isSymlink = false; // a symbolic link (rendered with a leading 'l')
+    QString linkTarget;     // symlink destination, empty for a plain file
 };
 
 // One directory in the scanned tree. `children` are subdirectories; `files` are
@@ -51,6 +51,10 @@ struct FsNode {
     int fileCount = 0;                             // total regular files
     qint64 sizeBytes = 0;                          // sum of this dir's regular-file sizes
     bool truncatedDepth = false;                   // children exist on disk but scan stopped
+    // Children were scanned *after* this node, on demand (Scanner::scanChildren), not in
+    // the pass that produced the node. The treemap keeps such a node's area at its
+    // originally scanned weight so a deepen never re-flows the map around it.
+    bool lazyChildren = false;
     FsNode *parent = nullptr;
     // The durable directory id (ADR-100): a UUID stored in the `user.hfsgraph.id` xattr
     // that travels with the directory through `mv`/rename. The scanner reads it (empty
@@ -65,7 +69,7 @@ struct FsNode {
     // an op merely *named* but replay left in place (ADR-302 #12); this is independent of
     // the identity scheme, so it stays correct once `identity` is a UUID, not a path.
     QString originalPath;
-    Fingerprint fp;                                // ephemeral (dev, inode) runtime check
+    Fingerprint fp; // ephemeral (dev, inode) runtime check
 
     bool isLeaf() const { return children.empty(); }
 };

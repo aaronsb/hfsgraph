@@ -9,6 +9,8 @@
 #include <QDir>
 #include <QFileInfo>
 
+#include <algorithm>
+
 namespace core {
 
 namespace {
@@ -65,8 +67,23 @@ std::unique_ptr<FsNode> scanDir(const QFileInfo &dirInfo, int depth, int maxDept
 
 } // namespace
 
+std::vector<std::unique_ptr<FsNode>> Scanner::scanChildren(const QString &path, int levels) {
+    std::vector<std::unique_ptr<FsNode>> out;
+    QDir dir(path);
+    const auto entries =
+        dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden, QDir::Name);
+    for (const QFileInfo &entry : entries) {
+        if (entry.isSymLink())
+            continue; // symlinked dirs stay leaves (the file list already records them)
+        out.push_back(scanDir(entry, 1, std::max(1, levels), nullptr));
+    }
+    return out;
+}
+
 std::unique_ptr<FsNode> Scanner::scan(const QString &rootPath, int maxDepth) {
-    QFileInfo info(rootPath);
+    // Canonical form (no trailing slash, no "//"): child paths are built as
+    // parent + '/' + name, and by-path lookups assume that shape.
+    QFileInfo info(QDir::cleanPath(rootPath));
     if (!info.exists() || !info.isDir())
         return nullptr;
     return scanDir(info, 0, maxDepth, nullptr);

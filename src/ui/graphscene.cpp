@@ -21,7 +21,9 @@
 #include <QRectF>
 #include <QTimer>
 #include <QTransform>
+#include <QFutureWatcher>
 #include <QWidget>
+#include <QtConcurrent>
 
 #include "core/move.h"
 
@@ -141,6 +143,23 @@ GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {
     m_idleTimer->setSingleShot(true);
     m_idleTimer->setInterval(120); // a wheel burst keeps restarting it; full detail after
     connect(m_idleTimer, &QTimer::timeout, this, [this] { setInteracting(false); });
+    // Grafts land one per scan; N scans would mean N full relayouts. Fold them into
+    // one invalidation per event-loop turn, held off while a drag holds raw node
+    // pointers into the projection (endMoveDrag re-projects on its own).
+    m_graftTimer = new QTimer(this);
+    m_graftTimer->setSingleShot(true);
+    m_graftTimer->setInterval(0);
+    connect(m_graftTimer, &QTimer::timeout, this, [this] {
+        if (m_dragSource) {
+            m_graftTimer->start(50);
+            return;
+        }
+        if (!m_ledger.active().empty())
+            rebuildProjection(); // the projection copies the sources: re-copy (new base items)
+        for (FrameItem *f : m_frames)
+            if (TreemapItem *t = f->interiorTreemap())
+                t->invalidateLayout(); // lenses keep their items; every surface re-lays out
+    });
 }
 
 void GraphScene::noteInteraction() {
@@ -438,6 +457,94 @@ void GraphScene::scrubTo(int step) {
     m_ledger.setStep(step);
     rebuildProjection();
     Q_EMIT ledgerChanged();
+}
+
+namespace {
+// The node at `path` under `root` (by on-disk path), or null. Mutable: the caller
+// grafts into it — the scene owns the trees through its frames.
+core::FsNode *findByPath(core::FsNode *root, const QString &path) {
+    if (!root)
+        return nullptr;
+    if (root->path == path)
+        return root;
+    // Prune subtrees that can't contain the path. Tolerates a root that ends in '/'
+    // (the filesystem root, or a base added with a trailing slash).
+    const QString prefix =
+        root->path.endsWith(QLatin1Char('/')) ? root->path : root->path + QLatin1Char('/');
+    if (!path.startsWith(prefix))
+        return nullptr;
+    for (const auto &c : root->children)
+        if (core::FsNode *hit = findByPath(c.get(), path))
+            return hit;
+    return nullptr;
+}
+
+// Every surface tree (base sources first, then lenses) holding a still-truncated,
+// childless node at `path`. One scan serves all of them: a lens and the base it was
+// opened from both show the directory, and each must deepen or it re-requests forever.
+std::vector<core::FsNode *> truncatedTargets(const std::vector<FrameItem *> &frames,
+                                             const QString &path) {
+    std::vector<core::FsNode *> out;
+    for (int pass = 0; pass < 2; ++pass)
+        for (FrameItem *f : frames) {
+            if ((f->level() == 0) != (pass == 0))
+                continue;
+            core::FsNode *n = findByPath(const_cast<core::FsNode *>(f->sourceRoot()), path);
+            if (n && n->truncatedDepth && n->children.empty())
+                out.push_back(n);
+        }
+    return out;
+}
+} // namespace
+
+void GraphScene::requestDeepen(const core::FsNode *node) {
+    if (!m_lazyDeepen || !node || !node->truncatedDepth || !node->children.empty())
+        return;
+    // A projection copy carries the scanned path in originalPath; a source or lens
+    // node has path == originalPath. The scan reads disk at that path.
+    const QString path = node->originalPath.isEmpty() ? node->path : node->originalPath;
+    if (m_deepening.contains(path))
+        return;
+    m_deepening.insert(path);
+    // Only the path crosses to the worker; the node pointer stays on this thread.
+    auto *watcher = new QFutureWatcher<std::vector<std::unique_ptr<core::FsNode>>>(this);
+    connect(watcher, &QFutureWatcher<std::vector<std::unique_ptr<core::FsNode>>>::finished, this,
+            [this, watcher, path] {
+                std::vector<std::unique_ptr<core::FsNode>> kids = watcher->future().takeResult();
+                watcher->deleteLater();
+                m_deepening.remove(path);
+                graftChildren(path, std::move(kids));
+            });
+    watcher->setFuture(QtConcurrent::run([path] { return core::Scanner::scanChildren(path, 1); }));
+}
+
+void GraphScene::setLazyDeepen(bool on) {
+    m_lazyDeepen = on;
+    if (on)
+        for (FrameItem *f : m_frames)
+            f->update(); // the next paint issues the requests for visible truncated cells
+}
+
+void GraphScene::graftChildren(const QString &path,
+                               std::vector<std::unique_ptr<core::FsNode>> kids) {
+    const std::vector<core::FsNode *> targets = truncatedTargets(m_frames, path);
+    if (targets.empty())
+        return; // gone (base removed / rescanned) or already deepened: drop the scan
+    for (std::size_t t = 0; t < targets.size(); ++t) {
+        core::FsNode *target = targets[t];
+        if (t + 1 < targets.size()) {
+            // Several surfaces want it: each but the last gets a deep copy.
+            for (const auto &k : kids)
+                target->children.push_back(core::cloneSubtree(*k, target));
+        } else {
+            for (auto &k : kids)
+                k->parent = target;
+            target->children = std::move(kids);
+        }
+        target->truncatedDepth = false;
+        target->lazyChildren = true; // weight freezes during a gesture (TreemapLayout)
+    }
+    m_graftTimer->start(); // coalesced re-layout / re-projection (deferred past any drag)
 }
 
 void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRect,
