@@ -60,7 +60,7 @@ The hysteresis pair (60 % engage / 45 % release) never flapped in testing.
 
 ## Decision
 
-**Layout focus exists and is on by default. It is a re-root of the *layout* — never of the
+**Layout focus exists, opt-in and off by default (amended 2026-08-23, see Control). It is a re-root of the *layout* — never of the
 tree, the ledger, or the scene — and it belongs to the surface that decided it.**
 
 - **Engage.** When one *subdivided* directory's cell's **visible intersection with the
@@ -168,8 +168,15 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
   until a caller needs it, at which point it becomes a decision rather than an accident.
 - **One rendering of a marked node.** The focus node's shadow and overlay cells share a node;
   selection outline, diff hatch/badge and group tint paint once, on the overlay cell.
-- **Control.** Focus is on by default so it is seen. The driver's `set focus 0|1` is the
-  comparison switch; `check focus PATH|glob|none` and `probe` report the focus of the
+- **Control.** Focus is **off by default** — an opt-in. The ADR as proposed had it on so
+  it would be seen and judged; the operator judged it on 2026-08-23 from the implemented
+  model (b): every engage and pop re-squarifies the subtree under the eye, so each zoom
+  notch near a threshold resets one's bearings, where the canonical layout (ADR-301)
+  keeps every cell's geometry fixed and reveals subdivision and names as room appears —
+  the map-with-labels model. Focus stays as the answer to the deep-sliver problem for
+  whoever opts in (`GraphScene::setLayoutFocusEnabled`); the sliver problem itself is
+  open again and wants an answer that does not move geometry. The driver's `set focus
+  0|1` is the comparison switch; `check focus PATH|glob|none` and `probe` report the focus of the
   surface under the probe point. The driver's glob must stop at `/` (or a `check focusdepth
   N` added) so that the pop and the deeper step are actually asserted, not only engage and
   clear. Tests and benches that reason about canonical coordinates disable focus.
@@ -252,5 +259,5 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
 - **Focus as a lens** (engage opens an ADR-303 frame automatically). Rejected: a frame widget
   appearing on every zoom is the "uninvited lens" problem by design; lenses stay deliberate,
   with "pin focus" as the bridge.
-- **Default off.** Rejected: the behaviour needs to be seen to be judged; the driver flag
-  covers comparison and tests.
+- **Default on.** Chosen at proposal so the behaviour would be seen; reversed on
+  2026-08-23 once seen (Control above).

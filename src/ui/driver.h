@@ -31,7 +31,7 @@
 //   set deepen 0|1           lazy deepening of truncated cells on (default) or off
 //   set fast 0|1             hold the interaction LOD (no leaf contents) on or off; a
 //                            later wheel/drag re-arms the idle timer and releases it
-//   set focus 0|1            layout focus (#40) on (default) or off, for comparison
+//   set focus 0|1            layout focus (ADR-305) on or off (default), for comparison
 //   shot PATH [view]         save a PNG of the main window, or of the canvas viewport only
 //   check bases N            fail unless the scene holds N base surfaces
 //   check nodes N            fail unless the bases hold at least N directories (prints the count)

@@ -5,7 +5,7 @@
 resize 1200 800
 load $HFSGRAPH_FIXTURE 2
 wait
-set focus 0   # the probes below are pinned to the canonical layout (layout focus: #40)
+set focus 0   # pinned to the canonical layout (focus is off by default; stated for clarity)
 zoom 4 600 400
 sleep 200
 zoom 4 600 400

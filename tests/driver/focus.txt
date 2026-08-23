@@ -7,6 +7,7 @@
 # (`check focuspopped` against the `mark`) — then clears at the root. Finally the same
 # zoom-in with `set focus 0` must leave the focus off, for comparison shots.
 resize 1200 800
+set focus 1   # opt-in (ADR-305 amendment: off by default)
 load $HFSGRAPH_FIXTURE 3
 wait
 check focus none

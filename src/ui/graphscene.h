@@ -227,22 +227,22 @@ class GraphScene : public QGraphicsScene {
     // Every frame in the scene: level-0 base frames and level-1+ lenses together
     // (ADR-304 — one surface abstraction). Base frames have no parent and no callout.
     std::vector<FrameItem *> m_frames;
-    int m_sizeMetric = 0;             // TreemapItem::Files
-    int m_colorRamp = 0;              // TreemapItem::Viridis
-    double m_reveal = 1.0;            // subdivision LOD, persists across rebuilds
-    double m_detail = 1.0;            // contents-crossover LOD, persists across rebuilds
-    int m_fileMode = 0;               // TreemapItem::FileMode (0 = Auto), persists
-    bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
-    int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
-    QSet<QString> m_loadedWorkspaces; // roots whose sidecar we've loaded (load once, ADR-102 #15)
-    QSet<QString> m_deepening;        // on-disk paths with a deepen scan in flight
-    QTimer *m_graftTimer = nullptr;   // coalesces layout invalidation across landing grafts
-    int m_gestureHolds = 0;           // file gestures in flight (grafts wait)
-    bool m_lazyDeepen = true;         // requestDeepen is a no-op when false (tests, benches)
-    int m_calloutMode = 0;            // 0 Filled, 1 Lines, 2 Off (ADR-304)
-    bool m_interacting = false;       // a zoom/pan gesture is in flight (interaction LOD)
-    bool m_layoutFocusEnabled = true; // layout focus (ADR-305) on
-    QTimer *m_idleTimer = nullptr;    // clears m_interacting after the gesture goes quiet
+    int m_sizeMetric = 0;              // TreemapItem::Files
+    int m_colorRamp = 0;               // TreemapItem::Viridis
+    double m_reveal = 1.0;             // subdivision LOD, persists across rebuilds
+    double m_detail = 1.0;             // contents-crossover LOD, persists across rebuilds
+    int m_fileMode = 0;                // TreemapItem::FileMode (0 = Auto), persists
+    bool m_uniqueFrames = true;        // one frame per node (ADR-304 cardinality)
+    int m_baseDepth = 2;               // toolbar scan depth; lenses scan baseDepth + level
+    QSet<QString> m_loadedWorkspaces;  // roots whose sidecar we've loaded (load once, ADR-102 #15)
+    QSet<QString> m_deepening;         // on-disk paths with a deepen scan in flight
+    QTimer *m_graftTimer = nullptr;    // coalesces layout invalidation across landing grafts
+    int m_gestureHolds = 0;            // file gestures in flight (grafts wait)
+    bool m_lazyDeepen = true;          // requestDeepen is a no-op when false (tests, benches)
+    int m_calloutMode = 0;             // 0 Filled, 1 Lines, 2 Off (ADR-304)
+    bool m_interacting = false;        // a zoom/pan gesture is in flight (interaction LOD)
+    bool m_layoutFocusEnabled = false; // layout focus (ADR-305): opt-in, off by default
+    QTimer *m_idleTimer = nullptr;     // clears m_interacting after the gesture goes quiet
     // Move-drag gesture state (#10), live only between begin and end.
     MoveDragOverlay *m_dragOverlay = nullptr;   // top-Z arrow + target highlight, owned
     const core::FsNode *m_dragSource = nullptr; // node being dragged (a render node)
