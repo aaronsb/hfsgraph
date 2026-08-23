@@ -77,9 +77,7 @@ int main() {
     p.zoom = 1.0;
 
     // Weights: subtree file counts, floored at 1 for the empty dir.
-    check(std::fabs(layout.weight(root) - 101.0) < 1e-9 ||
-              std::fabs(layout.weight(root) - 102.0) < 1e-9,
-          "root weight sums subtree files (c floors to 1)");
+    check(layout.weight(root) == 101.0, "root weight = 40 + 60 + 1 (c floors to 1)");
     check(layout.weight(c) == 1.0, "empty dir weight floors at 1");
     check(layout.weight(a) == 40.0, "a weight = a1 + a2");
 
@@ -111,11 +109,24 @@ int main() {
               "heaviest child (b) is first");
     }
 
-    // Links: walking root's child chain visits exactly its three children.
-    int n = 0;
-    for (int i = cells[0].firstChild; i >= 0; i = cells[static_cast<std::size_t>(i)].nextSibling)
-        ++n;
-    check(n == 3, "root's sibling chain has three entries");
+    // Links: root's child chain is b, a, c — heaviest first, and every child once.
+    {
+        int i = cells[0].firstChild;
+        check(i >= 0 && cells[static_cast<std::size_t>(i)].node == b, "chain[0] = b");
+        i = i >= 0 ? cells[static_cast<std::size_t>(i)].nextSibling : -1;
+        check(i >= 0 && cells[static_cast<std::size_t>(i)].node == a, "chain[1] = a");
+        i = i >= 0 ? cells[static_cast<std::size_t>(i)].nextSibling : -1;
+        check(i >= 0 && cells[static_cast<std::size_t>(i)].node == c, "chain[2] = c");
+        i = i >= 0 ? cells[static_cast<std::size_t>(i)].nextSibling : -1;
+        check(i < 0, "chain ends after c");
+    }
+    check(cells[0].holes.empty(), "no holes when every child is a cell");
+    check(cells[0].hasTitle && cells[0].inner == QRectF(2, 16, 996, 582),
+          "root inner = rect minus header (16px) and pad (2px) at zoom 1");
+
+    // A point on the rim (inside root, outside every child) hits the root itself.
+    check(layout.cellAt(QPointF(1, 8)) == &cells[0], "cellAt on the chrome rim hits the parent");
+    check(layout.rectFor(nullptr).isNull(), "rectFor(null) is null");
 
     // Hit-test: a point in a2 resolves to the deepest cell.
     const LayoutCell *ca2 = layout.cellFor(a2);
@@ -127,6 +138,25 @@ int main() {
     // rectFor agrees with the cached cell, and replays for a culled node.
     if (ca2)
         check(layout.rectFor(a2) == ca2->rect, "rectFor returns the cached rect");
+    // Partial cull: at a zoom where c (weight 1 of 101) drops under kMinDevPx but a and
+    // b stay cells, root records c's rect as a hole, and rectFor(c) replays inside inner.
+    TreemapLayout::Params partial = p;
+    partial.zoom = 0.2; // root 200x120 px: subdivides; c is a 2.5 px sliver (< kMinDevPx)
+    check(layout.ensure(partial), "zoom change rebuilds");
+    check(layout.cellFor(a) && layout.cellFor(b) && !layout.cellFor(c), "a, b kept; c culled");
+    check(layout.cells()[0].holes.size() == 1, "one hole for the culled child");
+    check(inside(layout.rectFor(c), layout.cells()[0].inner), "rectFor(c) replays inside inner");
+    if (!layout.cells()[0].holes.empty())
+        check(layout.rectFor(c) == layout.cells()[0].holes[0], "hole rect == replayed rect");
+
+    // reveal/detail are part of the key.
+    TreemapLayout::Params rv = p;
+    rv.reveal = 0.5;
+    check(layout.ensure(rv), "reveal change rebuilds");
+    TreemapLayout::Params dt = rv;
+    dt.detail = 2.0;
+    check(layout.ensure(dt), "detail change rebuilds");
+
     TreemapLayout::Params tiny = p;
     tiny.zoom = 0.05; // 50x30 device px: nothing subdivides
     check(layout.ensure(tiny), "zoom change rebuilds");
@@ -135,6 +165,8 @@ int main() {
     const QRectF replay = layout.rectFor(a);
     check(!replay.isNull() && inside(replay, QRectF(0, 0, 1000, 600)),
           "rectFor replays a culled node");
+    core::FsNode stranger; // not under the root
+    check(layout.rectFor(&stranger).isNull(), "rectFor outside the root is null");
 
     // Metric switch: weights recomputed (bytes are all 0 → every dir floors to 1).
     TreemapLayout::Params bytes = p;

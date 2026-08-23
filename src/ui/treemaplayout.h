@@ -29,13 +29,14 @@ namespace ui {
 struct LayoutCell {
     QRectF rect; // item coordinates
     const core::FsNode *node;
-    int depth;               // nesting depth under the layout root (root = 0)
-    int parent;              // index of the parent cell, -1 for the root
-    int firstChild = -1;     // index of the first child cell, -1 if a leaf
-    int nextSibling = -1;    // index of the next sibling cell, -1 if last
-    bool subdivided = false; // children were laid out (the LOD gate passed)
-    bool hasTitle = false;   // wide/tall enough on screen for a header strip
-    QRectF inner;            // the area children tile (rect minus header + pad)
+    int depth;                 // nesting depth under the layout root (root = 0)
+    int parent;                // index of the parent cell, -1 for the root
+    int firstChild = -1;       // index of the first child cell, -1 if a leaf
+    int nextSibling = -1;      // index of the next sibling cell, -1 if last
+    bool subdivided = false;   // children were laid out (the LOD gate passed)
+    bool hasTitle = false;     // wide/tall enough on screen for a header strip
+    QRectF inner;              // the area children tile (rect minus header + pad)
+    std::vector<QRectF> holes; // child rects culled for size: nothing paints them
 };
 
 class TreemapLayout {
@@ -57,8 +58,9 @@ class TreemapLayout {
         Metric metric = Files;
         qreal reveal = 1.0; // subdivision gate multiplier (<1 subdivides sooner)
         qreal detail = 1.0; // title gate multiplier
-        qreal zoom = 1.0;   // device px per item unit
-        bool operator==(const Params &o) const;
+        qreal zoom = 1.0;   // device px per item unit; one scale for both axes (the
+                            // view never scales anisotropically)
+        bool operator==(const Params &o) const; // exact — params are deterministic copies
     };
 
     // Point the layout at a tree. Drops the weight memo and the cells.
@@ -70,7 +72,9 @@ class TreemapLayout {
     bool ensure(const Params &p);
 
     // Forget the cells and weights (the tree changed underneath — a deepened
-    // subtree, a re-projection). The next ensure() rebuilds.
+    // subtree, a re-projection). The next ensure() rebuilds. Weights are memoized by
+    // node pointer, so an in-place tree mutation must invalidate every layout whose
+    // root is an ancestor of the changed node — lenses over the subtree included.
     void invalidate();
 
     const std::vector<LayoutCell> &cells() const { return m_cells; }
@@ -93,7 +97,11 @@ class TreemapLayout {
     double weight(const core::FsNode *n) const;
 
   private:
-    void build(int parentIndex, const core::FsNode *node, const QRectF &rect, int depth);
+    // Lay out `node` in `rect` as a child of cell `parentIndex` (-1 = root), linking
+    // it after `prevSibling` (-1 = first). Returns the new cell's index, or -1 when
+    // the node is too small on screen to be a cell.
+    int build(int parentIndex, int prevSibling, const core::FsNode *node, const QRectF &rect,
+              int depth);
     // Sorted children (heaviest first) with their weights — the squarify input.
     void childOrder(const core::FsNode *node, std::vector<const core::FsNode *> &kids,
                     std::vector<double> &weights) const;

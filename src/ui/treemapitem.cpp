@@ -325,14 +325,9 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
                     body);
         p->fillRect(
             QRectF(inner.right(), inner.top(), rect.right() - inner.right(), inner.height()), body);
-        // Culled children leave holes the rim fill skipped: fill the inner rect behind
-        // them when the cell has fewer child cells than the node has children.
-        int laidOut = 0;
-        for (int c = cell.firstChild; c >= 0;
-             c = m_layout.cells()[static_cast<std::size_t>(c)].nextSibling)
-            ++laidOut;
-        if (laidOut < static_cast<int>(node->children.size()))
-            p->fillRect(inner, body);
+        // Children culled for size leave holes the rim fill skipped; fill just those.
+        for (const QRectF &hole : cell.holes)
+            p->fillRect(hole, body);
     } else {
         p->fillRect(rect, body);
     }

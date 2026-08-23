@@ -12,15 +12,13 @@
 namespace ui {
 
 bool TreemapLayout::Params::operator==(const Params &o) const {
-    return qFuzzyCompare(width, o.width) && qFuzzyCompare(height, o.height) && metric == o.metric &&
-           qFuzzyCompare(reveal, o.reveal) && qFuzzyCompare(detail, o.detail) &&
-           qFuzzyCompare(zoom, o.zoom);
+    return width == o.width && height == o.height && metric == o.metric && reveal == o.reveal &&
+           detail == o.detail && zoom == o.zoom;
 }
 
 void TreemapLayout::setRoot(const core::FsNode *root) {
     m_root = root;
     invalidate();
-    m_weight.clear();
 }
 
 void TreemapLayout::invalidate() {
@@ -49,9 +47,10 @@ void TreemapLayout::childOrder(const core::FsNode *node, std::vector<const core:
     kids.reserve(node->children.size());
     for (const auto &c : node->children)
         kids.push_back(c.get());
-    std::sort(kids.begin(), kids.end(), [this](const core::FsNode *a, const core::FsNode *b) {
-        return weight(a) > weight(b);
-    });
+    // Stable, so equal-weight siblings keep scan order and build/rectFor agree.
+    std::stable_sort(
+        kids.begin(), kids.end(),
+        [this](const core::FsNode *a, const core::FsNode *b) { return weight(a) > weight(b); });
     weights.reserve(kids.size());
     for (const auto *k : kids)
         weights.push_back(weight(k));
@@ -75,15 +74,15 @@ bool TreemapLayout::ensure(const Params &p) {
     m_valid = true;
     if (!m_root || p.width <= 0 || p.height <= 0 || p.zoom <= 0)
         return true;
-    build(-1, m_root, QRectF(0, 0, p.width, p.height), 0);
+    build(-1, -1, m_root, QRectF(0, 0, p.width, p.height), 0);
     return true;
 }
 
-void TreemapLayout::build(int parentIndex, const core::FsNode *node, const QRectF &rect,
-                          int depth) {
+int TreemapLayout::build(int parentIndex, int prevSibling, const core::FsNode *node,
+                         const QRectF &rect, int depth) {
     const double devW = rect.width() * m_params.zoom, devH = rect.height() * m_params.zoom;
     if (devW < kMinDevPx || devH < kMinDevPx)
-        return; // too small on screen to be a cell
+        return -1; // too small on screen to be a cell
 
     const int index = static_cast<int>(m_cells.size());
     LayoutCell cell;
@@ -97,28 +96,28 @@ void TreemapLayout::build(int parentIndex, const core::FsNode *node, const QRect
     cell.inner = innerRect(rect, cell.hasTitle);
     m_cells.push_back(cell);
     m_index[node] = index;
-
-    // Link into the parent's child chain (appending keeps heaviest-first order).
-    if (parentIndex >= 0) {
-        LayoutCell &parent = m_cells[parentIndex];
-        if (parent.firstChild < 0) {
-            parent.firstChild = index;
-        } else {
-            int last = parent.firstChild;
-            while (m_cells[last].nextSibling >= 0)
-                last = m_cells[last].nextSibling;
-            m_cells[last].nextSibling = index;
-        }
-    }
+    // Link after the previous sibling, or as the parent's first child — O(1), and the
+    // only place links are written. (Index-based: m_cells may reallocate below.)
+    if (prevSibling >= 0)
+        m_cells[static_cast<std::size_t>(prevSibling)].nextSibling = index;
+    else if (parentIndex >= 0)
+        m_cells[static_cast<std::size_t>(parentIndex)].firstChild = index;
 
     if (!cell.subdivided)
-        return;
+        return index;
     std::vector<const core::FsNode *> kids;
     std::vector<double> ws;
     childOrder(node, kids, ws);
-    const std::vector<QRectF> rects = squarify(ws, m_cells[index].inner);
-    for (std::size_t k = 0; k < kids.size(); ++k)
-        build(index, kids[k], rects[k], depth + 1); // may push: re-index, don't hold refs
+    const std::vector<QRectF> rects = squarify(ws, cell.inner);
+    int prev = -1;
+    for (std::size_t k = 0; k < kids.size(); ++k) {
+        const int child = build(index, prev, kids[k], rects[k], depth + 1);
+        if (child >= 0)
+            prev = child;
+        else
+            m_cells[static_cast<std::size_t>(index)].holes.push_back(rects[k]); // culled: a hole
+    }
+    return index;
 }
 
 const LayoutCell *TreemapLayout::cellAt(const QPointF &p) const {
