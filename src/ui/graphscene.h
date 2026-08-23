@@ -47,6 +47,7 @@ class GraphScene : public QGraphicsScene {
     void clearBases();
     bool hasBases() const { return !baseFrames().empty(); }
     std::vector<FrameItem *> baseFrames() const; // the level-0 frames, for the dock list
+    const std::vector<FrameItem *> &frames() const { return m_frames; } // every surface
 
     // Treemap appearance (indices match TreemapItem::SizeMetric / ::Ramp). Each
     // rebuilds every surface's interior in place (frames survive).

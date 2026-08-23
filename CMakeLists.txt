@@ -133,6 +133,13 @@ add_test(NAME driver_deepen
 set_tests_properties(driver_deepen PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_deepen"
     TIMEOUT 60)
+# Inside a leaf cell: contents anchor to the viewport instead of an off-screen corner.
+add_test(NAME driver_zoom_inside
+         COMMAND sh -c "python3 '${CMAKE_SOURCE_DIR}/tests/driver/make_synth.py' synth_zoom --depth 2 --seed 3 >/dev/null && '$<TARGET_FILE:hfsgraph>' --script '${CMAKE_SOURCE_DIR}/tests/driver/zoom_inside.txt'"
+         WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_tests_properties(driver_zoom_inside PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_zoom"
+    TIMEOUT 60)
 set_tests_properties(driver_smoke PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_SOURCE_DIR}/src"
     TIMEOUT 60)

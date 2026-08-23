@@ -6,6 +6,7 @@
 #include "canvasview.h"
 #include "core/fsnode.h"
 #include "frameitem.h"
+#include "treemapitem.h"
 #include "graphscene.h"
 #include "mainwindow.h"
 
@@ -419,6 +420,33 @@ bool Driver::run(const QString &line) {
             vp->repaint();
         const double ms = static_cast<double>(t.nsecsElapsed()) / 1e6 / n;
         std::printf("bench %d frames: %.2f ms/frame\n", n, ms);
+        std::fflush(stdout);
+        return true;
+    }
+    if (cmd == QLatin1String("probe")) {
+        // What is under a viewport point: the topmost surface's deepest cell — its
+        // path, direct file count, child count, truncated flag. Diagnostic.
+        const QPoint vp0 = viewPoint(1, 2);
+        const QPointF scenePos = m_view->mapToScene(vp0);
+        const core::FsNode *best = nullptr;
+        qreal bestZ = -1e18;
+        for (FrameItem *f : m_scene->frames()) { // bases and lenses: the topmost wins
+            TreemapItem *t = f->interiorTreemap();
+            if (!t)
+                continue;
+            const QPointF local = t->mapFromScene(scenePos);
+            if (const core::FsNode *n = t->cellNodeAt(local); n && f->zValue() >= bestZ) {
+                best = n;
+                bestZ = f->zValue();
+            }
+        }
+        if (!best) {
+            std::printf("probe (%d,%d): nothing\n", vp0.x(), vp0.y());
+            return true;
+        }
+        std::printf("probe (%d,%d): %s files=%zu children=%zu truncated=%d lazy=%d\n", vp0.x(),
+                    vp0.y(), qPrintable(best->path), best->files.size(), best->children.size(),
+                    best->truncatedDepth ? 1 : 0, best->lazyChildren ? 1 : 0);
         std::fflush(stdout);
         return true;
     }
