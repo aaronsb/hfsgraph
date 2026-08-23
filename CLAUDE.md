@@ -17,7 +17,7 @@ grabs PNGs, reports ms/frame, and runs headless under `QT_QPA_PLATFORM=offscreen
 Use the `drive` skill (`.claude/skills/drive/SKILL.md`) whenever a change needs to be
 seen, timed, or profiled rather than reasoned about — it has the recipes. Grammar:
 `src/ui/driver.h`. Screenshot and state assertions live in ctest (`tests/driver/*.txt`:
-`check bases|nodes|grew|selected|file|ops|nonblank|differs`, `probe`, `stage`).
+`check bases|nodes|grew|selected|file|ops|nonblank|differs|same`, `probe`, `stage`).
 
 ## Layout
 

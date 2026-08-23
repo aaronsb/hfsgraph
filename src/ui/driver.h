@@ -29,7 +29,7 @@
 //   set reveal|detail F      the LOD sliders' factor
 //   set filemode|ramp|metric|callout N   the toolbar combos, by index
 //   set deepen 0|1           lazy deepening of truncated cells on (default) or off
-//   set fast 0|1             hold the interaction LOD (no leaf contents) on or off; a
+//   set fast 0|1             hold the gesture state (lazy weights frozen) on or off; a
 //                            later wheel/drag re-arms the idle timer and releases it
 //   set focus 0|1            layout focus (ADR-305) on or off (default), for comparison
 //   shot PATH [view]         save a PNG of the main window, or of the canvas viewport only
@@ -57,6 +57,7 @@
 //                            leaf cell holding it — survives a re-flow)
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
 //   check differs A B        fail if the two PNGs are pixel-identical
+//   check same A B           fail unless they are
 //   bench [N]                repaint the viewport N times (default 20), print ms/frame
 //                            (paint only — no compositor hand-off; one warm-up frame first)
 //   echo TEXT                print to stdout

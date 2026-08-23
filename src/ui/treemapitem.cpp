@@ -664,8 +664,10 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
         m_scene->requestDeepen(node); // the scan stopped here and the view wants more
     if (node->truncatedDepth && node->children.empty())
         drawUnscannedMark(p, hasTitle ? dev.adjusted(0, kHeaderPx, 0, 0) : dev); // more below
-    if (!m_interacting)
-        drawLeafContents(p, node, dev, hasTitle, body, toDevice.mapRect(exposed));
+    // Leaf contents paint during a gesture too: the full frame costs ~2 ms against
+    // ~1.4 without them (1600×1000, /usr/share), and skipping them read as a page flip
+    // on every zoom notch.
+    drawLeafContents(p, node, dev, hasTitle, body, toDevice.mapRect(exposed));
     dimScrim(); // leaf: dim the whole cell (body + contents) when de-emphasised
     if (const int step = diffStepFor(node))
         drawDiffMark(p, dev, step);
