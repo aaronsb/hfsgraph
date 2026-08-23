@@ -31,17 +31,19 @@
 //   set deepen 0|1           lazy deepening of truncated cells on (default) or off
 //   set fast 0|1             hold the interaction LOD (no leaf contents) on or off; a
 //                            later wheel/drag re-arms the idle timer and releases it
-//   set focus 0|1            layout focus (#40) on (default) or off, for comparison
+//   set focus 0|1            layout focus (ADR-305) on or off (default), for comparison
 //   shot PATH [view]         save a PNG of the main window, or of the canvas viewport only
 //   check bases N            fail unless the scene holds N base surfaces
 //   check nodes N            fail unless the bases hold at least N directories (prints the count)
 //   mark                     remember the directory count; `check grew` fails unless it rose
 //   probe [X Y]              print the deepest cell under a viewport point (path, files, children)
-//                            and the file glyph there, if any, and the layout focus
+//                            and the file glyph there, if any, and that surface's layout
+//                            focus; the point is remembered for the focus checks below
 //   check selected N         fail unless exactly N files are selected (prints the count)
-//   check focus PATH         fail unless the layout focus (#40) is the directory whose
-//                            path ends with PATH (a glob if PATH holds `*`), or `none`
-//                            for no focus (prints it)
+//   check focus PATH         fail unless the layout focus (ADR-305) of the surface under
+//                            the last probe point (the viewport centre before any probe)
+//                            is the directory whose path ends with PATH (a glob if PATH
+//                            holds `*`), or `none` for no focus (prints it)
 //   check focusdepth N       fail unless the focus is N directories below its base root
 //                            (`N+` = at least N); `check focuspopped` fails unless it is
 //                            shallower than at the last `mark`
@@ -62,8 +64,13 @@
 #pragma once
 
 #include <QObject>
+#include <QPoint>
 #include <QString>
 #include <QStringList>
+
+namespace core {
+struct FsNode;
+}
 
 namespace ui {
 
@@ -103,8 +110,12 @@ class Driver : public QObject {
     bool m_waitPainted = false; // `wait` forced its one repaint (deepen requests come from paint)
     int m_mark = -1;            // directory count at the last `mark`
     int m_markFocusDepth = -1;  // layout focus depth at the last `mark`
+    QPoint m_probe{-1, -1};     // viewport point of the last `probe`; focus checks read
+                                // the surface under it (the viewport centre before any)
     int countNodes() const;     // directories across every base's render tree
-    int focusDepth() const;     // layout focus depth below its base root, -1 if none
+    // The layout focus of the surface under the probe point (ADR-305: per surface).
+    const core::FsNode *probedFocus() const;
+    int focusDepth() const; // that focus's depth below its base root, -1 if none
 };
 
 } // namespace ui

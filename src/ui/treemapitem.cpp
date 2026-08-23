@@ -411,9 +411,38 @@ TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, Si
     setAcceptDrops(true);                                      // file drop → staged move
 }
 
-TreemapItem::~TreemapItem() {
-    if (m_scene && m_focus && m_scene->layoutFocus() == m_focus)
-        m_scene->setLayoutFocus(nullptr); // we reported it; don't leave it dangling (#40)
+TreemapItem::~TreemapItem() = default;
+
+void TreemapItem::adoptFocus(const core::MemberKey &key, const QRectF &focusRect) {
+    m_focus = nullptr;
+    m_popped = nullptr;
+    m_focusRect = QRectF();
+    if (key.isEmpty() || !m_root)
+        return;
+    // A key is an identity, not a path (ADR-102: a stamped directory's key is its
+    // UUID, and a staged move keeps the key while the path changes), so the subtree is
+    // searched by key. Once per interior rebuild; O(n) is fine.
+    std::vector<const core::FsNode *> stack{m_root};
+    const core::FsNode *found = nullptr;
+    while (!stack.empty() && !found) {
+        const core::FsNode *n = stack.back();
+        stack.pop_back();
+        if (n != m_root && core::keyFor(*n) == key) {
+            found = n;
+            break;
+        }
+        for (const auto &c : n->children)
+            stack.push_back(c.get());
+    }
+    if (found && found->parent && !found->children.empty()) { // a leaf never focuses
+        m_focus = found;
+        m_focusRect = focusRect; // null → captured from the viewport on the first paint
+    }
+}
+
+QRectF TreemapItem::cellRectAt(const QPointF &itemPos) const {
+    const LayoutCell *c = m_layout.cellAt(itemPos);
+    return c ? c->rect : QRectF();
 }
 
 QColor TreemapItem::depthColor(Ramp ramp, int depth) {
@@ -622,10 +651,10 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
     }
 
     if (cell.focusShadow) {
-        // The focus node's canonical cell under the overlay (#40): a flat cell whose
-        // title strip names it; one too small for a strip gets the leaf floor (a
-        // centred name, or dots). Its contents live in the overlay, and it must not
-        // ask to deepen.
+        // The focus node's canonical cell under the overlay (ADR-305): a flat cell
+        // that shows its name — in the title strip when it has one, else as the leaf
+        // floor (a centred name, or dots). Never its files: those live in the
+        // overlay, as does any request to deepen.
         if (!hasTitle)
             drawLeafContents(p, node, dev, hasTitle, body, toDevice.mapRect(exposed));
         dimScrim();
@@ -945,7 +974,7 @@ void TreemapItem::drawDiffMark(QPainter *p, const QRectF &dev, int step) const {
 }
 
 void TreemapItem::setFocus(const core::FsNode *focus, const QRectF &focusRect,
-                           const TreemapLayout::Params &lp) {
+                           const TreemapLayout::Params &lp, bool animate) {
     // Snapshot where every cell is shown *now* (mid-morph included) so the next
     // morph starts from what the eye sees, then switch and rebuild.
     const double t = morphT();
@@ -966,12 +995,23 @@ void TreemapItem::setFocus(const core::FsNode *focus, const QRectF &focusRect,
         (cells[i].overlay ? m_fromOverlay : m_fromCanon)[cells[i].node] = shown[i];
     m_focus = focus;
     m_focusRect = focusRect;
+    if (!focus)
+        m_popped = nullptr;
+    if (m_ownerFrame)
+        m_ownerFrame->setLayoutFocus(focus ? core::keyFor(*focus) : core::MemberKey(), focusRect);
     if (m_scene)
-        m_scene->setLayoutFocus(focus);
+        m_scene->noteLayoutFocusChanged(); // callouts re-anchor on the next turn
     TreemapLayout::Params np = lp;
     np.focus = m_focus;
     np.focusRect = m_focusRect;
     m_layout.ensure(np);
+    if (!animate) {
+        m_fromCanon.clear();
+        m_fromOverlay.clear();
+        if (m_morph)
+            m_morph->stop();
+        return;
+    }
     if (!m_morph) {
         m_morph = std::make_unique<QVariantAnimation>();
         m_morph->setDuration(220);
@@ -1008,8 +1048,10 @@ void TreemapItem::decideFocus(TreemapLayout::Params &lp, const QRectF &vpDev, co
         const QSizeF s = toDevice.mapRect(c.rect).intersected(vpDev).size();
         return s.width() >= vpDev.width() * f && s.height() >= vpDev.height() * f;
     };
-    // Release: the focus fell under the threshold → its parent takes over, placed so
-    // the old focus keeps its centre and area; at the root the focus clears.
+    // Release: the focus fell under the threshold → its parent is re-squarified into
+    // the viewport in its place (ADR-305 model b: ascent mirrors descent); at the root
+    // the focus clears. The popped child is remembered so the engage below doesn't
+    // dive straight back into it.
     if (m_focus) {
         const LayoutCell *fc = m_layout.focusCell();
         if (!fc || fc->node != m_focus) {
@@ -1018,14 +1060,18 @@ void TreemapItem::decideFocus(TreemapLayout::Params &lp, const QRectF &vpDev, co
         }
         if (!covers(*fc, kFocusRelease)) {
             const core::FsNode *parent = m_focus->parent;
-            if (!parent || parent == m_root) {
-                setFocus(nullptr, QRectF(), lp);
-                return;
-            }
-            const QRectF r = m_layout.focusRectAround(parent, m_focus, fc->rect, vpItem);
-            setFocus(r.isValid() ? parent : nullptr, r, lp);
+            m_popped = m_focus;
+            m_popZoom = lp.zoom;
+            setFocus(parent && parent != m_root ? parent : nullptr, vpItem, lp);
             return;
         }
+    }
+    // The guard lifts when the user zooms back in, or when the popped child has left
+    // the eye (under the release coverage) — so a pan away and back re-engages it.
+    if (m_popped) {
+        const LayoutCell *pc = m_layout.cellFor(m_popped);
+        if (lp.zoom > m_popZoom || !pc || !covers(*pc, kFocusRelease))
+            m_popped = nullptr;
     }
     // Engage: the deepest *subdivided* cell under the current focus (or the root) that
     // covers the viewport on both axes. At most one child can (two disjoint tiles
@@ -1038,7 +1084,7 @@ void TreemapItem::decideFocus(TreemapLayout::Params &lp, const QRectF &vpDev, co
         const LayoutCell *next = nullptr;
         for (int k = c->firstChild; k >= 0; k = cells[static_cast<std::size_t>(k)].nextSibling)
             if (const LayoutCell &kc = cells[static_cast<std::size_t>(k)];
-                kc.subdivided && covers(kc, kFocusEngage)) {
+                kc.subdivided && kc.node != m_popped && covers(kc, kFocusEngage)) {
                 next = &kc;
                 break;
             }
@@ -1083,26 +1129,26 @@ void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *optio
     lp.detail = m_detail;
     lp.zoom = toDevice.m11() > 0 ? toDevice.m11() : 1.0;
     lp.freezeLazy = m_interacting; // stable under the cursor; honest once idle
+    // Layout focus (ADR-305): judged against the viewport — `widget` is the view's
+    // viewport, so its rect is the device-space window the eye has; clipped to this
+    // item so a focus never lays out past the surface. A render with no widget (an
+    // image grab) keeps whatever focus the screen last decided.
+    QRectF vpDev, vpItem;
+    if (widget && toDevice.isInvertible()) {
+        vpDev = QRectF(widget->rect());
+        vpItem = toDevice.inverted().mapRect(vpDev).intersected(boundingRect());
+    }
+    if (m_focus && m_focusRect.isNull() && vpItem.isValid())
+        m_focusRect = vpItem; // an adopted focus with no rect lands in the viewport, no morph
     lp.focus = m_focus;
     lp.focusRect = m_focusRect;
     m_layout.ensure(lp);
-    // Layout focus (#40): judged against the viewport — `widget` is the view's
-    // viewport, so its rect is the device-space window the eye has; clipped to this
-    // item so a focus never lays out past the surface.
-    if (widget && toDevice.isInvertible()) {
-        const QRectF vpDev(widget->rect());
-        const QRectF vpItem = toDevice.inverted().mapRect(vpDev).intersected(boundingRect());
+    if (vpDev.isValid())
         decideFocus(lp, vpDev, vpItem, toDevice);
-    }
     if (!m_layout.cells().empty())
         drawCell(painter, 0, toDevice, exposed, nullptr);
-    if (m_layout.overlayRoot() >= 0) {
-        // The canonical map recedes under a scrim so the focus overlay reads as the
-        // subject and the surroundings as context (the scrim fades in with the morph).
-        const int alpha = static_cast<int>(70 * morphT());
-        painter->fillRect(exposed, m_dark ? QColor(0, 0, 0, alpha) : QColor(255, 255, 255, alpha));
+    if (m_layout.overlayRoot() >= 0)
         drawCell(painter, m_layout.overlayRoot(), toDevice, exposed, nullptr); // over the map
-    }
     drawBand(painter); // rubber band, over everything
 }
 

@@ -387,9 +387,10 @@ bool Driver::run(const QString &line) {
             return true;
         }
         if (what == QLatin1String("focus")) {
-            // The layout focus (#40) is the directory whose path ends with PATH, or
-            // `none`. A suffix so scripts stay fixture-location independent.
-            const core::FsNode *f = m_scene->layoutFocus();
+            // The layout focus (ADR-305) of the surface under the probe point is the
+            // directory whose path ends with PATH, or `none`. A suffix so scripts stay
+            // fixture-location independent.
+            const core::FsNode *f = probedFocus();
             const QString got = f ? f->path : QStringLiteral("none");
             std::printf("focus %s\n", qPrintable(got));
             const QString want = a.at(2);
@@ -518,6 +519,7 @@ bool Driver::run(const QString &line) {
         // What is under a viewport point: the topmost surface's deepest cell — its
         // path, direct file count, child count, truncated flag. Diagnostic.
         const QPoint vp0 = viewPoint(1, 2);
+        m_probe = vp0; // the focus checks ask this surface
         const QPointF scenePos = m_view->mapToScene(vp0);
         const core::FsNode *best = nullptr;
         qreal bestZ = -1e18;
@@ -547,7 +549,7 @@ bool Driver::run(const QString &line) {
         std::printf("probe (%d,%d): %s files=%zu children=%zu truncated=%d lazy=%d\n", vp0.x(),
                     vp0.y(), qPrintable(best->path), best->files.size(), best->children.size(),
                     best->truncatedDepth ? 1 : 0, best->lazyChildren ? 1 : 0);
-        const core::FsNode *focus = m_scene->layoutFocus();
+        const core::FsNode *focus = probedFocus();
         std::printf("probe focus: %s\n", focus ? qPrintable(focus->path) : "none");
         std::fflush(stdout);
         return true;
@@ -652,10 +654,15 @@ bool Driver::run(const QString &line) {
     return false;
 }
 
-// Directories between the layout focus (#40) and the root of the base it lives in
-// (0 = a base root, -1 = no focus or not under any base).
+const core::FsNode *Driver::probedFocus() const {
+    const QPoint p = m_probe.x() >= 0 ? m_probe : m_view->viewport()->rect().center();
+    return m_scene->layoutFocusAt(m_view->mapToScene(p));
+}
+
+// Directories between the probed surface's layout focus (ADR-305) and the root of
+// the base it lives in (0 = a base root, -1 = no focus or not under any base).
 int Driver::focusDepth() const {
-    const core::FsNode *f = m_scene->layoutFocus();
+    const core::FsNode *f = probedFocus();
     if (!f)
         return -1;
     for (FrameItem *b : m_scene->baseFrames()) {

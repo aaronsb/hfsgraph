@@ -168,7 +168,7 @@ int main() {
     core::FsNode stranger; // not under the root
     check(layout.rectFor(&stranger).isNull(), "rectFor outside the root is null");
 
-    // Layout focus (#40): the canonical map stops at the focus (a flat shadow), and
+    // Layout focus (ADR-305): the canonical map stops at the focus (a flat shadow), and
     // the focus subtree is re-squarified into focusRect behind one frame per ancestor,
     // appended after the canonical cells so hit-testing prefers the overlay.
     TreemapLayout::Params fp = p;
@@ -196,13 +196,6 @@ int main() {
         check(layout.cellAt(QPointF(400, 300)) && layout.cellAt(QPointF(400, 300))->overlay,
               "cellAt inside the overlay hits the overlay, not what it covers");
         check(layout.cellAt(QPointF(5, 5)) == &fc[0], "outside the overlay the canonical map");
-        // Pop geometry: the parent's focusRect keeps the child's centre and area.
-        const QRectF childRect(300, 200, 100, 60);
-        const QRectF around = layout.focusRectAround(a, a2, childRect, QRectF(0, 0, 900, 500));
-        check(around.isValid() && around.contains(childRect.center()),
-              "focusRectAround wraps the parent around the child's place");
-        check(layout.focusRectAround(root, a, childRect, QRectF(0, 0, 900, 500)).isNull(),
-              "focusRectAround(root) is null — the root never focuses");
     }
     TreemapLayout::Params fp2 = fp;
     fp2.focus = root; // the root is never a focus: no overlay
