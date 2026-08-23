@@ -1,0 +1,35 @@
+# File selection (#37). Zoom inside the same leaf driver_zoom_inside uses (5 files,
+# List rung, 14px rows from the cell's top-left, which sits at the viewport's left
+# edge ~y=208 at this zoom — see the probes). Glyph click / Ctrl / Shift, then a
+# rubber band from empty body across the rows, a clearing click, and a Ctrl-band.
+resize 1200 800
+load $HFSGRAPH_FIXTURE 2
+wait
+zoom 4 600 400
+sleep 200
+zoom 4 600 400
+wait
+sleep 200
+probe 15 222
+click 15 222
+check selected 1
+check file f0.h
+click 15 250 ctrl
+check selected 2
+check file f2.o
+click 15 236 shift
+check selected 3
+click 15 250 ctrl
+check selected 2
+click 15 222
+check selected 1
+drag 700 700 10 10
+check selected 5
+shot driver_select_band.png view
+check nonblank driver_select_band.png
+click 700 700
+check selected 0
+drag 700 700 10 10 ctrl
+check selected 5
+echo select ok
+quit

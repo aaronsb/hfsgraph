@@ -8,9 +8,11 @@
 #include "filetypestyle.h"
 #include "frameitem.h"
 #include "graphscene.h"
+#include "selection.h"
 #include "treemaplayout.h"
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include <QApplication>
@@ -20,7 +22,9 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QFontMetrics>
+#include <QDrag>
 #include <QGraphicsSceneMouseEvent>
+#include <QMimeData>
 #include <QLocale>
 #include <QPainter>
 #include <QPalette>
@@ -120,6 +124,119 @@ Span visibleSlots(qreal origin, qreal pitch, qreal size, int n, qreal lo, qreal 
         std::clamp(static_cast<int>(std::floor((lo - origin - size) / pitch)) + 1, 0, n);
     const int last = std::clamp(static_cast<int>(std::floor((hi - origin) / pitch)) + 1, 0, n);
     return {first, std::max(first, last)};
+}
+
+// The geometry of a leaf cell's contents: which rung, and where each file's glyph
+// sits — in device px relative to whatever origin `dev` was given (the real device
+// rect when painting; the cell's own top-left for hit-testing, so a press can be
+// resolved without knowing the view offset). One planner serves paint, the file
+// hit-test, and band selection, so they can't disagree (#37).
+} // namespace
+
+struct LeafPlan {
+    TreemapItem::FileMode rung = TreemapItem::Auto; // Auto = no file rung (name or nothing)
+    QRectF area;                                    // content area
+    int cols = 0, rows = 0, count = 0;              // grid and files shown
+    qreal pitchX = 0, pitchY = 0, glyphW = 0, glyphH = 0;
+    bool columnMajor = false; // List fills down columns like `ls`
+    double metaW = 0;         // Details: width of the perms/size/mtime column
+    QRectF glyph(int i) const {
+        const int col = columnMajor ? i / rows : i % cols;
+        const int row = columnMajor ? i % rows : i / cols;
+        return QRectF(area.x() + col * pitchX, area.y() + row * pitchY, glyphW, glyphH);
+    }
+    int indexAt(const QPointF &p) const {
+        if (count <= 0 || !area.contains(p))
+            return -1;
+        const int col = static_cast<int>((p.x() - area.x()) / pitchX);
+        const int row = static_cast<int>((p.y() - area.y()) / pitchY);
+        if (col < 0 || col >= cols || row < 0 || row >= rows)
+            return -1;
+        const int i = columnMajor ? col * rows + row : row * cols + col;
+        return i < count && glyph(i).contains(p) ? i : -1;
+    }
+};
+
+namespace {
+
+QString detailMeta(const core::FileEntry &fe); // defined below; Details measures it
+
+// Lay out `node`'s files for `mode` in `area` (device px). Returns false when the rung
+// can't fit — the painter's former self-guard, now shared with hit-testing.
+bool planRung(TreemapItem::FileMode mode, const core::FsNode *node, const QRectF &area,
+              LeafPlan &out) {
+    const int nfiles = static_cast<int>(node->files.size());
+    out = LeafPlan();
+    out.area = area;
+    out.rung = mode;
+    auto grid = [&](const GlyphGrid &g) {
+        if (area.width() < g.size || area.height() < g.height())
+            return false;
+        const GridFit fit = fitGlyphs(area, g, nfiles);
+        out.cols = fit.cols;
+        out.rows = fit.rows;
+        out.count = fit.count;
+        out.pitchX = g.pitch();
+        out.pitchY = g.pitchY();
+        out.glyphW = g.size;
+        out.glyphH = g.height();
+        return true;
+    };
+    switch (mode) {
+    case TreemapItem::Icons:
+        return grid(kIconGlyph);
+    case TreemapItem::IconsNamed:
+        return grid(kNamedGlyph);
+    case TreemapItem::Dots:
+        return grid(kPixelGlyph);
+    case TreemapItem::List: {
+        constexpr qreal kIcon = 13.0, kColW = 150.0;
+        const qreal rowH = kNameGlyph.pitch();
+        if (area.height() < rowH || area.width() < kIcon + 8.0)
+            return false;
+        out.cols = std::max(1, static_cast<int>(area.width() / kColW));
+        out.rows = std::max(1, static_cast<int>(area.height() / rowH));
+        out.count = std::min(nfiles, out.cols * out.rows);
+        out.pitchX = area.width() / out.cols; // columns share the width evenly
+        out.pitchY = rowH;
+        out.glyphW = out.pitchX;
+        out.glyphH = rowH;
+        out.columnMajor = true;
+        return true;
+    }
+    case TreemapItem::Details: {
+        const qreal rowH = kNameGlyph.pitch();
+        if (area.height() < rowH)
+            return false;
+        QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        f.setPixelSize(10);
+        // Measure the meta column from a worst-case sample (4-digit byte size + a real
+        // mtime) so it never under-measures vs. a default FileEntry.
+        constexpr qreal kIcon = 12.0, kGap = 4.0, kMinName = 24.0;
+        core::FileEntry sample;
+        sample.sizeBytes = 1023; // widest sub-KiB form: "1023 bytes"
+        sample.mtime = 1;        // force a rendered datetime, not the dashes placeholder
+        out.metaW = QFontMetrics(f).horizontalAdvance(detailMeta(sample));
+        if (area.width() < out.metaW + kIcon + kGap + kMinName)
+            return false;
+        out.cols = 1;
+        out.rows = std::max(1, static_cast<int>(area.height() / rowH));
+        out.count = std::min(nfiles, out.rows);
+        out.pitchX = area.width();
+        out.pitchY = rowH;
+        out.glyphW = area.width();
+        out.glyphH = rowH;
+        return true;
+    }
+    case TreemapItem::Auto:
+        break;
+    }
+    return false;
+}
+
+// The content area of a cell body: `dev` minus the header strip and a margin.
+QRectF contentArea(const QRectF &dev, bool hasTitle) {
+    return dev.adjusted(3, (hasTitle ? kHeaderPx : 2.0), -2, -2);
 }
 
 // `ls -l`-style permission string for a file entry: a 10-char "lrwxr-xr-x" — leading
@@ -457,176 +574,53 @@ int TreemapItem::diffStepFor(const core::FsNode *node) const {
     return m_diffSteps.value(core::keyFor(*node), 0);
 }
 
-// The leaf rung: a cell's files drawn per the rung table kRungs — details rows,
+// Choose the rung for a leaf cell (Auto: the richest whose gates and geometry fit;
+// forced: from the requested rung, falling down the table until one fits) and lay it
+// out. Returns a plan with rung == Auto when no file rung applies.
+LeafPlan TreemapItem::planLeaf(const core::FsNode *node, const QRectF &dev, bool hasTitle) const {
+    LeafPlan plan;
+    plan.area = contentArea(dev, hasTitle);
+    if (node->files.empty())
+        return plan;
+    const bool forced = m_fileMode != Auto;
+    bool started = !forced;
+    for (const RungSpec &r : kRungs) {
+        if (!started) {
+            started = r.mode == m_fileMode;
+            if (!started)
+                continue;
+        } else if (forced ? r.forceOnly : (r.forceOnly || r.autoSkip)) {
+            continue;
+        }
+        const bool gated =
+            !forced && !(dev.width() > r.minW * m_detail && dev.height() > r.minH * m_detail);
+        if (gated)
+            continue;
+        LeafPlan candidate;
+        if (planRung(r.mode, node, plan.area, candidate))
+            return candidate;
+    }
+    // Floor: density dots where even the name won't fit (Auto never picks Dots above).
+    const bool labelFits =
+        !hasTitle && dev.width() > kLabelW * m_detail && dev.height() > kLabelH * m_detail;
+    LeafPlan dots;
+    if (!labelFits && planRung(Dots, node, plan.area, dots))
+        return dots;
+    return plan;
+}
+
+// The leaf rung: a cell's files drawn per the plan from planLeaf — details rows,
 // list (icon+name), icon+name tiles, bare icons, or pixel-dots — or the cell's own
-// name when none fits (or it has no files). Auto takes the richest rung that fits
-// the cell (Detail LOD); a forced m_fileMode starts at its rung and falls down the
-// table. All rungs colour-match the file type (shared fileTypeColor / fileTypeIcon).
-// Each painter self-guards on its content area and reports whether it drew, so a
-// rung that passes the table but not its own guard still falls through.
+// name when no rung applies. All rungs colour-match the file type (fileTypeColor /
+// fileTypePixmap); a selected file gets a highlight behind its glyph (#37). The
+// grid is laid over the whole cell body and only the on-screen window of it is drawn.
 void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const QRectF &dev,
                                    bool hasTitle, const QColor &body,
                                    const QRectF &visibleDev) const {
-    // The content area is the cell body clipped to what's on screen. Every rung packs
-    // its glyphs from this rect's top-left, so once the view is inside a cell the
-    // files sit at the viewport's corner instead of off-screen at the cell's; while
-    // the cell fits in view this is the cell body exactly. The rung choice below
-    // still reads the full cell size (`dev`), so it doesn't flicker with panning.
-    const QRectF area = dev.adjusted(3, (hasTitle ? kHeaderPx : 2.0), -2, -2);
+    const LeafPlan plan = planLeaf(node, dev, hasTitle);
+    const QRectF &area = plan.area;
     const QRectF onScreen = area.intersected(visibleDev);
-    if (!onScreen.isValid())
-        return; // no part of the body is on screen: chrome is drawn, contents cost nothing
-    const int nfiles = static_cast<int>(node->files.size());
-    // Row-major lattice (icons, icon+name, dots): visit only the on-screen rows × cols.
-    auto forVisible = [&](const GlyphGrid &g, const GridFit &fit, auto &&draw) {
-        const Span rs = visibleSlots(area.y(), g.pitchY(), g.height(), fit.rows, onScreen.top(),
-                                     onScreen.bottom());
-        const Span cs =
-            visibleSlots(area.x(), g.pitch(), g.size, fit.cols, onScreen.left(), onScreen.right());
-        for (int r = rs.first; r < rs.last; ++r)
-            for (int c = cs.first; c < cs.last; ++c) {
-                const int i = r * fit.cols + c;
-                if (i < fit.count)
-                    draw(i, r, c);
-            }
-    };
 
-    auto drawIcons = [&] {
-        if (area.width() < kIconGlyph.size || area.height() < kIconGlyph.size)
-            return false;
-        p->setWorldMatrixEnabled(false);
-        const GridFit fit = fitGlyphs(area, kIconGlyph, nfiles);
-        forVisible(kIconGlyph, fit, [&](int i, int r, int c) {
-            const QPoint at(static_cast<int>(area.x() + c * kIconGlyph.pitch()),
-                            static_cast<int>(area.y() + r * kIconGlyph.pitch()));
-            p->drawPixmap(at,
-                          fileTypePixmap(node->files[i].name, static_cast<int>(kIconGlyph.size)));
-        });
-        p->setWorldMatrixEnabled(true);
-        return true;
-    };
-    auto drawIconsNamed = [&] {
-        // Icon with its name elided beneath, one tile per file, grid-packed like the
-        // bare icon grid but with a wider, taller glyph so the name has a line to sit
-        // on. The icon is the same theme icon as the other rungs; the name colour-
-        // matches the type, centred under it.
-        const GlyphGrid &g = kNamedGlyph;
-        if (area.width() < g.size || area.height() < g.height())
-            return false;
-        p->setWorldMatrixEnabled(false);
-        QFont f = p->font();
-        f.setPixelSize(10);
-        p->setFont(f);
-        const int icon = static_cast<int>(kIconGlyph.size);
-        const GridFit fit = fitGlyphs(area, g, nfiles);
-        forVisible(g, fit, [&](int i, int r, int c) {
-            const QString &name = node->files[i].name;
-            const double x = area.x() + c * g.pitch(), y = area.y() + r * g.pitchY();
-            p->drawPixmap(QPoint(static_cast<int>(x + (g.size - icon) / 2), static_cast<int>(y)),
-                          fileTypePixmap(name, icon));
-            p->setPen(fileTypeColor(name));
-            const QStaticText st = elidedName(f, name, g.size);
-            p->drawStaticText(QPointF(x + (g.size - st.size().width()) / 2.0, y + icon + 2.0), st);
-        });
-        p->setWorldMatrixEnabled(true);
-        return true;
-    };
-    auto drawDots = [&] {
-        const GlyphGrid &g = kPixelGlyph;
-        if (area.width() < g.size || area.height() < g.size)
-            return false;
-        p->setWorldMatrixEnabled(false);
-        const GridFit fit = fitGlyphs(area, g, nfiles);
-        forVisible(g, fit, [&](int i, int r, int c) {
-            p->fillRect(QRectF(area.x() + c * g.pitch(), area.y() + r * g.pitch(), g.size, g.size),
-                        fileTypeColor(node->files[i].name));
-        });
-        p->setWorldMatrixEnabled(true);
-        return true;
-    };
-    auto drawList = [&] {
-        // Multi-column icon + name grid, filled column-major like `ls -a`, so a tall
-        // cell uses its full width instead of one wasteful column. Name colour-matches
-        // the type; the icon is the same theme icon as the Icons rung, just inline.
-        constexpr qreal kIcon = 13.0, kIconGap = 3.0, kColW = 150.0; // device px
-        const qreal rowH = kNameGlyph.pitch();
-        if (area.height() < rowH || area.width() < kIcon + 8.0)
-            return false;
-        p->setWorldMatrixEnabled(false);
-        QFont f = p->font();
-        f.setPixelSize(10);
-        p->setFont(f);
-        const QFontMetrics fm(f);
-        const int cols = std::max(1, static_cast<int>(area.width() / kColW));
-        const int rows = std::max(1, static_cast<int>(area.height() / rowH));
-        const double colW = area.width() / cols; // distribute evenly across the width
-        const int nf = std::min(nfiles, cols * rows);
-        const Span cs = visibleSlots(area.x(), colW, colW, cols, onScreen.left(), onScreen.right());
-        const Span rs = visibleSlots(area.y(), rowH, rowH, rows, onScreen.top(), onScreen.bottom());
-        for (int col = cs.first; col < cs.last; ++col)
-            for (int row = rs.first; row < rs.last; ++row) {
-                const int i = col * rows + row; // column-major, like ls
-                if (i >= nf)
-                    continue;
-                const double x = area.x() + col * colW, y = area.y() + row * rowH;
-                const QString &name = node->files[i].name;
-                p->drawPixmap(QPoint(static_cast<int>(x), static_cast<int>(y + (rowH - kIcon) / 2)),
-                              fileTypePixmap(name, static_cast<int>(kIcon)));
-                p->setPen(fileTypeColor(name));
-                const QRectF tr(x + kIcon + kIconGap, y, colW - kIcon - kIconGap - 4.0, rowH);
-                const QStaticText st = elidedName(f, name, tr.width());
-                p->drawStaticText(QPointF(tr.x(), tr.y() + (rowH - st.size().height()) / 2.0), st);
-            }
-        p->setWorldMatrixEnabled(true);
-        return true;
-    };
-    auto drawDetails = [&] {
-        // One file per row with metadata, like `ls -l`: a muted fixed-width meta column
-        // (perms · size · mtime) then the type-coloured icon + name. A monospace font
-        // keeps the meta columns aligned across rows; needs the most width of any rung.
-        const qreal rowH = kNameGlyph.pitch();
-        if (area.height() < rowH)
-            return false;
-        QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-        f.setPixelSize(10);
-        const QFontMetrics fm(f);
-        // Measure the meta column from a worst-case sample (4-digit byte size + a real
-        // mtime) so it never under-measures vs. a default FileEntry; gate on it *after*
-        // measuring — nothing here clips to the cell, so a too-narrow cell must fall
-        // to a poorer rung rather than bleed perms/name over its neighbours.
-        constexpr qreal kIcon = 12.0, kGap = 4.0, kMinName = 24.0;
-        core::FileEntry sample;
-        sample.sizeBytes = 1023; // widest sub-KiB form: "1023 bytes"
-        sample.mtime = 1;        // force a rendered datetime, not the dashes placeholder
-        const double metaW = fm.horizontalAdvance(detailMeta(sample));
-        if (area.width() < metaW + kIcon + kGap + kMinName)
-            return false;
-        p->setWorldMatrixEnabled(false);
-        p->setFont(f);
-        QColor metaCol = textColorFor(body);
-        metaCol.setAlpha(160); // de-emphasised next to the file name
-        const int rows = std::max(1, static_cast<int>(area.height() / rowH));
-        const int nf = std::min(nfiles, rows);
-        const Span rs = visibleSlots(area.y(), rowH, rowH, nf, onScreen.top(), onScreen.bottom());
-        for (int i = rs.first; i < rs.last; ++i) {
-            const core::FileEntry &fe = node->files[i];
-            const double y = area.y() + i * rowH;
-            p->setPen(metaCol);
-            p->drawText(QRectF(area.x(), y, metaW, rowH), Qt::AlignVCenter | Qt::AlignLeft,
-                        detailMeta(fe));
-            const double nx = area.x() + metaW;
-            p->drawPixmap(QPoint(static_cast<int>(nx), static_cast<int>(y + (rowH - kIcon) / 2)),
-                          fileTypePixmap(fe.name, static_cast<int>(kIcon)));
-            p->setPen(fileTypeColor(fe.name));
-            const QRectF tr(nx + kIcon + kGap, y, area.right() - (nx + kIcon + kGap), rowH);
-            if (tr.width() > 8.0) {
-                const QStaticText st = elidedName(f, fe.name, tr.width());
-                p->drawStaticText(QPointF(tr.x(), tr.y() + (rowH - st.size().height()) / 2.0), st);
-            }
-        }
-        p->setWorldMatrixEnabled(true);
-        return true;
-    };
     auto drawDirName = [&] {
         p->setWorldMatrixEnabled(false);
         QFont f = p->font();
@@ -641,52 +635,186 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         p->restore();
         p->setWorldMatrixEnabled(true);
     };
-    auto drawRung = [&](FileMode mode) {
-        switch (mode) {
-        case Details:
-            return drawDetails();
-        case List:
-            return drawList();
-        case IconsNamed:
-            return drawIconsNamed();
-        case Icons:
-            return drawIcons();
-        case Dots:
-            return drawDots();
-        case Auto:
-            break;
-        }
-        return false;
+    if (plan.rung == Auto) {
+        const bool labelFits =
+            !hasTitle && dev.width() > kLabelW * m_detail && dev.height() > kLabelH * m_detail;
+        if (labelFits)
+            drawDirName(); // the cell's own name (Auto fallback, or a fileless dir)
+        return;
+    }
+    if (!onScreen.isValid())
+        return; // no part of the body is on screen: chrome is drawn, contents cost nothing
+
+    // Selected names in this directory, if any — one lookup per cell.
+    const QSet<QString> *selected = m_scene && !m_scene->selection().empty()
+                                        ? m_scene->selection().namesIn(core::keyFor(*node))
+                                        : nullptr;
+    QColor hl = qApp ? qApp->palette().color(QPalette::Highlight) : QColor(120, 170, 255);
+    auto highlight = [&](const QRectF &g, int pad) {
+        QColor fill = hl;
+        fill.setAlpha(plan.rung == Dots ? 255 : 110);
+        p->fillRect(g.adjusted(-pad, -pad, pad, pad), fill);
     };
 
-    // Walk the rung table. Auto: from the top, skipping forceOnly/autoSkip rows, the
-    // first row whose Auto gates pass and whose painter draws wins. Forced: from the
-    // requested row, gates ignored, the first painter that draws wins — a forceOnly
-    // row passed on the way down (none today, Details is row 0) is skipped so falling
-    // down never lands on a rung Auto wouldn't offer either.
-    const bool forced = m_fileMode != Auto;
-    if (!node->files.empty()) {
-        bool started = !forced;
-        for (const RungSpec &r : kRungs) {
-            if (!started) {
-                started = r.mode == m_fileMode;
-                if (!started)
-                    continue;
-            } else if (forced ? r.forceOnly : (r.forceOnly || r.autoSkip)) {
-                continue;
+    // Visit the on-screen glyphs of the plan's grid.
+    const Span rs = visibleSlots(area.y(), plan.pitchY, plan.glyphH, plan.rows, onScreen.top(),
+                                 onScreen.bottom());
+    const Span cs = visibleSlots(area.x(), plan.pitchX, plan.glyphW, plan.cols, onScreen.left(),
+                                 onScreen.right());
+    auto forVisible = [&](auto &&draw) {
+        for (int r = rs.first; r < rs.last; ++r)
+            for (int c = cs.first; c < cs.last; ++c) {
+                const int i = plan.columnMajor ? c * plan.rows + r : r * plan.cols + c;
+                if (i < plan.count)
+                    draw(i, plan.glyph(i));
             }
-            const bool gated =
-                !forced && !(dev.width() > r.minW * m_detail && dev.height() > r.minH * m_detail);
-            if (!gated && drawRung(r.mode))
-                return;
-        }
+    };
+
+    p->setWorldMatrixEnabled(false);
+    QFont f = p->font();
+    f.setPixelSize(10);
+    const QFontMetrics fm(f);
+    switch (plan.rung) {
+    case Icons:
+        forVisible([&](int i, const QRectF &g) {
+            const QString &name = node->files[i].name;
+            if (selected && selected->contains(name))
+                highlight(g, 2);
+            p->drawPixmap(g.topLeft().toPoint(), fileTypePixmap(name, static_cast<int>(g.width())));
+        });
+        break;
+    case IconsNamed: {
+        // Icon with its name elided beneath, one tile per file. The name colour-matches
+        // the type, centred under the icon.
+        p->setFont(f);
+        const int icon = static_cast<int>(kIconGlyph.size);
+        forVisible([&](int i, const QRectF &g) {
+            const QString &name = node->files[i].name;
+            if (selected && selected->contains(name))
+                highlight(g, 1);
+            p->drawPixmap(
+                QPoint(static_cast<int>(g.x() + (g.width() - icon) / 2), static_cast<int>(g.y())),
+                fileTypePixmap(name, icon));
+            p->setPen(fileTypeColor(name));
+            const QStaticText st = elidedName(f, name, g.width());
+            p->drawStaticText(
+                QPointF(g.x() + (g.width() - st.size().width()) / 2.0, g.y() + icon + 2.0), st);
+        });
+        break;
     }
-    const bool labelFits =
-        !hasTitle && dev.width() > kLabelW * m_detail && dev.height() > kLabelH * m_detail;
-    if (labelFits)
-        drawDirName(); // the cell's own name (Auto fallback, or a fileless dir)
-    else if (!node->files.empty())
-        drawDots(); // floor: density dots where even the name won't fit
+    case Dots:
+        forVisible([&](int i, const QRectF &g) {
+            const QString &name = node->files[i].name;
+            if (selected && selected->contains(name))
+                highlight(g, 1); // a ring round the dot
+            p->fillRect(g, fileTypeColor(name));
+        });
+        break;
+    case List: {
+        // Multi-column icon + name grid, filled column-major like `ls -a`, so a tall
+        // cell uses its full width instead of one wasteful column.
+        constexpr qreal kIcon = 13.0, kIconGap = 3.0;
+        p->setFont(f);
+        forVisible([&](int i, const QRectF &g) {
+            const QString &name = node->files[i].name;
+            if (selected && selected->contains(name))
+                highlight(g, 0);
+            p->drawPixmap(
+                QPoint(static_cast<int>(g.x()), static_cast<int>(g.y() + (g.height() - kIcon) / 2)),
+                fileTypePixmap(name, static_cast<int>(kIcon)));
+            p->setPen(fileTypeColor(name));
+            const QRectF tr(g.x() + kIcon + kIconGap, g.y(), g.width() - kIcon - kIconGap - 4.0,
+                            g.height());
+            const QStaticText st = elidedName(f, name, tr.width());
+            p->drawStaticText(QPointF(tr.x(), tr.y() + (g.height() - st.size().height()) / 2.0),
+                              st);
+        });
+        break;
+    }
+    case Details: {
+        // One file per row with metadata, like `ls -l`: a muted fixed-width meta column
+        // (perms · size · mtime) then the type-coloured icon + name, in a monospace font.
+        QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        mono.setPixelSize(10);
+        p->setFont(mono);
+        QColor metaCol = textColorFor(body);
+        metaCol.setAlpha(160); // de-emphasised next to the file name
+        constexpr qreal kIcon = 12.0, kGap = 4.0;
+        forVisible([&](int i, const QRectF &g) {
+            const core::FileEntry &fe = node->files[i];
+            if (selected && selected->contains(fe.name))
+                highlight(g, 0);
+            p->setPen(metaCol);
+            p->drawText(QRectF(g.x(), g.y(), plan.metaW, g.height()),
+                        Qt::AlignVCenter | Qt::AlignLeft, detailMeta(fe));
+            const double nx = g.x() + plan.metaW;
+            p->drawPixmap(
+                QPoint(static_cast<int>(nx), static_cast<int>(g.y() + (g.height() - kIcon) / 2)),
+                fileTypePixmap(fe.name, static_cast<int>(kIcon)));
+            p->setPen(fileTypeColor(fe.name));
+            const QRectF tr(nx + kIcon + kGap, g.y(), g.right() - (nx + kIcon + kGap), g.height());
+            if (tr.width() > 8.0) {
+                const QStaticText st = elidedName(mono, fe.name, tr.width());
+                p->drawStaticText(QPointF(tr.x(), tr.y() + (g.height() - st.size().height()) / 2.0),
+                                  st);
+            }
+        });
+        break;
+    }
+    case Auto:
+        break;
+    }
+    p->setWorldMatrixEnabled(true);
+}
+
+// Hit-testing shares planLeaf: the cell's device rect is taken with its own top-left
+// as the origin, so the plan's glyph rects are comparable to (itemPos − cell) × zoom.
+int TreemapItem::fileIndexIn(const LayoutCell &cell, const QPointF &itemPos) const {
+    if (cell.subdivided || cell.node->files.empty())
+        return -1;
+    const qreal z = m_layout.params().zoom;
+    const QRectF dev(0, 0, cell.rect.width() * z, cell.rect.height() * z);
+    const LeafPlan plan = planLeaf(cell.node, dev, cell.hasTitle);
+    if (plan.rung == Auto)
+        return -1;
+    return plan.indexAt((itemPos - cell.rect.topLeft()) * z);
+}
+
+std::vector<int> TreemapItem::filesIn(const core::FsNode *node, const QRectF &cellRect,
+                                      bool hasTitle, const QRectF &itemRect) const {
+    std::vector<int> out;
+    if (!node || node->files.empty())
+        return out;
+    const qreal z = m_layout.params().zoom;
+    const QRectF dev(0, 0, cellRect.width() * z, cellRect.height() * z);
+    const LeafPlan plan = planLeaf(node, dev, hasTitle);
+    if (plan.rung == Auto)
+        return out;
+    const QRectF band = QRectF((itemRect.topLeft() - cellRect.topLeft()) * z, itemRect.size() * z);
+    for (int i = 0; i < plan.count; ++i)
+        if (plan.glyph(i).intersects(band))
+            out.push_back(i);
+    return out;
+}
+
+std::pair<const core::FsNode *, int> TreemapItem::fileAt(const QPointF &itemPos) const {
+    const LayoutCell *cell = m_layout.cellAt(itemPos);
+    if (!cell)
+        return {nullptr, -1};
+    const int i = fileIndexIn(*cell, itemPos);
+    return i >= 0 ? std::make_pair(cell->node, i) : std::make_pair(nullptr, -1);
+}
+
+void TreemapItem::drawBand(QPainter *p) const {
+    if (m_band.isNull())
+        return;
+    QColor hl = qApp ? qApp->palette().color(QPalette::Highlight) : QColor(120, 170, 255);
+    QPen pen(hl, 1.0);
+    pen.setCosmetic(true);
+    p->setPen(pen);
+    hl.setAlpha(50);
+    p->setBrush(hl);
+    p->drawRect(m_band);
 }
 
 void TreemapItem::drawUnscannedMark(QPainter *p, const QRectF &dev) const {
@@ -770,6 +898,7 @@ void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *optio
     m_layout.ensure(lp);
     if (!m_layout.cells().empty())
         drawCell(painter, 0, toDevice, exposed);
+    drawBand(painter); // rubber band, over everything
 }
 
 const core::FsNode *TreemapItem::cellAt(const QPointF &p) const {
@@ -777,36 +906,122 @@ const core::FsNode *TreemapItem::cellAt(const QPointF &p) const {
     return c ? c->node : nullptr;
 }
 
+void TreemapItem::endFileGesture() {
+    const bool held = m_pressFileDir || m_bandNode;
+    m_pressFileDir = nullptr;
+    m_pressFileIndex = -1;
+    m_bandNode = nullptr;
+    m_band = QRectF();
+    if (held && m_scene)
+        m_scene->releaseGestureHold(); // grafts may land again
+}
+
 void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
-    // Find the deepest hit cell *and* its rect (the rect anchors the drag arrow's tail).
+    if (event->button() != Qt::LeftButton) {
+        event->ignore(); // right-press: the context menu (#38) — never a selection change
+        return;
+    }
     const LayoutCell *cell = m_layout.cellAt(event->pos()); // deepest cell under the press
-    const core::FsNode *hit = cell ? cell->node : nullptr;
-    const QRectF hitRect = cell ? cell->rect : QRectF();
-    if (hit) {
-        m_selected = hit; // left click selects; a movable cell also arms a drag (#10)
-        update();
-        // Arm the move drag only for a re-parentable node: not this surface's own root,
-        // and only inside a frame (base or lens — ADR-302 #13). The drag actually begins
-        // on mouseMoveEvent once the cursor passes a small threshold, so plain clicks and
-        // double-clicks still behave. A drag from/to a lens resolves to the base its
-        // subtree belongs to; the scene's drop legality (updateMoveDrag) checks the
-        // resolved base nodes, so a node the base doesn't contain reads illegal.
-        m_pressNode = nullptr;
-        if (hit != m_root && hit->parent && m_ownerFrame) {
-            m_pressNode = hit;
-            m_pressScene = event->scenePos();
-            m_pressCenterScene = mapToScene(hitRect).boundingRect().center();
-            m_dragging = false;
+    m_pressNode = nullptr;
+    endFileGesture();
+    if (!cell) {
+        QGraphicsItem::mousePressEvent(event);
+        return;
+    }
+    const core::FsNode *hit = cell->node;
+    const Qt::KeyboardModifiers mods = event->modifiers();
+    Selection *sel = m_scene ? &m_scene->selection() : nullptr;
+
+    // A file glyph (#37): select it (plain / Ctrl toggle / Shift range) and arm a
+    // drag-out; the directory gestures below don't apply. While a file gesture is in
+    // flight the scene holds deepen grafts, which would rebuild the cells (and, under
+    // a staged move, the items) beneath us.
+    if (const int fi = fileIndexIn(*cell, event->pos()); fi >= 0 && sel) {
+        const bool selected =
+            sel->contains(core::keyFor(*hit), hit->files[static_cast<std::size_t>(fi)].name);
+        if (mods & Qt::ShiftModifier)
+            sel->rangeTo(*hit, fi);
+        else if (mods & Qt::ControlModifier) {
+            if (!selected)
+                sel->toggle(*hit, fi); // toggling *off* waits for release: a Ctrl-drag
+                                       // carries the whole selection, grabbed file included
+        } else if (!selected)
+            sel->set(*hit, fi); // an already-selected file stays selected (it may start a drag)
+        m_pressWasSelected = selected;
+        m_pressFileDir = hit;
+        m_pressFileIndex = fi;
+        m_pressScene = event->scenePos();
+        m_scene->holdGestures();
+        event->accept();
+        return;
+    }
+
+    m_selected = hit; // left click selects the directory
+    update();
+
+    // The file area of a leaf, off any glyph: a rubber band (#37). Ctrl adds to the
+    // selection; otherwise the press clears it. The title strip (or a cell too small
+    // to have one, or one without files) stays the directory's handle for reparenting.
+    const qreal z = m_layout.params().zoom;
+    const bool inBody = cell->hasTitle && (event->pos().y() - cell->rect.top()) * z > kHeaderPx;
+    if (!cell->subdivided && !hit->files.empty() && inBody && sel) {
+        if (!(mods & Qt::ControlModifier))
+            sel->clear();
+        m_bandNode = hit;
+        m_bandRect = cell->rect;
+        m_bandHasTitle = cell->hasTitle;
+        m_bandOrigin = event->pos();
+        m_band = QRectF();
+        m_scene->holdGestures();
+        event->accept();
+        return;
+    }
+
+    // Arm the move drag only for a re-parentable node: not this surface's own root,
+    // and only inside a frame (base or lens — ADR-302 #13). The drag actually begins
+    // on mouseMoveEvent once the cursor passes a small threshold, so plain clicks and
+    // double-clicks still behave. A drag from/to a lens resolves to the base its
+    // subtree belongs to; the scene's drop legality (updateMoveDrag) checks the
+    // resolved base nodes, so a node the base doesn't contain reads illegal.
+    if (sel && !(mods & Qt::ControlModifier))
+        sel->clear(); // a plain click on directory chrome drops the file selection
+    if (hit != m_root && hit->parent && m_ownerFrame) {
+        m_pressNode = hit;
+        m_pressScene = event->scenePos();
+        m_pressCenterScene = mapToScene(cell->rect).boundingRect().center();
+        m_dragging = false;
+    }
+    event->accept();
+}
+
+void TreemapItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
+    constexpr int kDragThreshold = 6; // px in scene space before a press becomes a drag
+    if (!(event->buttons() & Qt::LeftButton)) {
+        QGraphicsItem::mouseMoveEvent(event);
+        return;
+    }
+    if (m_pressFileDir) {
+        // Drag the selection out as file URLs (to Dolphin, a terminal, another app).
+        // QDrag::exec runs its own loop; the release never reaches us, so clear first.
+        if ((event->scenePos() - m_pressScene).manhattanLength() > kDragThreshold && m_scene) {
+            auto *mime = new QMimeData;
+            mime->setUrls(m_scene->selection().urls());
+            endFileGesture();
+            auto *drag = new QDrag(event->widget());
+            drag->setMimeData(mime);
+            drag->exec(Qt::CopyAction | Qt::LinkAction, Qt::CopyAction);
+            drag->deleteLater();
         }
         event->accept();
         return;
     }
-    QGraphicsItem::mousePressEvent(event);
-}
-
-void TreemapItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
-    if (m_pressNode && (event->buttons() & Qt::LeftButton)) {
-        constexpr int kDragThreshold = 6; // px in scene space before a press becomes a drag
+    if (m_bandNode) {
+        m_band = QRectF(m_bandOrigin, event->pos()).normalized().intersected(m_bandRect);
+        update();
+        event->accept();
+        return;
+    }
+    if (m_pressNode) {
         if (!m_dragging && (event->scenePos() - m_pressScene).manhattanLength() > kDragThreshold &&
             m_scene)
             m_dragging = m_scene->beginMoveDrag(m_pressNode, m_pressCenterScene);
@@ -819,6 +1034,33 @@ void TreemapItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
 }
 
 void TreemapItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
+    if (event->button() != Qt::LeftButton) {
+        event->ignore();
+        return;
+    }
+    if (m_pressFileDir) {
+        // A click (no drag) resolves what the press deferred: Ctrl on a selected file
+        // toggles it off; a plain click narrows the selection to the file.
+        if (m_scene) {
+            const Qt::KeyboardModifiers mods = event->modifiers();
+            if ((mods & Qt::ControlModifier) && m_pressWasSelected)
+                m_scene->selection().toggle(*m_pressFileDir, m_pressFileIndex);
+            else if (!(mods & (Qt::ControlModifier | Qt::ShiftModifier)))
+                m_scene->selection().set(*m_pressFileDir, m_pressFileIndex); // no-op if already
+        }
+        endFileGesture();
+        event->accept();
+        return;
+    }
+    if (m_bandNode) {
+        if (m_scene && !m_band.isNull())
+            m_scene->selection().addAll(*m_bandNode,
+                                        filesIn(m_bandNode, m_bandRect, m_bandHasTitle, m_band));
+        endFileGesture();
+        update();
+        event->accept();
+        return;
+    }
     if (m_dragging && m_scene) {
         // Commit a legal drop. endMoveDrag captures the op and defers the re-projection
         // (which would delete this very item), so `this` stays valid through the return.

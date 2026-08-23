@@ -8,6 +8,7 @@
 #include "frameitem.h"
 #include "treemapitem.h"
 #include "graphscene.h"
+#include "selection.h"
 #include "mainwindow.h"
 
 #include <algorithm>
@@ -30,6 +31,7 @@
 #include <QTextStream>
 #include <QTimer>
 #include <QWheelEvent>
+#include <QUrl>
 #include <QWidget>
 
 namespace ui {
@@ -357,6 +359,29 @@ bool Driver::run(const QString &line) {
             }
             return true;
         }
+        if (what == QLatin1String("file")) {
+            // A file with this base name is selected (any directory).
+            const QString want = a.at(2);
+            bool found = false;
+            for (const QUrl &u : m_scene->selection().urls())
+                if (u.fileName() == want)
+                    found = true;
+            if (!found) {
+                std::fprintf(stderr, "driver: %s is not selected\n", qPrintable(want));
+                return false;
+            }
+            return true;
+        }
+        if (what == QLatin1String("selected")) {
+            const int got = m_scene->selection().count();
+            std::printf("selected %d\n", got);
+            if (got != static_cast<int>(num(2))) {
+                std::fprintf(stderr, "driver: %d selected, expected %d\n", got,
+                             static_cast<int>(num(2)));
+                return false;
+            }
+            return true;
+        }
         if (what == QLatin1String("nodes") || what == QLatin1String("grew")) {
             // `check nodes N`: directories across every base's render tree ≥ N.
             // `check grew`: more than at the last `mark` — the lazy-deepening assertion
@@ -444,6 +469,15 @@ bool Driver::run(const QString &line) {
             std::printf("probe (%d,%d): nothing\n", vp0.x(), vp0.y());
             return true;
         }
+        // The file glyph under the point too, if any (topmost surface).
+        for (FrameItem *f : m_scene->frames())
+            if (TreemapItem *t = f->interiorTreemap(); t && f->zValue() >= bestZ)
+                if (const auto [dir, idx] = t->fileAt(t->mapFromScene(scenePos)); dir) {
+                    std::printf("probe (%d,%d): file %s/%s [%d]\n", vp0.x(), vp0.y(),
+                                qPrintable(dir->path),
+                                qPrintable(dir->files[static_cast<std::size_t>(idx)].name), idx);
+                    break;
+                }
         std::printf("probe (%d,%d): %s files=%zu children=%zu truncated=%d lazy=%d\n", vp0.x(),
                     vp0.y(), qPrintable(best->path), best->files.size(), best->children.size(),
                     best->truncatedDepth ? 1 : 0, best->lazyChildren ? 1 : 0);
