@@ -47,6 +47,7 @@ std::unique_ptr<FsNode> scanDir(const QFileInfo &dirInfo, int depth, int maxDept
             node->sizeBytes += entry.size();
             FileEntry fe;
             fe.name = entry.fileName();
+            fe.originalPath = entry.absoluteFilePath(); // the verify anchor across staged ops
             // QFileInfo follows symlinks, so size/mtime/perms here are the *target's*
             // (effective values), not the link's own — the Details rung still flags a
             // link with a leading 'l'. True lstat parity can come later if needed.

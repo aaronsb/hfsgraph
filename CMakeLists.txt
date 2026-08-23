@@ -15,7 +15,7 @@ list(APPEND CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
 
 # 6.3+: QTest::mouseMove delivers button-held moves, which ui::Driver's `drag` relies on.
 find_package(Qt6 6.3 REQUIRED COMPONENTS Core Gui Widgets Concurrent Test)
-find_package(KF6 REQUIRED COMPONENTS CoreAddons)
+find_package(KF6 REQUIRED COMPONENTS CoreAddons KIO)
 # Engine / OS-facility components are added as the code lands (see ADRs):
 #   KF6::Solid       — mount/device detection for volume descriptors (ADR-200)
 #   KF6::Baloo       — tag interop via the standard, daemon-optional (ADR-100/400)
@@ -36,6 +36,7 @@ add_executable(hfsgraph
     src/ui/squarify.cpp
     src/ui/treemaplayout.cpp  # cached treemap geometry (cells, hit-test, replay)
     src/ui/selection.cpp      # file selection model (#37)
+    src/ui/fileactions.cpp    # actions on the selection: KIO + staged file ops (#38)
     src/ui/filetypestyle.cpp
     src/ui/grouppanel.cpp
     src/ui/rotatedheader.cpp
@@ -47,7 +48,8 @@ add_executable(hfsgraph
     src/ui/driver.cpp         # scripted UI driver (--script): input events + screenshots
 )
 target_include_directories(hfsgraph PRIVATE src)
-target_link_libraries(hfsgraph PRIVATE Qt6::Widgets Qt6::Concurrent Qt6::Test KF6::CoreAddons)
+target_link_libraries(hfsgraph PRIVATE Qt6::Widgets Qt6::Concurrent Qt6::Test KF6::CoreAddons
+                      KF6::KIOCore KF6::KIOGui KF6::KIOWidgets)
 
 include(GNUInstallDirs)
 install(TARGETS hfsgraph DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -147,6 +149,14 @@ add_test(NAME driver_select
          COMMAND sh -c "python3 '${CMAKE_SOURCE_DIR}/tests/driver/make_synth.py' synth_zoom --depth 2 --seed 3 >/dev/null && '$<TARGET_FILE:hfsgraph>' --script '${CMAKE_SOURCE_DIR}/tests/driver/select.txt'"
          WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 set_tests_properties(driver_select PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_zoom"
+    TIMEOUT 60)
+# Staged file ops (#38): rename, trash and move-file through the ledger; the projection
+# shows the result and the queue counts the ops.
+add_test(NAME driver_fileops
+         COMMAND sh -c "python3 '${CMAKE_SOURCE_DIR}/tests/driver/make_synth.py' synth_zoom --depth 2 --seed 3 >/dev/null && '$<TARGET_FILE:hfsgraph>' --script '${CMAKE_SOURCE_DIR}/tests/driver/fileops.txt'"
+         WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_tests_properties(driver_fileops PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_zoom"
     TIMEOUT 60)
 set_tests_properties(driver_smoke PROPERTIES

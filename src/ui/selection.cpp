@@ -35,6 +35,7 @@ void Selection::clear() {
         return;
     m_byDir.clear();
     m_dirPath.clear();
+    m_origin.clear();
     Q_EMIT changed();
 }
 
@@ -46,6 +47,9 @@ void Selection::insert(const core::FsNode &dir, int index) {
     // The on-disk location: a projection copy under a staged move carries its
     // destination in `path`; the file is still where it was scanned.
     m_dirPath.insert(key, dir.originalPath.isEmpty() ? dir.path : dir.originalPath);
+    const core::FileEntry &fe = dir.files[static_cast<std::size_t>(index)];
+    if (!fe.originalPath.isEmpty())
+        m_origin.insert(key + QLatin1Char('\n') + fe.name, fe.originalPath);
 }
 
 void Selection::setAnchor(const core::FsNode &dir, int index) {
@@ -65,6 +69,7 @@ void Selection::set(const core::FsNode &dir, int index) {
         return; // exactly this file is selected: nothing to repaint
     m_byDir.clear();
     m_dirPath.clear();
+    m_origin.clear();
     insert(dir, index);
     Q_EMIT changed();
 }
@@ -130,12 +135,23 @@ void Selection::addAll(const core::FsNode &dir, const std::vector<int> &indices)
         Q_EMIT changed();
 }
 
+std::vector<Selection::Entry> Selection::entries() const {
+    std::vector<Entry> out;
+    for (auto it = m_byDir.constBegin(); it != m_byDir.constEnd(); ++it)
+        for (const QString &name : it.value())
+            out.push_back({it.key(), name});
+    return out;
+}
+
 QList<QUrl> Selection::urls() const {
     QList<QUrl> out;
     for (auto it = m_byDir.constBegin(); it != m_byDir.constEnd(); ++it) {
         const QString base = m_dirPath.value(it.key());
-        for (const QString &name : it.value())
-            out << QUrl::fromLocalFile(base + QLatin1Char('/') + name);
+        for (const QString &name : it.value()) {
+            // A renamed-but-uncommitted entry is still at its scanned path on disk.
+            const QString origin = m_origin.value(it.key() + QLatin1Char('\n') + name);
+            out << QUrl::fromLocalFile(origin.isEmpty() ? base + QLatin1Char('/') + name : origin);
+        }
     }
     return out;
 }

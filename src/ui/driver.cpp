@@ -5,7 +5,9 @@
 
 #include "canvasview.h"
 #include "core/fsnode.h"
+#include "core/group.h"
 #include "frameitem.h"
+#include "treemaplayout.h"
 #include "treemapitem.h"
 #include "graphscene.h"
 #include "selection.h"
@@ -363,11 +365,21 @@ bool Driver::run(const QString &line) {
             // A file with this base name is selected (any directory).
             const QString want = a.at(2);
             bool found = false;
-            for (const QUrl &u : m_scene->selection().urls())
-                if (u.fileName() == want)
+            for (const Selection::Entry &e : m_scene->selection().entries())
+                if (e.name == want) // the projected name (urls() carry the on-disk origin)
                     found = true;
             if (!found) {
                 std::fprintf(stderr, "driver: %s is not selected\n", qPrintable(want));
+                return false;
+            }
+            return true;
+        }
+        if (what == QLatin1String("ops")) {
+            const int got = m_scene->ledger().size();
+            std::printf("ops %d\n", got);
+            if (got != static_cast<int>(num(2))) {
+                std::fprintf(stderr, "driver: %d ops staged, expected %d\n", got,
+                             static_cast<int>(num(2)));
                 return false;
             }
             return true;
@@ -482,6 +494,87 @@ bool Driver::run(const QString &line) {
                     vp0.y(), qPrintable(best->path), best->files.size(), best->children.size(),
                     best->truncatedDepth ? 1 : 0, best->lazyChildren ? 1 : 0);
         std::fflush(stdout);
+        return true;
+    }
+    if (cmd == QLatin1String("stage")) {
+        // Stage a file op on the glyph under a viewport point, bypassing the menu
+        // (which is modal): `stage rename X Y NEW`, `stage trash X Y`,
+        // `stage move X Y DX DY` (the file at (X,Y) into the directory cell at (DX,DY)).
+        // The subject is either the glyph at (X,Y), or `@NAME`: the file named NAME in
+        // the leaf cell under the viewport centre — geometry-free, so a script can
+        // keep staging after an earlier op re-flowed the map.
+        if (!has(2))
+            return false;
+        const QString what = a.at(1).toLower();
+        const bool byName = a.at(2).startsWith(QLatin1Char('@'));
+        int argi = byName ? 3 : 4; // index of the first argument after the subject
+        QString name;
+        const core::FsNode *dir = nullptr;
+        if (byName) {
+            // The first laid-out leaf cell (any surface) holding a file of that name.
+            name = a.at(2).mid(1);
+            for (FrameItem *f : m_scene->frames()) {
+                TreemapItem *t = f->interiorTreemap();
+                if (!t || dir)
+                    continue;
+                for (const LayoutCell &c : t->layout().cells()) {
+                    if (c.subdivided)
+                        continue;
+                    for (const auto &fe : c.node->files)
+                        if (fe.name == name) {
+                            dir = c.node;
+                            break;
+                        }
+                    if (dir)
+                        break;
+                }
+            }
+            if (!dir) {
+                std::fprintf(stderr, "driver: no laid-out cell holds a file named %s\n",
+                             qPrintable(name));
+                return false;
+            }
+        } else {
+            if (!has(3))
+                return false;
+            const QPoint at(static_cast<int>(num(2)), static_cast<int>(num(3)));
+            const QPointF scenePos = m_view->mapToScene(at);
+            int idx = -1;
+            for (FrameItem *f : m_scene->frames())
+                if (TreemapItem *t = f->interiorTreemap())
+                    if (const auto hit = t->fileAt(t->mapFromScene(scenePos)); hit.first) {
+                        dir = hit.first;
+                        idx = hit.second;
+                    }
+            if (!dir) {
+                std::fprintf(stderr, "driver: no file glyph at (%d,%d)\n", at.x(), at.y());
+                return false;
+            }
+            name = dir->files[static_cast<std::size_t>(idx)].name;
+        }
+        const core::MemberKey key = core::keyFor(*dir);
+        bool ok = false;
+        if (what == QLatin1String("rename") && has(argi))
+            ok = m_scene->stageRename(key, name, a.at(argi));
+        else if (what == QLatin1String("trash"))
+            ok = m_scene->stageTrash(key, name);
+        else if (what == QLatin1String("move") && has(argi + 1)) {
+            const QPoint to(static_cast<int>(num(argi)), static_cast<int>(num(argi + 1)));
+            const QPointF toScene = m_view->mapToScene(to);
+            const core::FsNode *dest = nullptr;
+            for (FrameItem *f : m_scene->frames())
+                if (TreemapItem *t = f->interiorTreemap())
+                    if (const core::FsNode *n = t->cellNodeAt(t->mapFromScene(toScene)))
+                        dest = n;
+            ok = m_scene->stageMoveFile(key, name, dest);
+        } else
+            return false;
+        // A refusal (illegal or unresolved) is a legitimate outcome — `check ops N`
+        // asserts what was staged.
+        std::printf("stage %s %s: %s\n", qPrintable(what), qPrintable(name),
+                    ok ? "staged" : "refused");
+        std::fflush(stdout);
+        m_settle = 3; // the re-projection is deferred a turn
         return true;
     }
     if (cmd == QLatin1String("mark")) {

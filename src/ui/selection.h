@@ -46,6 +46,12 @@ class Selection : public QObject {
 
     // file:// URLs of the selection, for drag-out (text/uri-list).
     QList<QUrl> urls() const;
+    // The selection as (directory key, name) pairs — what a staged op needs.
+    struct Entry {
+        core::MemberKey dir;
+        QString name;
+    };
+    std::vector<Entry> entries() const;
 
   Q_SIGNALS:
     void changed();
@@ -56,8 +62,9 @@ class Selection : public QObject {
 
     QHash<core::MemberKey, QSet<QString>> m_byDir; // dir key → selected names
     QHash<core::MemberKey, QString> m_dirPath;     // dir key → on-disk path (for urls)
-    core::MemberKey m_anchorDir; // Shift-range anchor: by name, so a re-listing that
-    QString m_anchorName;        // reorders files doesn't move it
+    QHash<QString, QString> m_origin; // "dirkey\nname" → the entry's scanned path (urls)
+    core::MemberKey m_anchorDir;      // Shift-range anchor: by name, so a re-listing that
+    QString m_anchorName;             // reorders files doesn't move it
 };
 
 } // namespace ui

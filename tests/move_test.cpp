@@ -13,9 +13,14 @@
 #include <cstdio>
 #include <vector>
 
+using core::checkFileOp;
+using core::FileEntry;
 using core::FsNode;
 using core::Ledger;
+using core::MoveLegality;
 using core::MoveOp;
+using core::OpKind;
+using core::replayLegality;
 
 namespace {
 
@@ -60,6 +65,36 @@ const FsNode *child(const FsNode *n, const QString &name) {
 
 MoveOp mv(const QString &src, const QString &dst) {
     return MoveOp{src, dst, QString()};
+}
+
+// A file entry in `dir` (the scanner populates these; file ops act on them).
+void addFile(FsNode *dir, const QString &name, qint64 bytes = 1) {
+    FileEntry fe;
+    fe.name = name;
+    fe.sizeBytes = bytes;
+    dir->files.push_back(fe);
+    dir->fileCount += 1;
+    dir->sizeBytes += bytes;
+}
+
+bool hasFile(const FsNode *dir, const QString &name) {
+    for (const auto &fe : dir->files)
+        if (fe.name == name)
+            return true;
+    return false;
+}
+
+MoveOp fileOp(OpKind kind, const QString &dir, const QString &name, const QString &to = QString()) {
+    MoveOp op;
+    op.kind = kind;
+    op.source = dir;
+    op.fileName = name;
+    op.sourceName = name;
+    if (kind == OpKind::MoveFile)
+        op.destParent = to;
+    else if (kind == OpKind::RenameFile)
+        op.newName = to;
+    return op;
 }
 
 void testLedger() {
@@ -221,8 +256,10 @@ void testChainedMoveIdentity() {
     addChild(root.get(), QStringLiteral("c"));
 
     auto proj1 = core::projectForest({root.get()}, {mv("/r/a/leaf", "/r/b")});
-    const FsNode *movedLeaf = child(child(proj1[0].get(), QStringLiteral("b")), QStringLiteral("leaf"));
-    check(movedLeaf && movedLeaf->path == QStringLiteral("/r/b/leaf"), "chained: first move landed");
+    const FsNode *movedLeaf =
+        child(child(proj1[0].get(), QStringLiteral("b")), QStringLiteral("leaf"));
+    check(movedLeaf && movedLeaf->path == QStringLiteral("/r/b/leaf"),
+          "chained: first move landed");
     // keyFor reads identity, pinned to the original key — not the recomputed path.
     const core::MemberKey leafKey = core::keyFor(*movedLeaf);
     check(leafKey == QStringLiteral("/r/a/leaf"), "chained: identity survives the move");
@@ -238,8 +275,77 @@ void testChainedMoveIdentity() {
 
 } // namespace
 
+// File ops (#38): rename / trash / move-file replay on the projection, with the
+// directory counts following, and their legality verdicts.
+void testFileOps() {
+    auto root = makeRoot(QStringLiteral("/r"));
+    FsNode *a = addChild(root.get(), QStringLiteral("a"));
+    FsNode *b = addChild(root.get(), QStringLiteral("b"));
+    addChild(b, QStringLiteral("sub"));
+    addFile(a, QStringLiteral("x.txt"), 10);
+    addFile(a, QStringLiteral("y.txt"), 20);
+    addFile(b, QStringLiteral("y.txt"), 5);
+    const std::vector<const FsNode *> roots{root.get()};
+
+    // Legality on the base tree.
+    check(checkFileOp(fileOp(OpKind::RenameFile, "/r/a", "x.txt", "z.txt"), a, nullptr) ==
+              MoveLegality::Ok,
+          "rename to a free name is Ok");
+    check(checkFileOp(fileOp(OpKind::RenameFile, "/r/a", "x.txt", "y.txt"), a, nullptr) ==
+              MoveLegality::Collision,
+          "rename onto an existing file collides");
+    check(checkFileOp(fileOp(OpKind::RenameFile, "/r/a", "x.txt", "a/b"), a, nullptr) ==
+              MoveLegality::BadName,
+          "rename with a slash is BadName");
+    check(checkFileOp(fileOp(OpKind::RenameFile, "/r/a", "x.txt", "x.txt"), a, nullptr) ==
+              MoveLegality::SameNode,
+          "rename to itself is a no-op");
+    check(checkFileOp(fileOp(OpKind::RenameFile, "/r/a", "nope", "q"), a, nullptr) ==
+              MoveLegality::SameNode,
+          "rename of a missing entry is the null verdict");
+    check(checkFileOp(fileOp(OpKind::MoveFile, "/r/a", "y.txt", "/r/b"), a, b) ==
+              MoveLegality::Collision,
+          "move onto a same-named file collides");
+    check(checkFileOp(fileOp(OpKind::MoveFile, "/r/b", "y.txt", "/r/b"), b, b) ==
+              MoveLegality::SameNode,
+          "move into its own directory is a no-op");
+    check(checkFileOp(fileOp(OpKind::RenameFile, "/r/b", "y.txt", "sub"), b, nullptr) ==
+              MoveLegality::Collision,
+          "rename onto a subdirectory name collides");
+    check(checkFileOp(fileOp(OpKind::TrashFile, "/r/a", "x.txt"), a, nullptr) == MoveLegality::Ok,
+          "trash of an existing entry is Ok");
+
+    // Replay: rename, then move the renamed file (chained by name), then trash another.
+    std::vector<MoveOp> ops{fileOp(OpKind::RenameFile, "/r/a", "x.txt", "z.txt"),
+                            fileOp(OpKind::MoveFile, "/r/a", "z.txt", "/r/b"),
+                            fileOp(OpKind::TrashFile, "/r/b", "y.txt")};
+    auto forest = projectForest(roots, ops);
+    const FsNode *pa = child(forest[0].get(), QStringLiteral("a"));
+    const FsNode *pb = child(forest[0].get(), QStringLiteral("b"));
+    check(pa && pb, "projection keeps both directories");
+    if (pa && pb) {
+        check(!hasFile(pa, QStringLiteral("x.txt")) && !hasFile(pa, QStringLiteral("z.txt")),
+              "renamed file left a");
+        check(hasFile(pb, QStringLiteral("z.txt")), "renamed file arrived in b");
+        check(!hasFile(pb, QStringLiteral("y.txt")), "trashed file is gone from b");
+        check(pa->fileCount == 1 && pa->sizeBytes == 20, "a's counts follow the move");
+        check(pb->fileCount == 1 && pb->sizeBytes == 10, "b's counts follow move + trash");
+    }
+    check(a->files.size() == 2 && b->files.size() == 1, "the scanned tree is untouched");
+
+    const std::vector<MoveLegality> verdicts = replayLegality(roots, ops);
+    check(verdicts.size() == 3 && verdicts[0] == MoveLegality::Ok &&
+              verdicts[1] == MoveLegality::Ok && verdicts[2] == MoveLegality::Ok,
+          "chained file ops judged Ok in apply order");
+    // A move that collides only because of an earlier op is judged against the evolving tree.
+    ops.push_back(fileOp(OpKind::MoveFile, "/r/a", "y.txt", "/r/b")); // b lost y.txt: now free
+    check(replayLegality(roots, ops)[3] == MoveLegality::Ok,
+          "a move freed by an earlier trash is Ok in order");
+}
+
 int main() {
     testLedger();
+    testFileOps();
     testIdentity();
     testMove();
     testCycleAndCollision();

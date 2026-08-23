@@ -7,6 +7,7 @@
 #include "core/group.h"
 #include "filetypestyle.h"
 #include "frameitem.h"
+#include "fileactions.h"
 #include "graphscene.h"
 #include "selection.h"
 #include "treemaplayout.h"
@@ -23,6 +24,10 @@
 #include <QFontDatabase>
 #include <QFontMetrics>
 #include <QDrag>
+#include <QGraphicsSceneContextMenuEvent>
+#include <QGraphicsSceneDragDropEvent>
+#include <QGraphicsView>
+#include <QMenu>
 #include <QGraphicsSceneMouseEvent>
 #include <QMimeData>
 #include <QLocale>
@@ -160,6 +165,10 @@ struct LeafPlan {
 namespace {
 
 QString detailMeta(const core::FileEntry &fe); // defined below; Details measures it
+
+// Marks a drag that carries hfsgraph's own selection (alongside text/uri-list for
+// other applications), so a drop onto a cell stages a move only for those.
+const char kSelectionMime[] = "application/x-hfsgraph-selection";
 
 // Lay out `node`'s files for `mode` in `area` (device px). Returns false when the rung
 // can't fit — the painter's former self-guard, now shared with hit-testing.
@@ -382,7 +391,8 @@ TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, Si
     // corner: a partial repaint (MinimalViewportUpdate, update(rect)) then draws the
     // same glyphs the neighbouring, unrepainted pixels already show.
     setFlag(ItemUsesExtendedStyleOption, true);
-    setAcceptedMouseButtons(Qt::LeftButton);
+    setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton); // right: context menu
+    setAcceptDrops(true);                                      // file drop → staged move
 }
 
 QColor TreemapItem::depthColor(Ramp ramp, int depth) {
@@ -1006,10 +1016,13 @@ void TreemapItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
         if ((event->scenePos() - m_pressScene).manhattanLength() > kDragThreshold && m_scene) {
             auto *mime = new QMimeData;
             mime->setUrls(m_scene->selection().urls());
+            mime->setData(QLatin1String(kSelectionMime), QByteArray("1")); // our selection
             endFileGesture();
             auto *drag = new QDrag(event->widget());
             drag->setMimeData(mime);
+            m_scene->holdGestures(); // QDrag::exec is a nested loop: no rebuild under us
             drag->exec(Qt::CopyAction | Qt::LinkAction, Qt::CopyAction);
+            m_scene->releaseGestureHold();
             drag->deleteLater();
         }
         event->accept();
@@ -1091,6 +1104,78 @@ void TreemapItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
         return;
     }
     QGraphicsItem::mouseDoubleClickEvent(event);
+}
+
+void TreemapItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
+    if (!m_scene)
+        return;
+    const LayoutCell *cell = m_layout.cellAt(event->pos());
+    if (!cell) {
+        event->ignore();
+        return;
+    }
+    QWidget *host = event->widget() ? event->widget()->window() : nullptr;
+    QMenu menu(host);
+    Selection &sel = m_scene->selection();
+    // A right-click on a glyph outside the selection makes it the selection (the
+    // file-manager convention); inside it, the menu acts on the whole selection.
+    if (const int fi = fileIndexIn(*cell, event->pos()); fi >= 0) {
+        const core::FsNode *dir = cell->node;
+        if (!sel.contains(core::keyFor(*dir), dir->files[static_cast<std::size_t>(fi)].name))
+            sel.set(*dir, fi);
+        m_scene->fileActions().populate(menu, host);
+    } else if (!sel.empty() && !cell->subdivided && !cell->node->files.empty()) {
+        m_scene->fileActions().populate(menu, host); // the selection, from empty body
+    } else {
+        m_scene->fileActions().populateDir(menu, cell->node, host);
+    }
+    event->accept();
+    if (menu.isEmpty())
+        return;
+    // The menu runs a nested event loop; hold deepen grafts and re-projections so
+    // this item (the handler on the stack) isn't deleted underneath it.
+    m_scene->holdGestures();
+    menu.exec(event->screenPos());
+    m_scene->releaseGestureHold();
+}
+
+void TreemapItem::dragEnterEvent(QGraphicsSceneDragDropEvent *event) {
+    // Only a drag of hfsgraph's own selection (marked with the private mime type); a
+    // drop from another application would be an import, which the ledger doesn't
+    // express, and must not be mistaken for a move of whatever happens to be selected.
+    if (event->mimeData()->hasFormat(QLatin1String(kSelectionMime)) && m_scene &&
+        !m_scene->selection().empty())
+        event->acceptProposedAction();
+    else
+        event->ignore();
+}
+
+void TreemapItem::dragMoveEvent(QGraphicsSceneDragDropEvent *event) {
+    const LayoutCell *cell = m_layout.cellAt(event->pos());
+    if (cell && event->mimeData()->hasFormat(QLatin1String(kSelectionMime)) && m_scene &&
+        !m_scene->selection().empty())
+        event->acceptProposedAction();
+    else
+        event->ignore();
+}
+
+void TreemapItem::dropEvent(QGraphicsSceneDragDropEvent *event) {
+    const LayoutCell *cell = m_layout.cellAt(event->pos());
+    if (!cell || !m_scene || !event->mimeData()->hasFormat(QLatin1String(kSelectionMime))) {
+        event->ignore();
+        return;
+    }
+    // Only our own selection is modelled (its entries resolve to scanned nodes); a
+    // URL from outside hfsgraph would be an import, which the ledger doesn't express.
+    const std::vector<Selection::Entry> entries = m_scene->selection().entries();
+    int staged = 0;
+    for (const Selection::Entry &e : entries)
+        if (m_scene->stageMoveFile(e.dir, e.name, cell->node))
+            ++staged;
+    if (staged > 0)
+        event->acceptProposedAction();
+    else
+        event->ignore();
 }
 
 } // namespace ui
