@@ -15,5 +15,15 @@ wait
 check grew
 shot driver_deepen_after.png view
 check differs driver_deepen_before.png driver_deepen_after.png
+# Grafts that landed at idle are at their honest weight. A later gesture must not
+# re-freeze them: the frame painted mid-gesture and the idle frame that follows are
+# the same map at the same zoom (no flip between two layouts).
+wheel 2
+settle
+shot driver_deepen_gesture.png view
+sleep 200
+settle
+shot driver_deepen_idle.png view
+check same driver_deepen_gesture.png driver_deepen_idle.png
 echo deepen ok
 quit
