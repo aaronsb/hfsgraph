@@ -168,6 +168,48 @@ int main() {
     core::FsNode stranger; // not under the root
     check(layout.rectFor(&stranger).isNull(), "rectFor outside the root is null");
 
+    // Layout focus (#40): the canonical map stops at the focus (a flat shadow), and
+    // the focus subtree is re-squarified into focusRect behind one frame per ancestor,
+    // appended after the canonical cells so hit-testing prefers the overlay.
+    TreemapLayout::Params fp = p;
+    fp.focus = a;
+    fp.focusRect = QRectF(100, 100, 600, 400);
+    check(layout.ensure(fp), "focus change rebuilds");
+    {
+        const auto &fc = layout.cells();
+        const LayoutCell *shadow = nullptr;
+        for (const LayoutCell &cell : fc)
+            if (cell.node == a && !cell.overlay)
+                shadow = &cell;
+        check(shadow && shadow->focusShadow && !shadow->subdivided && shadow->firstChild < 0,
+              "canonical focus cell is an unsubdivided shadow");
+        check(layout.overlayRoot() > 0, "an overlay exists");
+        const LayoutCell &frame = fc[static_cast<std::size_t>(layout.overlayRoot())];
+        check(frame.focusFrame && frame.node == root && frame.rect == fp.focusRect,
+              "the root's frame is the overlay root at focusRect");
+        const LayoutCell *focus = layout.focusCell();
+        check(focus && focus->node == a && focus->overlay && focus->rect == frame.inner,
+              "the focus cell fills the frame's inner");
+        check(focus && focus->subdivided && layout.cellFor(a2) && layout.cellFor(a2)->overlay,
+              "the focus subtree is laid out in the overlay");
+        check(layout.cellFor(a) == focus, "cellFor(focus) is the overlay cell");
+        check(layout.cellAt(QPointF(400, 300)) && layout.cellAt(QPointF(400, 300))->overlay,
+              "cellAt inside the overlay hits the overlay, not what it covers");
+        check(layout.cellAt(QPointF(5, 5)) == &fc[0], "outside the overlay the canonical map");
+        // Pop geometry: the parent's focusRect keeps the child's centre and area.
+        const QRectF childRect(300, 200, 100, 60);
+        const QRectF around = layout.focusRectAround(a, a2, childRect, QRectF(0, 0, 900, 500));
+        check(around.isValid() && around.contains(childRect.center()),
+              "focusRectAround wraps the parent around the child's place");
+        check(layout.focusRectAround(root, a, childRect, QRectF(0, 0, 900, 500)).isNull(),
+              "focusRectAround(root) is null — the root never focuses");
+    }
+    TreemapLayout::Params fp2 = fp;
+    fp2.focus = root; // the root is never a focus: no overlay
+    layout.ensure(fp2);
+    check(layout.overlayRoot() < 0 && layout.cellFor(a) && layout.cellFor(a)->subdivided,
+          "focus on the root is ignored");
+
     // Metric switch: weights recomputed (bytes are all 0 → every dir floors to 1).
     TreemapLayout::Params bytes = p;
     bytes.metric = TreemapLayout::Bytes;

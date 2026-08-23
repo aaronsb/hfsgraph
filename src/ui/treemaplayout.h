@@ -12,6 +12,16 @@
 // repaint walks the cached cells; a zoom step rebuilds. Hit-testing, callout
 // anchoring, and the coming file-glyph hit-test all read this one structure, so
 // "what is where" has a single answer. No Qt GUI dependency — unit-testable.
+//
+// Layout focus (#40, spike). The root rect is fixed, so a deep cell is squarified
+// inside whatever sliver its ancestors left it and zooming in yields thin slivers.
+// With Params::focus set, the canonical layout stops at the focus node (its cell is
+// a flat *shadow*) and the focus subtree is re-squarified into Params::focusRect —
+// the viewport's rect in item coordinates — as an *overlay* appended after the
+// canonical cells, wrapped in one thin *frame* cell per ancestor (name strip + a
+// depth-coloured rim: the breadcrumb). The overlay cells come last in the vector, so
+// the pre-order "last match is deepest" hit-test picks them over what they cover.
+// View-only: the tree and the ledger never see it.
 #pragma once
 
 #include <QPointF>
@@ -37,7 +47,14 @@ struct LayoutCell {
     // The gate passed but the node has no children *yet*: the scan stopped here
     // (truncatedDepth). The painter asks the scene to deepen it (lazy deepening).
     bool wantsChildren = false;
-    bool hasTitle = false;     // wide/tall enough on screen for a header strip
+    bool hasTitle = false; // wide/tall enough on screen for a header strip
+    // Layout focus (#40). focusFrame: an ancestor's breadcrumb frame around the focus
+    // overlay (its inner is the next frame, or the focus cell). focusShadow: the
+    // canonical cell of the focus node, left unsubdivided under the overlay.
+    // overlay: the cell belongs to the re-squarified focus subtree (frames included).
+    bool focusFrame = false;
+    bool focusShadow = false;
+    bool overlay = false;
     QRectF inner;              // the area children tile (rect minus header + pad)
     std::vector<QRectF> holes; // child rects culled for size: nothing paints them
 };
@@ -55,6 +72,7 @@ class TreemapLayout {
     static constexpr double kLabelW = 42.0;   // room for a name
     static constexpr double kHeaderPx = 16.0; // header strip atop a subdivided cell
     static constexpr double kPadPx = 2.0;     // inset around a child block
+    static constexpr double kStripPx = 6.0;   // focus frame rim (sides/bottom); top = header
 
     struct Params {
         qreal width = 0, height = 0; // panel size, item units
@@ -67,6 +85,11 @@ class TreemapLayout {
         // so the map doesn't re-flow under the cursor; released on idle, the children's
         // real weights flow up — one re-layout, while the user is looking.
         bool freezeLazy = false;
+        // Layout focus (#40): re-squarify `focus`'s subtree into `focusRect` (item
+        // coordinates, the outermost ancestor frame's rect) over the canonical map.
+        // Null = no focus. A focus that is the root or not under it is ignored.
+        const core::FsNode *focus = nullptr;
+        QRectF focusRect;
         bool operator==(const Params &o) const; // exact — params are deterministic copies
     };
 
@@ -85,6 +108,18 @@ class TreemapLayout {
     void invalidate();
 
     const std::vector<LayoutCell> &cells() const { return m_cells; }
+    // Index of the focus overlay's outermost cell (the root's frame), or -1 when the
+    // layout has no focus overlay. The canonical root is always cell 0.
+    int overlayRoot() const { return m_overlayRoot; }
+    // The overlay's focus cell itself (the subtree root inside the frames), or null.
+    const LayoutCell *focusCell() const;
+
+    // The focusRect that puts `focus` (with its ancestor frames) around a layout in
+    // which `child` keeps the centre and area of `childRect` — the pop-to-parent
+    // geometry, so a focus change under zoom-out leaves the old focus where the eye
+    // is. `viewRect` (item coords) gives the shape the focus cell is squarified into.
+    QRectF focusRectAround(const core::FsNode *focus, const core::FsNode *child,
+                           const QRectF &childRect, const QRectF &viewRect) const;
     const Params &params() const { return m_params; }
 
     // The deepest cell containing an item-space point, or null.
@@ -115,11 +150,16 @@ class TreemapLayout {
     void childOrder(const core::FsNode *node, std::vector<const core::FsNode *> &kids,
                     std::vector<double> &weights) const;
     QRectF innerRect(const QRectF &rect, bool hasTitle) const;
+    QRectF frameInner(const QRectF &rect) const; // a focus frame's inner: header + rim
+    // The ancestors of `focus` from the root down (root first), or empty when `focus`
+    // is the root itself or not under it.
+    std::vector<const core::FsNode *> focusChain(const core::FsNode *focus) const;
 
     const core::FsNode *m_root = nullptr;
     Params m_params;
     bool m_valid = false;
     std::vector<LayoutCell> m_cells;
+    int m_overlayRoot = -1;                                // see overlayRoot()
     std::unordered_map<const core::FsNode *, int> m_index; // node → cell index
     mutable std::unordered_map<const core::FsNode *, double> m_weight;
 };

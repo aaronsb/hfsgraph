@@ -30,6 +30,7 @@ _Reorganization engine — ledger, legality, commit, volumes, snapshots, immutab
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-200](./engine/ADR-200-changeset-legality-and-safety-model-ledger-dry-run-volumes-immutability-commit.md) | Changeset legality and safety model: ledger, dry-run, volumes, immutability, commit | Accepted |
+| [ADR-201](./engine/ADR-201-file-operations-on-the-ledger-tagged-moveop-file-identity-via-originalpath-immediate-vs-staged-actions.md) | File operations on the ledger: tagged MoveOp, file identity via originalPath, immediate vs staged actions | Proposed |
 
 ## UI
 _Canvas, rendering, layout, visualization modes, interaction_

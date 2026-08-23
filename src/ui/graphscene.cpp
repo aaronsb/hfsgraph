@@ -175,6 +175,22 @@ GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {
     });
 }
 
+void GraphScene::setLayoutFocusEnabled(bool on) {
+    if (m_layoutFocusEnabled == on)
+        return;
+    m_layoutFocusEnabled = on;
+    for (FrameItem *f : m_frames)
+        f->update(); // each surface re-decides (and clears) its focus in paint
+}
+
+void GraphScene::setLayoutFocus(const core::FsNode *node) {
+    if (m_layoutFocus == node)
+        return;
+    m_layoutFocus = node;
+    // Called mid-paint: the callouts read the new geometry on the next turn.
+    QTimer::singleShot(0, this, [this] { refreshCallouts(); });
+}
+
 void GraphScene::noteInteraction() {
     setInteracting(true);
     m_idleTimer->start();
@@ -280,6 +296,9 @@ void GraphScene::resolveGroups() {
 }
 
 void GraphScene::rebuildProjection() {
+    // The reported layout focus (#40) points into a projection or a source tree this
+    // replaces; the new interiors re-decide and re-report it on their next paint.
+    m_layoutFocus = nullptr;
     const std::vector<FrameItem *> bases = baseFrames();
     const std::vector<core::MoveOp> active = m_ledger.active();
     if (active.empty()) {
@@ -692,7 +711,8 @@ void GraphScene::closeFrame(FrameItem *frame) {
     if (it == m_frames.end())
         return;
     const bool wasBase = frame->level() == 0; // read before teardown (ADR-304)
-    m_frames.erase(it); // remove before recursing so a re-entrant call can't re-find it
+    m_frames.erase(it);      // remove before recursing so a re-entrant call can't re-find it
+    m_layoutFocus = nullptr; // may point into this frame's tree (#40); surfaces re-report
 
     // Close descendants first (frames opened from within this one), so closing an
     // upstream frame — or a base — never leaves its lenses dangling.

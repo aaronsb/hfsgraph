@@ -13,7 +13,8 @@ namespace ui {
 
 bool TreemapLayout::Params::operator==(const Params &o) const {
     return width == o.width && height == o.height && metric == o.metric && reveal == o.reveal &&
-           detail == o.detail && zoom == o.zoom && freezeLazy == o.freezeLazy;
+           detail == o.detail && zoom == o.zoom && freezeLazy == o.freezeLazy && focus == o.focus &&
+           focusRect == o.focusRect;
 }
 
 void TreemapLayout::setRoot(const core::FsNode *root) {
@@ -26,6 +27,7 @@ void TreemapLayout::invalidate() {
     m_cells.clear();
     m_index.clear();
     m_weight.clear();
+    m_overlayRoot = -1;
 }
 
 double TreemapLayout::weight(const core::FsNode *n) const {
@@ -63,6 +65,36 @@ QRectF TreemapLayout::innerRect(const QRectF &rect, bool hasTitle) const {
     return rect.adjusted(pad, hdr, -pad, -pad);
 }
 
+QRectF TreemapLayout::frameInner(const QRectF &rect) const {
+    const qreal hdr = kHeaderPx / m_params.zoom, rim = kStripPx / m_params.zoom;
+    return rect.adjusted(rim, hdr, -rim, -rim);
+}
+
+std::vector<const core::FsNode *> TreemapLayout::focusChain(const core::FsNode *focus) const {
+    std::vector<const core::FsNode *> chain;
+    if (!focus || focus == m_root)
+        return chain;
+    for (const core::FsNode *n = focus->parent; n; n = n->parent) {
+        chain.push_back(n);
+        if (n == m_root) {
+            std::reverse(chain.begin(), chain.end());
+            return chain;
+        }
+    }
+    chain.clear(); // never reached the root: not under it
+    return chain;
+}
+
+const LayoutCell *TreemapLayout::focusCell() const {
+    if (m_overlayRoot < 0)
+        return nullptr;
+    // The frames are a single chain: walk firstChild until the focus node's cell.
+    const LayoutCell *c = &m_cells[static_cast<std::size_t>(m_overlayRoot)];
+    while (c->focusFrame && c->firstChild >= 0)
+        c = &m_cells[static_cast<std::size_t>(c->firstChild)];
+    return c->focusFrame ? nullptr : c; // a frame without a focus cell: culled for size
+}
+
 bool TreemapLayout::ensure(const Params &p) {
     if (m_valid && p == m_params)
         return false;
@@ -72,11 +104,78 @@ bool TreemapLayout::ensure(const Params &p) {
         m_weight.clear();
     m_cells.clear();
     m_index.clear();
+    m_overlayRoot = -1;
     m_valid = true;
     if (!m_root || p.width <= 0 || p.height <= 0 || p.zoom <= 0)
         return true;
     build(-1, -1, m_root, QRectF(0, 0, p.width, p.height), 0);
+
+    // Layout focus (#40): the overlay. One frame cell per ancestor, each the inner of
+    // the one before, then the focus subtree squarified into the innermost frame.
+    const std::vector<const core::FsNode *> chain = focusChain(p.focus);
+    if (chain.empty() || !p.focusRect.isValid())
+        return true;
+    m_overlayRoot = static_cast<int>(m_cells.size());
+    QRectF rect = p.focusRect;
+    int parent = -1;
+    for (std::size_t i = 0; i < chain.size(); ++i) {
+        const int index = static_cast<int>(m_cells.size());
+        LayoutCell frame;
+        frame.rect = rect;
+        frame.node = chain[i];
+        frame.depth = static_cast<int>(i);
+        frame.parent = parent;
+        frame.subdivided = true;
+        frame.hasTitle = true;
+        frame.focusFrame = true;
+        frame.overlay = true;
+        frame.inner = frameInner(rect);
+        m_cells.push_back(frame); // frames are not indexed: cellFor(ancestor) stays canonical
+        if (parent >= 0)
+            m_cells[static_cast<std::size_t>(parent)].firstChild = index;
+        parent = index;
+        rect = frame.inner;
+    }
+    const std::size_t first = m_cells.size();
+    build(parent, -1, p.focus, rect, static_cast<int>(chain.size()));
+    for (std::size_t i = first; i < m_cells.size(); ++i)
+        m_cells[i].overlay = true; // the focus subtree: indexed, so cellFor(focus) = overlay
     return true;
+}
+
+QRectF TreemapLayout::focusRectAround(const core::FsNode *focus, const core::FsNode *child,
+                                      const QRectF &childRect, const QRectF &viewRect) const {
+    const std::vector<const core::FsNode *> chain = focusChain(focus);
+    if (chain.empty() || !viewRect.isValid())
+        return {};
+    // Squarify is scale-free, so lay the children into a probe of the view's shape and
+    // read the child's share of it as fractions.
+    QRectF probe = viewRect;
+    for (std::size_t i = 0; i < chain.size(); ++i)
+        probe = frameInner(probe);
+    const QRectF probeInner = innerRect(probe, true);
+    std::vector<const core::FsNode *> kids;
+    std::vector<double> ws;
+    childOrder(focus, kids, ws);
+    const std::vector<QRectF> rects = squarify(ws, probeInner);
+    const auto it = std::find(kids.begin(), kids.end(), child);
+    if (it == kids.end())
+        return {};
+    const QRectF r = rects[static_cast<std::size_t>(it - kids.begin())];
+    if (r.width() <= 0 || r.height() <= 0)
+        return {};
+    // Scale the probe so the child's share has childRect's area, then place it so the
+    // share's centre sits on childRect's centre; the aspect follows the view shape.
+    const double s = std::sqrt(childRect.width() * childRect.height() / (r.width() * r.height()));
+    const QPointF centre = childRect.center();
+    const QPointF shareCentre = (r.center() - probe.topLeft()) * s;
+    const QRectF focusCell(centre - shareCentre, probe.size() * s);
+    // Back out to the outermost frame: the focus cell is the innermost frame's inner.
+    const qreal hdr = kHeaderPx / m_params.zoom, rim = kStripPx / m_params.zoom;
+    QRectF out = focusCell;
+    for (std::size_t i = 0; i < chain.size(); ++i)
+        out.adjust(-rim, -hdr, rim, rim);
+    return out;
 }
 
 int TreemapLayout::build(int parentIndex, int prevSibling, const core::FsNode *node,
@@ -93,7 +192,9 @@ int TreemapLayout::build(int parentIndex, int prevSibling, const core::FsNode *n
     cell.parent = parentIndex;
     cell.hasTitle = devW > kLabelW * m_params.detail && devH > kHeaderPx * 1.5 * m_params.detail;
     const bool gate = devW > kSubdivW * m_params.reveal && devH > kSubdivH * m_params.reveal;
-    cell.subdivided = gate && !node->children.empty();
+    // The canonical cell of the focus node stops here: its subtree lives in the overlay.
+    cell.focusShadow = node == m_params.focus && m_overlayRoot < 0 && parentIndex >= 0;
+    cell.subdivided = gate && !node->children.empty() && !cell.focusShadow;
     cell.wantsChildren = gate && node->children.empty() && node->truncatedDepth;
     cell.inner = innerRect(rect, cell.hasTitle);
     m_cells.push_back(cell);

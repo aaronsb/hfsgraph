@@ -325,6 +325,8 @@ bool Driver::run(const QString &line) {
             m_scene->setLazyDeepen(i != 0); // lazy deepening on/off (off = a fixed-depth control)
         else if (what == QLatin1String("fast"))
             m_scene->setInteracting(i != 0); // interaction LOD, held for benching
+        else if (what == QLatin1String("focus"))
+            m_scene->setLayoutFocusEnabled(i != 0); // layout focus (#40), off to compare
         else
             return false;
         return true;
@@ -380,6 +382,58 @@ bool Driver::run(const QString &line) {
             if (got != static_cast<int>(num(2))) {
                 std::fprintf(stderr, "driver: %d ops staged, expected %d\n", got,
                              static_cast<int>(num(2)));
+                return false;
+            }
+            return true;
+        }
+        if (what == QLatin1String("focus")) {
+            // The layout focus (#40) is the directory whose path ends with PATH, or
+            // `none`. A suffix so scripts stay fixture-location independent.
+            const core::FsNode *f = m_scene->layoutFocus();
+            const QString got = f ? f->path : QStringLiteral("none");
+            std::printf("focus %s\n", qPrintable(got));
+            const QString want = a.at(2);
+            bool ok = false;
+            if (want == QLatin1String("none"))
+                ok = f == nullptr;
+            else if (want.contains(QLatin1Char('*'))) // a glob, for synth trees whose
+                ok = f && QRegularExpression(         // sibling order follows readdir
+                              QRegularExpression::wildcardToRegularExpression(
+                                  want, QRegularExpression::NonPathWildcardConversion))
+                              .match(f->path)
+                              .hasMatch();
+            else
+                ok = f && f->path.endsWith(want);
+            if (!ok) {
+                std::fprintf(stderr, "driver: focus is %s, expected %s\n", qPrintable(got),
+                             qPrintable(want));
+                return false;
+            }
+            return true;
+        }
+        if (what == QLatin1String("focusdepth") || what == QLatin1String("focuspopped")) {
+            // `check focusdepth N`: the layout focus (#40) sits N directories below
+            // its base root (`N+` = at least N); `check focuspopped`: shallower than
+            // at the last `mark`. Both need a focus.
+            const int got = focusDepth();
+            std::printf("focusdepth %d\n", got);
+            if (got < 0) {
+                std::fprintf(stderr, "driver: no layout focus\n");
+                return false;
+            }
+            if (what == QLatin1String("focuspopped")) {
+                if (m_markFocusDepth < 0 || got >= m_markFocusDepth) {
+                    std::fprintf(stderr, "driver: focus depth %d, mark was %d\n", got,
+                                 m_markFocusDepth);
+                    return false;
+                }
+                return true;
+            }
+            const bool atLeast = a.at(2).endsWith(QLatin1Char('+'));
+            const int want = static_cast<int>(num(2)); // toDouble stops at the '+'
+            if (atLeast ? got < want : got != want) {
+                std::fprintf(stderr, "driver: focus depth %d, expected %s\n", got,
+                             qPrintable(a.at(2)));
                 return false;
             }
             return true;
@@ -493,6 +547,8 @@ bool Driver::run(const QString &line) {
         std::printf("probe (%d,%d): %s files=%zu children=%zu truncated=%d lazy=%d\n", vp0.x(),
                     vp0.y(), qPrintable(best->path), best->files.size(), best->children.size(),
                     best->truncatedDepth ? 1 : 0, best->lazyChildren ? 1 : 0);
+        const core::FsNode *focus = m_scene->layoutFocus();
+        std::printf("probe focus: %s\n", focus ? qPrintable(focus->path) : "none");
         std::fflush(stdout);
         return true;
     }
@@ -578,7 +634,8 @@ bool Driver::run(const QString &line) {
         return true;
     }
     if (cmd == QLatin1String("mark")) {
-        m_mark = countNodes(); // for a later `check grew`
+        m_mark = countNodes();           // for a later `check grew`
+        m_markFocusDepth = focusDepth(); // for a later `check focuspopped`
         std::printf("mark %d\n", m_mark);
         return true;
     }
@@ -593,6 +650,22 @@ bool Driver::run(const QString &line) {
     }
     std::fprintf(stderr, "driver: unknown command '%s'\n", qPrintable(cmd));
     return false;
+}
+
+// Directories between the layout focus (#40) and the root of the base it lives in
+// (0 = a base root, -1 = no focus or not under any base).
+int Driver::focusDepth() const {
+    const core::FsNode *f = m_scene->layoutFocus();
+    if (!f)
+        return -1;
+    for (FrameItem *b : m_scene->baseFrames()) {
+        const QString base = b->sourceRoot()->path;
+        if (f->path == base)
+            return 0;
+        if (f->path.startsWith(base + QLatin1Char('/')))
+            return static_cast<int>(f->path.mid(base.size() + 1).count(QLatin1Char('/'))) + 1;
+    }
+    return -1;
 }
 
 int Driver::countNodes() const {

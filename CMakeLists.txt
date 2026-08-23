@@ -159,6 +159,14 @@ add_test(NAME driver_fileops
 set_tests_properties(driver_fileops PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_zoom"
     TIMEOUT 60)
+# Layout focus (#40 spike): zoom in until one cell covers the viewport and the focus
+# engages (breadcrumb frames + re-squarified subtree), zoom out until it pops/clears.
+add_test(NAME driver_focus
+         COMMAND sh -c "python3 '${CMAKE_SOURCE_DIR}/tests/driver/make_synth.py' synth_focus --depth 3 >/dev/null && '$<TARGET_FILE:hfsgraph>' --script '${CMAKE_SOURCE_DIR}/tests/driver/focus.txt'"
+         WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_tests_properties(driver_focus PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_focus"
+    TIMEOUT 60)
 set_tests_properties(driver_smoke PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_SOURCE_DIR}/src"
     TIMEOUT 60)
