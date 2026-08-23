@@ -59,26 +59,39 @@ constexpr GlyphGrid kNamedGlyph{48.0, 6.0, 40.0}; // icon + name beneath (pitch 
 constexpr GlyphGrid kPixelGlyph{3.0, 2.0};        // pixel-dot density (pitch 5)
 constexpr GlyphGrid kNameGlyph{11.0, 3.0};        // filename text rows (pitch 14, full width)
 constexpr double kNameW = 90.0;                   // min cell width to bother with filename rows
-constexpr double kDetailsW = 200.0;               // min cell width for the `ls -l` meta column
 
-// The file-rung table (#44): ONE place that says which rung needs how much cell, in
-// device px before the Detail factor scales it. Ordered richest → poorest; Auto walks
-// it top-down and takes the first rung that fits (skipping force-only ones), a forced
-// mode starts at its own row and walks down the same way, so a rung that doesn't fit
-// degrades to the next one instead of drawing nothing. Below the table sits the
-// dir-name / dots floor in drawLeafContents. Thresholds are on the whole cell (header
-// included); each rung's painter still self-guards on its content area.
+// The file-rung table (#44): ONE place that lists the rungs, richest → poorest, and
+// what each needs. The numbers are AUTO-QUALITY GATES, not physical fit: the on-screen
+// cell size (header included, device px, × the Detail factor) at which Auto considers
+// the rung worth showing. Auto walks top-down and takes the first row whose gates pass
+// and whose painter draws; rows flagged forceOnly or autoSkip are stepped over. A
+// FORCED mode ignores the gates entirely: it starts at its own row and walks down,
+// trying each painter in turn, so the painter's own fit guard (does the content area
+// physically hold one glyph / one row?) is the only thing that sends it to the next
+// rung — no Detail scaling, no blank cell. Below the table sits the dir-name / dots
+// floor in drawLeafContents.
+//   Details    force-only: `ls -l` rows need more width than any Auto cell earns; its
+//              painter measures the meta column and guards on that, so the gates are
+//              moot and left at 0.
+//   List       outranks IconsNamed on purpose — one 14px row per file shows more
+//              legible names per cell than a 48×40 tile does.
+//   IconsNamed the forced icon view ("Files: Icons"); Auto reaches it only for cells
+//              too narrow for List yet tall enough for a tile (w in (70, 90], h > 62).
+//   Icons      the bare grid, Auto-only: the step below a tile when height runs out.
+//   Dots       autoSkip: in Auto the cell's own name outranks dots, so that choice is
+//              the floor below the table; the row exists so forced Dots starts here.
 struct RungSpec {
     TreemapItem::FileMode mode;
-    double minW, minH; // min cell size on screen, device px (× Detail)
-    bool forceOnly;    // never auto-picked — only reached by forcing it
+    double minW, minH; // Auto gate: min cell size on screen, device px (× Detail)
+    bool forceOnly;    // Auto never picks it; reached by forcing it (or falling past)
+    bool autoSkip;     // Auto never picks it; the floor handles the case instead
 };
 constexpr RungSpec kRungs[] = {
-    {TreemapItem::Details, kDetailsW, kHeaderPx + kNameGlyph.pitch() * 2, true},
-    {TreemapItem::List, kNameW, kHeaderPx + kNameGlyph.pitch() * 2, false},
-    {TreemapItem::IconsNamed, 70.0, kHeaderPx + kNamedGlyph.pitchY(), false},
-    {TreemapItem::Icons, 70.0, kHeaderPx + kIconGlyph.pitch(), false},
-    {TreemapItem::Dots, kPixelGlyph.size, kPixelGlyph.size, false},
+    {TreemapItem::Details, 0.0, 0.0, true, false},
+    {TreemapItem::List, kNameW, kHeaderPx + kNameGlyph.pitch() * 2, false, false},
+    {TreemapItem::IconsNamed, 70.0, kHeaderPx + kNamedGlyph.pitchY(), false, false},
+    {TreemapItem::Icons, 70.0, kHeaderPx + kIconGlyph.pitch(), false, false},
+    {TreemapItem::Dots, kPixelGlyph.size, kPixelGlyph.size, false, true},
 };
 
 // How many columns/rows of `g` fit in `area`, and how many of `count` items to draw
@@ -596,10 +609,11 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         return false;
     };
 
-    // Walk the rung table: Auto from the top (force-only rows skipped), a forced mode
-    // from its own row; the first rung that fits the cell and draws wins. Dots is the
-    // table's last row and Auto stops short of it — in Auto the cell's own name
-    // outranks dots, and that choice is the floor below the table.
+    // Walk the rung table. Auto: from the top, skipping forceOnly/autoSkip rows, the
+    // first row whose Auto gates pass and whose painter draws wins. Forced: from the
+    // requested row, gates ignored, the first painter that draws wins — a forceOnly
+    // row passed on the way down (none today, Details is row 0) is skipped so falling
+    // down never lands on a rung Auto wouldn't offer either.
     const bool forced = m_fileMode != Auto;
     if (!node->files.empty()) {
         bool started = !forced;
@@ -608,11 +622,12 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
                 started = r.mode == m_fileMode;
                 if (!started)
                     continue;
-            } else if (!forced && (r.forceOnly || r.mode == Dots)) {
+            } else if (forced ? r.forceOnly : (r.forceOnly || r.autoSkip)) {
                 continue;
             }
-            if (dev.width() > r.minW * m_detail && dev.height() > r.minH * m_detail &&
-                drawRung(r.mode))
+            const bool gated =
+                !forced && !(dev.width() > r.minW * m_detail && dev.height() > r.minH * m_detail);
+            if (!gated && drawRung(r.mode))
                 return;
         }
     }

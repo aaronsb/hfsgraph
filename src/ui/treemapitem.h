@@ -51,7 +51,8 @@ class TreemapItem : public QGraphicsItem {
     // Icons is the bare icon grid; Dots is the pixel-dot density grid. Auto picks the
     // richest rung that fits the cell (list → icon+name → icons → dots as it shrinks);
     // a forced mode prefers its rung and falls down the table to the next one that
-    // fits instead of drawing nothing (ADR-301, #44). The rung table itself lives in
+    // fits instead of drawing nothing (ADR-301, #44); the table's size gates are Auto-only,
+    // a forced rung is gated by its painter's own fit alone. The rung table lives in
     // the .cpp. Keep in sync with the toolbar combo order in MainWindow: the combo is
     // a prefix of this enum, so Icons — the Auto-only intermediate the toolbar never
     // offers ("Files: Icons" means IconsNamed) — sits last, past the combo.
