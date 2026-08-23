@@ -273,10 +273,27 @@ bool Driver::run(const QString &line) {
         return true;
     }
     if (cmd == QLatin1String("click") || cmd == QLatin1String("dblclick")) {
-        if (!has(2))
+        if (!has(1))
             return false;
-        const QPoint p(static_cast<int>(num(1)), static_cast<int>(num(2)));
-        const Qt::KeyboardModifiers mods = has(3) ? parseMods(a.at(3)) : Qt::NoModifier;
+        QPoint p;
+        int modi = 3;
+        if (a.at(1).startsWith(QLatin1Char('@'))) {
+            // `click @NAME`: the centre of that file's glyph — a grid glyph or a
+            // remainder dot — wherever the current plan puts it.
+            const FileRef ref = locateFile(a.at(1).mid(1));
+            const QRectF g = ref.item ? ref.item->fileGlyphRect(ref.dir, ref.index) : QRectF();
+            if (g.isNull()) {
+                std::fprintf(stderr, "driver: no glyph for %s\n", qPrintable(a.at(1)));
+                return false;
+            }
+            p = m_view->mapFromScene(ref.item->mapToScene(g.center()));
+            modi = 2;
+        } else {
+            if (!has(2))
+                return false;
+            p = QPoint(static_cast<int>(num(1)), static_cast<int>(num(2)));
+        }
+        const Qt::KeyboardModifiers mods = has(modi) ? parseMods(a.at(modi)) : Qt::NoModifier;
         QTest::mouseMove(vp, p);
         if (cmd == QLatin1String("click")) {
             QTest::mouseClick(vp, Qt::LeftButton, mods, p);
@@ -571,27 +588,11 @@ bool Driver::run(const QString &line) {
         QString name;
         const core::FsNode *dir = nullptr;
         if (byName) {
-            // The first laid-out leaf cell (any surface) holding a file of that name.
-            name = a.at(2).mid(1);
-            for (FrameItem *f : m_scene->frames()) {
-                TreemapItem *t = f->interiorTreemap();
-                if (!t || dir)
-                    continue;
-                for (const LayoutCell &c : t->layout().cells()) {
-                    if (c.subdivided)
-                        continue;
-                    for (const auto &fe : c.node->files)
-                        if (fe.name == name) {
-                            dir = c.node;
-                            break;
-                        }
-                    if (dir)
-                        break;
-                }
-            }
+            const FileRef ref = locateFile(a.at(2).mid(1));
+            dir = ref.dir;
+            name = ref.dir ? ref.dir->files[static_cast<std::size_t>(ref.index)].name : QString();
             if (!dir) {
-                std::fprintf(stderr, "driver: no laid-out cell holds a file named %s\n",
-                             qPrintable(name));
+                std::fprintf(stderr, "driver: no laid-out cell holds %s\n", qPrintable(a.at(2)));
                 return false;
             }
         } else {
@@ -659,6 +660,28 @@ bool Driver::run(const QString &line) {
 const core::FsNode *Driver::probedFocus() const {
     const QPoint p = m_probe.x() >= 0 ? m_probe : m_view->viewport()->rect().center();
     return m_scene->layoutFocusAt(m_view->mapToScene(p));
+}
+
+Driver::FileRef Driver::locateFile(const QString &ref) const {
+    const int slash = ref.lastIndexOf(QLatin1Char('/'));
+    const QString dirSuffix = slash >= 0 ? ref.left(slash) : QString();
+    const QString name = slash >= 0 ? ref.mid(slash + 1) : ref;
+    for (FrameItem *f : m_scene->frames()) {
+        TreemapItem *t = f->interiorTreemap();
+        if (!t)
+            continue;
+        for (const LayoutCell &c : t->layout().cells()) {
+            if (c.subdivided)
+                continue;
+            if (!dirSuffix.isEmpty() && !c.node->path.endsWith(QLatin1Char('/') + dirSuffix) &&
+                c.node->path != dirSuffix)
+                continue;
+            for (std::size_t i = 0; i < c.node->files.size(); ++i)
+                if (c.node->files[i].name == name)
+                    return {t, c.node, static_cast<int>(i)};
+        }
+    }
+    return {};
 }
 
 // Directories between the probed surface's layout focus (ADR-305) and the root of

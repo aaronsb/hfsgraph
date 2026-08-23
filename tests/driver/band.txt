@@ -1,0 +1,27 @@
+# Fractional fit (ADR-301): in the Icons style a 25-file leaf on the synth fixture holds
+# a few icon+name tiles and the rest as a band of dots beneath. Paint, hit-test and
+# selection share one plan, so a click on a dot in the band selects that file, a click
+# on a tile selects that one, and a Shift-click spans the two through the band.
+resize 1200 800
+set focus 0
+set filemode 0   # Icons
+load $HFSGRAPH_FIXTURE 2
+wait
+fit
+settle
+click @d0_4/d1_4/f24.txt   # 18th by name in a 25-file directory: in the remainder band
+check selected 1
+check file f24.txt
+click @d0_4/d1_4/f0.o      # index 0: a tile in the grid
+check selected 1
+check file f0.o
+click @d0_4/d1_4/f9.o shift   # last by name: the whole directory
+check selected 25
+# The List style lays the same files differently; the pick still lands.
+set filemode 1
+settle
+click @d0_4/d1_4/f24.txt
+check selected 1
+check file f24.txt
+echo band ok
+quit

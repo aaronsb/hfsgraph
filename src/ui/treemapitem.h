@@ -149,6 +149,9 @@ class TreemapItem : public QGraphicsItem {
     // The file glyph under an item-space point (#37): the leaf directory and the
     // index into its `files`, or {null, -1}. Reads the same rung geometry paint uses.
     std::pair<const core::FsNode *, int> fileAt(const QPointF &itemPos) const;
+    // The inverse: where a file's glyph (grid or remainder dot) sits, item coords, or a
+    // null rect when the directory has no leaf cell or the plan doesn't place it.
+    QRectF fileGlyphRect(const core::FsNode *dir, int index) const;
 
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;        // select / arm drag

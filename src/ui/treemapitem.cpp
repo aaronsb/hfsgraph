@@ -13,6 +13,7 @@
 #include "treemaplayout.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -206,12 +207,12 @@ bool fitRemainder(LeafPlan &out, int nfiles) {
     const QRectF &area = out.area;
     const int dotCols =
         std::max(1, static_cast<int>((area.width() + kPixelGlyph.gap) / kPixelGlyph.pitch()));
-    const int perRow = out.columnMajor ? out.rows : out.cols; // files a grid row/column holds
     for (int rows = out.rows; rows >= 1; --rows) {
-        const int shown = std::min(nfiles, out.columnMajor ? out.cols * rows : out.cols * rows);
+        // Row- and column-major grids alike place exactly cols × rows glyphs.
+        const int shown = std::min(nfiles, out.cols * rows);
         const int rest = nfiles - shown;
         const int dotRows = (rest + dotCols - 1) / dotCols;
-        const qreal gridH = rows * out.pitchY;
+        const qreal gridH = (rows - 1) * out.pitchY + out.glyphH; // to the last glyph's edge
         const qreal bandH = dotRows * kPixelGlyph.pitchY() - kPixelGlyph.gap;
         if (gridH + kPixelGlyph.gap + bandH <= area.height()) {
             out.rows = rows;
@@ -219,12 +220,10 @@ bool fitRemainder(LeafPlan &out, int nfiles) {
             out.band = QRectF(area.x(), area.y() + gridH + kPixelGlyph.gap, area.width(),
                               area.height() - gridH - kPixelGlyph.gap);
             out.bandCols = dotCols;
-            out.bandCount = std::min(
-                rest, dotCols * static_cast<int>(out.band.height() / kPixelGlyph.pitchY() + 1));
+            out.bandCount = rest; // the check above made room for every one
             return true;
         }
     }
-    (void)perRow;
     return false;
 }
 
@@ -282,16 +281,21 @@ bool planRung(TreemapItem::Rung rung, const core::FsNode *node, const QRectF &ar
         const qreal rowH = kNameGlyph.pitch();
         if (area.height() < rowH)
             return false;
-        QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-        f.setPixelSize(10);
-        // Measure the meta column from a worst-case sample (4-digit byte size + a real
-        // mtime) so it never under-measures vs. a default FileEntry.
+        // The meta column, measured once per level from a worst-case sample (4-digit
+        // byte size + a real mtime) so it never under-measures vs. a default FileEntry.
+        // planLeaf runs per cell per paint and hit-test; the width never changes.
+        static const std::array<qreal, 2> kMetaW = [] {
+            QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            f.setPixelSize(10);
+            core::FileEntry sample;
+            sample.sizeBytes = 1023; // widest sub-KiB form: "1023 bytes"
+            sample.mtime = 1;        // force a rendered datetime, not the dashes placeholder
+            const QFontMetrics fm(f);
+            return std::array<qreal, 2>{qreal(fm.horizontalAdvance(detailMeta(sample, false))),
+                                        qreal(fm.horizontalAdvance(detailMeta(sample, true)))};
+        }();
         constexpr qreal kIcon = 12.0, kGap = 4.0, kMinName = 24.0;
-        core::FileEntry sample;
-        sample.sizeBytes = 1023; // widest sub-KiB form: "1023 bytes"
-        sample.mtime = 1;        // force a rendered datetime, not the dashes placeholder
-        out.metaW =
-            QFontMetrics(f).horizontalAdvance(detailMeta(sample, rung == TreemapItem::DetailsFull));
+        out.metaW = kMetaW[rung == TreemapItem::DetailsFull ? 1 : 0];
         if (area.width() < out.metaW + kIcon + kGap + kMinName)
             return false;
         rowsOf(rowH);
@@ -830,8 +834,8 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
                     draw(i, plan.glyph(i));
             }
     };
-    // The dots band (fractional fit): the files the rung had no room for.
-    auto drawBand = [&] {
+    // The remainder (fractional fit): the files the rung had no room for, as dots.
+    auto drawRemainder = [&] {
         if (plan.bandCount <= 0)
             return;
         const QRectF on = plan.band.intersected(visibleDev);
@@ -954,7 +958,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
     case NoRung:
         break;
     }
-    drawBand();
+    drawRemainder();
     p->setWorldMatrixEnabled(true);
 }
 
@@ -986,6 +990,19 @@ std::vector<int> TreemapItem::filesIn(const core::FsNode *node, const QRectF &ce
         if (plan.glyph(i).intersects(band))
             out.push_back(i);
     return out;
+}
+
+QRectF TreemapItem::fileGlyphRect(const core::FsNode *dir, int index) const {
+    const LayoutCell *cell = m_layout.cellFor(dir);
+    if (!cell || cell->subdivided || index < 0 || index >= static_cast<int>(dir->files.size()))
+        return {};
+    const qreal z = m_layout.params().zoom;
+    const QRectF dev(0, 0, cell->rect.width() * z, cell->rect.height() * z);
+    const LeafPlan plan = planLeaf(dir, dev, cell->hasTitle);
+    if (plan.rung == NoRung || index >= plan.total())
+        return {};
+    const QRectF g = plan.glyph(index);
+    return QRectF(cell->rect.topLeft() + g.topLeft() / z, g.size() / z);
 }
 
 std::pair<const core::FsNode *, int> TreemapItem::fileAt(const QPointF &itemPos) const {

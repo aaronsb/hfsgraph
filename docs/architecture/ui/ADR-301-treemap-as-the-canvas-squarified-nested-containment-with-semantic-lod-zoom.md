@@ -58,7 +58,8 @@ forward (see Neutral).
   box → dots → columns → rows with the size → rows with perms/size/mtime (`ls -l`). A rung
   that cannot hold every file shows the files that fit and the rest as a band of dots
   beneath the grid — **fractional fit** — so detail replaces dots row by row as room
-  appears instead of a whole cell switching rung at once. One table per style (`kIconsLadder` etc.
+  appears instead of a whole cell switching rung at once; the dots floor itself caps at
+  its grid's capacity and drops the rest. One table per style (`kIconsLadder` etc.
   in `TreemapItem`) holds the rungs and their quality gates. A **Detail ("view distance")
   control** scales every rung's quality gate live (paint-only, no rebuild) so the operator
   tunes how far out contents populate.
