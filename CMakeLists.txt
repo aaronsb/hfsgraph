@@ -35,6 +35,7 @@ add_executable(hfsgraph
     src/ui/treemapitem.cpp
     src/ui/squarify.cpp
     src/ui/treemaplayout.cpp  # cached treemap geometry (cells, hit-test, replay)
+    src/ui/selection.cpp      # file selection model (#37)
     src/ui/filetypestyle.cpp
     src/ui/grouppanel.cpp
     src/ui/rotatedheader.cpp
@@ -138,6 +139,14 @@ add_test(NAME driver_zoom_inside
          COMMAND sh -c "python3 '${CMAKE_SOURCE_DIR}/tests/driver/make_synth.py' synth_zoom --depth 2 --seed 3 >/dev/null && '$<TARGET_FILE:hfsgraph>' --script '${CMAKE_SOURCE_DIR}/tests/driver/zoom_inside.txt'"
          WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 set_tests_properties(driver_zoom_inside PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_zoom"
+    TIMEOUT 60)
+# File selection: inside a leaf, band-select its files, Ctrl-band adds, a click on
+# empty body clears.
+add_test(NAME driver_select
+         COMMAND sh -c "python3 '${CMAKE_SOURCE_DIR}/tests/driver/make_synth.py' synth_zoom --depth 2 --seed 3 >/dev/null && '$<TARGET_FILE:hfsgraph>' --script '${CMAKE_SOURCE_DIR}/tests/driver/select.txt'"
+         WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_tests_properties(driver_select PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_zoom"
     TIMEOUT 60)
 set_tests_properties(driver_smoke PROPERTIES

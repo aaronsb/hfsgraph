@@ -1,0 +1,23 @@
+# File selection (#37). Zoom inside the same leaf driver_zoom_inside uses (5 files,
+# List rung, rows from the cell's top-left). A rubber band dragged from empty body
+# across the rows selects all five; a plain click on empty body clears; Ctrl-band adds.
+resize 1200 800
+load $HFSGRAPH_FIXTURE 2
+wait
+zoom 4 600 400
+sleep 200
+zoom 4 600 400
+wait
+sleep 200
+probe 600 400
+check selected 0
+drag 700 700 10 10
+check selected 5
+shot driver_select_band.png view
+check nonblank driver_select_band.png
+click 700 700
+check selected 0
+drag 700 700 10 10 ctrl
+check selected 5
+echo select ok
+quit

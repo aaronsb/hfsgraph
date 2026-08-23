@@ -36,6 +36,8 @@
 //   check nodes N            fail unless the bases hold at least N directories (prints the count)
 //   mark                     remember the directory count; `check grew` fails unless it rose
 //   probe [X Y]              print the deepest cell under a viewport point (path, files, children)
+//                            and the file glyph there, if any
+//   check selected N         fail unless exactly N files are selected (prints the count)
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
 //   check differs A B        fail if the two PNGs are pixel-identical
 //   bench [N]                repaint the viewport N times (default 20), print ms/frame

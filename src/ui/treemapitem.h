@@ -32,6 +32,7 @@ namespace ui {
 
 class GraphScene;
 class FrameItem;
+struct LeafPlan; // a leaf cell's rung + glyph geometry (treemapitem.cpp)
 
 class TreemapItem : public QGraphicsItem {
   public:
@@ -115,6 +116,10 @@ class TreemapItem : public QGraphicsItem {
     // hit-testing (#10). Null if no cell is hit.
     const core::FsNode *cellNodeAt(const QPointF &itemPos) const { return cellAt(itemPos); }
 
+    // The file glyph under an item-space point (#37): the leaf directory and the
+    // index into its `files`, or {null, -1}. Reads the same rung geometry paint uses.
+    std::pair<const core::FsNode *, int> fileAt(const QPointF &itemPos) const;
+
   protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;       // select / arm drag
     void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;        // drive the move drag
@@ -125,6 +130,9 @@ class TreemapItem : public QGraphicsItem {
     // Paint one layout cell (by index) and, if it subdivided, its children.
     void drawCell(QPainter *painter, int index, const QTransform &toDevice,
                   const QRectF &exposed) const;
+    // The rung and glyph geometry of a leaf cell's files (LeafPlan, in the .cpp);
+    // shared by painting, the file hit-test and band selection.
+    LeafPlan planLeaf(const core::FsNode *node, const QRectF &dev, bool hasTitle) const;
     // The leaf rung (files as names / icons / dots, or the cell's own name) — split
     // out of drawCell to keep it focused on cull / subdivide / chrome.
     // `visibleDev` is the exposed region in device px. Each rung lays its grid over
@@ -138,6 +146,13 @@ class TreemapItem : public QGraphicsItem {
     void drawDiffMark(QPainter *painter, const QRectF &dev, int step) const;
     // The "children not scanned yet" hatch on a truncated leaf (lazy deepening, #36).
     void drawUnscannedMark(QPainter *painter, const QRectF &dev) const; // dev = body rect
+    // Rubber-band selection (#37): the band in item coords while one is being dragged.
+    void drawBand(QPainter *painter) const;
+    // The glyph index under a point within a leaf cell, in that cell's own device
+    // space (origin = the cell's top-left at the current zoom), or -1.
+    int fileIndexIn(const LayoutCell &cell, const QPointF &itemPos) const;
+    // Every file index of `cell` whose glyph rect intersects `itemRect` (band select).
+    std::vector<int> filesIn(const LayoutCell &cell, const QRectF &itemRect) const;
     // The plan step that actually relocated `node` (0 = none) — gates drawDiffMark so a
     // skipped op never paints a false mark on a node still in its original place.
     int diffStepFor(const core::FsNode *node) const;
@@ -154,6 +169,14 @@ class TreemapItem : public QGraphicsItem {
     FrameItem *m_ownerFrame = nullptr;          // owning frame, or null for the base map
     const core::GroupStore *m_groups = nullptr; // overlay source (ADR-102), not owned
     const core::FsNode *m_selected = nullptr;
+    // File gesture state (#37). A press on a file glyph arms a file drag-out
+    // (text/uri-list); a press on a leaf's file area off any glyph arms a rubber band.
+    const core::FsNode *m_pressFileDir = nullptr; // directory of the pressed glyph
+    int m_pressFileIndex = -1;                    // its index, -1 = no file pressed
+    const LayoutCell *m_bandCell = nullptr;       // leaf cell a band is being dragged in
+    QPointF m_bandOrigin;                         // band anchor, item coords
+    QRectF m_band;                                // live band, item coords (null = none)
+    Qt::KeyboardModifiers m_bandMods;             // Ctrl at press: add to the selection
     // Move-drag gesture state (#10). A press on a movable cell arms a drag; once the
     // cursor leaves a small threshold the scene-level overlay takes over (the scene
     // owns the arrow + cross-surface target hit-testing, since a drop can land on a

@@ -7,6 +7,7 @@
 #include "core/groupstore_io.h"
 #include "core/scanner.h"
 #include "frameitem.h"
+#include "selection.h"
 #include "treemapitem.h"
 
 #include <algorithm>
@@ -139,6 +140,11 @@ double collectDirStats(const core::FsNode &n, bool byBytes, bool isRoot,
 } // namespace
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {
+    m_selection = new Selection(this);
+    connect(m_selection, &Selection::changed, this, [this] {
+        for (FrameItem *f : m_frames)
+            f->update(); // highlights are painted by every surface
+    });
     m_idleTimer = new QTimer(this);
     m_idleTimer->setSingleShot(true);
     m_idleTimer->setInterval(120); // a wheel burst keeps restarting it; full detail after
