@@ -156,7 +156,7 @@ GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {
     m_graftTimer->setSingleShot(true);
     m_graftTimer->setInterval(0);
     connect(m_graftTimer, &QTimer::timeout, this, [this] {
-        if (m_dragSource) {
+        if (m_dragSource || m_gestureHolds > 0) {
             m_graftTimer->start(50);
             return;
         }
@@ -522,6 +522,10 @@ void GraphScene::requestDeepen(const core::FsNode *node) {
                 graftChildren(path, std::move(kids));
             });
     watcher->setFuture(QtConcurrent::run([path] { return core::Scanner::scanChildren(path, 1); }));
+}
+
+void GraphScene::releaseGestureHold() {
+    m_gestureHolds = std::max(0, m_gestureHolds - 1);
 }
 
 void GraphScene::setLazyDeepen(bool on) {

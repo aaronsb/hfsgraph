@@ -17,6 +17,8 @@
 #include <QString>
 #include <QUrl>
 
+#include <vector>
+
 namespace core {
 struct FsNode;
 }
@@ -39,7 +41,8 @@ class Selection : public QObject {
     void set(const core::FsNode &dir, int index);     // plain click: only this file
     void toggle(const core::FsNode &dir, int index);  // Ctrl-click
     void rangeTo(const core::FsNode &dir, int index); // Shift-click: anchor..index
-    void add(const core::FsNode &dir, int index);     // rubber band
+    void add(const core::FsNode &dir, int index);     // one file
+    void addAll(const core::FsNode &dir, const std::vector<int> &indices); // band: one signal
 
     // file:// URLs of the selection, for drag-out (text/uri-list).
     QList<QUrl> urls() const;
@@ -53,8 +56,8 @@ class Selection : public QObject {
 
     QHash<core::MemberKey, QSet<QString>> m_byDir; // dir key → selected names
     QHash<core::MemberKey, QString> m_dirPath;     // dir key → on-disk path (for urls)
-    core::MemberKey m_anchorDir;                   // Shift-range anchor
-    int m_anchorIndex = -1;
+    core::MemberKey m_anchorDir; // Shift-range anchor: by name, so a re-listing that
+    QString m_anchorName;        // reorders files doesn't move it
 };
 
 } // namespace ui

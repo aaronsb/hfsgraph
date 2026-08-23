@@ -151,8 +151,11 @@ class TreemapItem : public QGraphicsItem {
     // The glyph index under a point within a leaf cell, in that cell's own device
     // space (origin = the cell's top-left at the current zoom), or -1.
     int fileIndexIn(const LayoutCell &cell, const QPointF &itemPos) const;
-    // Every file index of `cell` whose glyph rect intersects `itemRect` (band select).
-    std::vector<int> filesIn(const LayoutCell &cell, const QRectF &itemRect) const;
+    // Every file index of the leaf `node` (cell rect `cellRect`) whose glyph rect
+    // intersects `itemRect` (band select).
+    std::vector<int> filesIn(const core::FsNode *node, const QRectF &cellRect, bool hasTitle,
+                             const QRectF &itemRect) const;
+    void endFileGesture(); // clear press/band state and release the scene's graft hold
     // The plan step that actually relocated `node` (0 = none) — gates drawDiffMark so a
     // skipped op never paints a false mark on a node still in its original place.
     int diffStepFor(const core::FsNode *node) const;
@@ -173,10 +176,14 @@ class TreemapItem : public QGraphicsItem {
     // (text/uri-list); a press on a leaf's file area off any glyph arms a rubber band.
     const core::FsNode *m_pressFileDir = nullptr; // directory of the pressed glyph
     int m_pressFileIndex = -1;                    // its index, -1 = no file pressed
-    const LayoutCell *m_bandCell = nullptr;       // leaf cell a band is being dragged in
-    QPointF m_bandOrigin;                         // band anchor, item coords
-    QRectF m_band;                                // live band, item coords (null = none)
-    Qt::KeyboardModifiers m_bandMods;             // Ctrl at press: add to the selection
+    // The band's cell is held by value: the layout's cell vector is rebuilt by a zoom
+    // step or a landing deepen, so a pointer into it wouldn't survive the gesture.
+    const core::FsNode *m_bandNode = nullptr; // leaf a band is being dragged in
+    QRectF m_bandRect;                        // that cell's rect, item coords
+    bool m_bandHasTitle = false;
+    QPointF m_bandOrigin;            // band anchor, item coords
+    QRectF m_band;                   // live band, item coords (null = none)
+    bool m_pressWasSelected = false; // Ctrl-press on a selected glyph: toggle on release
     // Move-drag gesture state (#10). A press on a movable cell arms a drag; once the
     // cursor leaves a small threshold the scene-level overlay takes over (the scene
     // owns the arrow + cross-surface target hit-testing, since a drop can land on a

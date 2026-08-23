@@ -31,6 +31,7 @@
 #include <QTextStream>
 #include <QTimer>
 #include <QWheelEvent>
+#include <QUrl>
 #include <QWidget>
 
 namespace ui {
@@ -354,6 +355,19 @@ bool Driver::run(const QString &line) {
             const int got = static_cast<int>(m_scene->baseFrames().size());
             if (got != want) {
                 std::fprintf(stderr, "driver: %d bases, expected %d\n", got, want);
+                return false;
+            }
+            return true;
+        }
+        if (what == QLatin1String("file")) {
+            // A file with this base name is selected (any directory).
+            const QString want = a.at(2);
+            bool found = false;
+            for (const QUrl &u : m_scene->selection().urls())
+                if (u.fileName() == want)
+                    found = true;
+            if (!found) {
+                std::fprintf(stderr, "driver: %s is not selected\n", qPrintable(want));
                 return false;
             }
             return true;

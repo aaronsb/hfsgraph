@@ -83,6 +83,10 @@ class GraphScene : public QGraphicsScene {
     void requestDeepen(const core::FsNode *node);
     int deepensInFlight() const { return static_cast<int>(m_deepening.size()); } // driver `wait`
     void setLazyDeepen(bool on); // off: truncated cells stay hatched; on repaints to request
+    // A surface's file gesture (glyph press, band) holds raw pointers into its layout
+    // and tree; landing grafts wait until every hold is released.
+    void holdGestures() { ++m_gestureHolds; }
+    void releaseGestureHold();
 
     // The base scan depth (toolbar Depth). A level-N lens scans its own subtree to
     // baseDepth + N (capped), so deeper lenses reveal more detail (ADR-304).
@@ -206,6 +210,7 @@ class GraphScene : public QGraphicsScene {
     QSet<QString> m_loadedWorkspaces; // roots whose sidecar we've loaded (load once, ADR-102 #15)
     QSet<QString> m_deepening;        // on-disk paths with a deepen scan in flight
     QTimer *m_graftTimer = nullptr;   // coalesces layout invalidation across landing grafts
+    int m_gestureHolds = 0;           // file gestures in flight (grafts wait)
     bool m_lazyDeepen = true;         // requestDeepen is a no-op when false (tests, benches)
     int m_calloutMode = 0;            // 0 Filled, 1 Lines, 2 Off (ADR-304)
     bool m_interacting = false;       // a zoom/pan gesture is in flight (interaction LOD)

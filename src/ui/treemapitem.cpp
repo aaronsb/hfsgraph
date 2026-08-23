@@ -780,16 +780,17 @@ int TreemapItem::fileIndexIn(const LayoutCell &cell, const QPointF &itemPos) con
     return plan.indexAt((itemPos - cell.rect.topLeft()) * z);
 }
 
-std::vector<int> TreemapItem::filesIn(const LayoutCell &cell, const QRectF &itemRect) const {
+std::vector<int> TreemapItem::filesIn(const core::FsNode *node, const QRectF &cellRect,
+                                      bool hasTitle, const QRectF &itemRect) const {
     std::vector<int> out;
-    if (cell.subdivided || cell.node->files.empty())
+    if (!node || node->files.empty())
         return out;
     const qreal z = m_layout.params().zoom;
-    const QRectF dev(0, 0, cell.rect.width() * z, cell.rect.height() * z);
-    const LeafPlan plan = planLeaf(cell.node, dev, cell.hasTitle);
+    const QRectF dev(0, 0, cellRect.width() * z, cellRect.height() * z);
+    const LeafPlan plan = planLeaf(node, dev, hasTitle);
     if (plan.rung == Auto)
         return out;
-    const QRectF band = QRectF((itemRect.topLeft() - cell.rect.topLeft()) * z, itemRect.size() * z);
+    const QRectF band = QRectF((itemRect.topLeft() - cellRect.topLeft()) * z, itemRect.size() * z);
     for (int i = 0; i < plan.count; ++i)
         if (plan.glyph(i).intersects(band))
             out.push_back(i);
@@ -905,12 +906,24 @@ const core::FsNode *TreemapItem::cellAt(const QPointF &p) const {
     return c ? c->node : nullptr;
 }
 
-void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
-    const LayoutCell *cell = m_layout.cellAt(event->pos()); // deepest cell under the press
-    m_pressNode = nullptr;
+void TreemapItem::endFileGesture() {
+    const bool held = m_pressFileDir || m_bandNode;
     m_pressFileDir = nullptr;
     m_pressFileIndex = -1;
-    m_bandCell = nullptr;
+    m_bandNode = nullptr;
+    m_band = QRectF();
+    if (held && m_scene)
+        m_scene->releaseGestureHold(); // grafts may land again
+}
+
+void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
+    if (event->button() != Qt::LeftButton) {
+        event->ignore(); // right-press: the context menu (#38) — never a selection change
+        return;
+    }
+    const LayoutCell *cell = m_layout.cellAt(event->pos()); // deepest cell under the press
+    m_pressNode = nullptr;
+    endFileGesture();
     if (!cell) {
         QGraphicsItem::mousePressEvent(event);
         return;
@@ -920,17 +933,25 @@ void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
     Selection *sel = m_scene ? &m_scene->selection() : nullptr;
 
     // A file glyph (#37): select it (plain / Ctrl toggle / Shift range) and arm a
-    // drag-out; the directory gestures below don't apply.
+    // drag-out; the directory gestures below don't apply. While a file gesture is in
+    // flight the scene holds deepen grafts, which would rebuild the cells (and, under
+    // a staged move, the items) beneath us.
     if (const int fi = fileIndexIn(*cell, event->pos()); fi >= 0 && sel) {
+        const bool selected =
+            sel->contains(core::keyFor(*hit), hit->files[static_cast<std::size_t>(fi)].name);
         if (mods & Qt::ShiftModifier)
             sel->rangeTo(*hit, fi);
-        else if (mods & Qt::ControlModifier)
-            sel->toggle(*hit, fi);
-        else if (!sel->contains(core::keyFor(*hit), hit->files[static_cast<std::size_t>(fi)].name))
+        else if (mods & Qt::ControlModifier) {
+            if (!selected)
+                sel->toggle(*hit, fi); // toggling *off* waits for release: a Ctrl-drag
+                                       // carries the whole selection, grabbed file included
+        } else if (!selected)
             sel->set(*hit, fi); // an already-selected file stays selected (it may start a drag)
+        m_pressWasSelected = selected;
         m_pressFileDir = hit;
         m_pressFileIndex = fi;
         m_pressScene = event->scenePos();
+        m_scene->holdGestures();
         event->accept();
         return;
     }
@@ -946,10 +967,12 @@ void TreemapItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
     if (!cell->subdivided && !hit->files.empty() && inBody && sel) {
         if (!(mods & Qt::ControlModifier))
             sel->clear();
-        m_bandCell = cell;
+        m_bandNode = hit;
+        m_bandRect = cell->rect;
+        m_bandHasTitle = cell->hasTitle;
         m_bandOrigin = event->pos();
-        m_bandMods = mods;
         m_band = QRectF();
+        m_scene->holdGestures();
         event->accept();
         return;
     }
@@ -983,17 +1006,17 @@ void TreemapItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
         if ((event->scenePos() - m_pressScene).manhattanLength() > kDragThreshold && m_scene) {
             auto *mime = new QMimeData;
             mime->setUrls(m_scene->selection().urls());
-            m_pressFileDir = nullptr;
-            m_pressFileIndex = -1;
+            endFileGesture();
             auto *drag = new QDrag(event->widget());
             drag->setMimeData(mime);
             drag->exec(Qt::CopyAction | Qt::LinkAction, Qt::CopyAction);
+            drag->deleteLater();
         }
         event->accept();
         return;
     }
-    if (m_bandCell) {
-        m_band = QRectF(m_bandOrigin, event->pos()).normalized().intersected(m_bandCell->rect);
+    if (m_bandNode) {
+        m_band = QRectF(m_bandOrigin, event->pos()).normalized().intersected(m_bandRect);
         update();
         event->accept();
         return;
@@ -1011,22 +1034,29 @@ void TreemapItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event) {
 }
 
 void TreemapItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
+    if (event->button() != Qt::LeftButton) {
+        event->ignore();
+        return;
+    }
     if (m_pressFileDir) {
-        // A click (no drag) on an already-selected file without modifiers narrows the
-        // selection to it — the standard file-manager behaviour.
-        if (m_scene && !(event->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier)))
-            m_scene->selection().set(*m_pressFileDir, m_pressFileIndex);
-        m_pressFileDir = nullptr;
-        m_pressFileIndex = -1;
+        // A click (no drag) resolves what the press deferred: Ctrl on a selected file
+        // toggles it off; a plain click narrows the selection to the file.
+        if (m_scene) {
+            const Qt::KeyboardModifiers mods = event->modifiers();
+            if ((mods & Qt::ControlModifier) && m_pressWasSelected)
+                m_scene->selection().toggle(*m_pressFileDir, m_pressFileIndex);
+            else if (!(mods & (Qt::ControlModifier | Qt::ShiftModifier)))
+                m_scene->selection().set(*m_pressFileDir, m_pressFileIndex); // no-op if already
+        }
+        endFileGesture();
         event->accept();
         return;
     }
-    if (m_bandCell) {
+    if (m_bandNode) {
         if (m_scene && !m_band.isNull())
-            for (int i : filesIn(*m_bandCell, m_band))
-                m_scene->selection().add(*m_bandCell->node, i);
-        m_bandCell = nullptr;
-        m_band = QRectF();
+            m_scene->selection().addAll(*m_bandNode,
+                                        filesIn(m_bandNode, m_bandRect, m_bandHasTitle, m_band));
+        endFileGesture();
         update();
         event->accept();
         return;

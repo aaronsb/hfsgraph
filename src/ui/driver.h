@@ -38,6 +38,7 @@
 //   probe [X Y]              print the deepest cell under a viewport point (path, files, children)
 //                            and the file glyph there, if any
 //   check selected N         fail unless exactly N files are selected (prints the count)
+//   check file NAME          fail unless a file with base name NAME is selected
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
 //   check differs A B        fail if the two PNGs are pixel-identical
 //   bench [N]                repaint the viewport N times (default 20), print ms/frame
