@@ -49,9 +49,17 @@ forward (see Neutral).
   Subdivision depth follows a cell's *on-screen* size, not a fixed tree depth: the recursion
   lives in `paint()`, driven by the painter zoom and the exposed viewport. A cell subdivides
   into children only once it is large enough on screen; off-screen cells are culled; labels
-  and file icons render in device space at a **constant screen size** (zoom reveals depth,
-  it does not enlarge pixels). A **Detail ("view distance") control** scales every LOD gate
-  live (paint-only, no rebuild) so the operator tunes how far out contents populate.
+  and file glyphs render in device space at a **constant screen size** (zoom reveals depth,
+  it does not enlarge pixels). A leaf's files climb a five-rung ladder as the cell grows:
+  pixel-dots → bare icons → icon+name tiles → a list of names (`ls -a`) → detail rows
+  (`ls -l`, force-only). **Auto** takes the richest rung whose size gate the cell passes —
+  the list outranks the icon+name tile because it shows more legible names per cell, so the
+  tile is Auto's pick only for cells too narrow for the list yet tall enough for a tile. A
+  **forced** rung ignores those gates: it draws if its painter physically fits, and otherwise
+  falls *down* the ladder to the next rung that does, rather than drawing nothing. One table
+  (`kRungs` in `TreemapItem`) holds the ladder and its gates. A **Detail ("view distance")
+  control** scales every Auto LOD gate live (paint-only, no rebuild) so the operator tunes
+  how far out contents populate; forced rungs are not scaled.
 - **Colour is data-viz, not decoration.** Perceptually-uniform ramps (Viridis/Magma/Plasma/
   Cividis/Turbo) plus a categorical Spectrum, mapped by nesting depth. Each cell is a
   saturated **title bar** over a value-shifted **contents area** (darker in dark mode,
@@ -75,7 +83,8 @@ forward (see Neutral).
 - Semantic zoom removes the fixed render-depth limit *for what's scanned*, and the Detail
   slider is a cheap, live knob (paint-only) rather than a relayout.
 - One spatial language top to bottom: a directory's rectangle holds its child rectangles and
-  (at the leaf) its files as icons — unifying what used to be a separate per-card file grid.
+  (at the leaf) its files as dots, icons, named tiles, or name rows, by room — unifying what
+  used to be a separate per-card file grid.
 
 ### Negative
 

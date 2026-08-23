@@ -44,12 +44,19 @@ class TreemapItem : public QGraphicsItem {
     // categorical HSL hue cycle. Keep in sync with kRampNames in the .cpp.
     enum Ramp { Viridis, Magma, Plasma, Cividis, Turbo, Spectrum };
 
-    // How a cell's files are drawn. Auto picks by cell size (list → icons → dots as
-    // it shrinks); the others force that rung regardless of size (ADR-301). List is a
-    // multi-column icon+name grid (like `ls -a`); Details is one file per row with
-    // metadata (perms/size/mtime), like `ls -l` (force-only — never auto-picked, it
-    // needs the most room). Keep in sync with the toolbar combo order in MainWindow.
-    enum FileMode { Auto, Dots, Icons, List, Details };
+    // How a cell's files are drawn. The rungs, richest → poorest: Details is one file
+    // per row with metadata (perms/size/mtime), like `ls -l` (force-only — never
+    // auto-picked, it needs the most room); List is a multi-column icon+name grid
+    // (like `ls -a`); IconsNamed is an icon with its name elided beneath, grid-packed;
+    // Icons is the bare icon grid; Dots is the pixel-dot density grid. Auto picks the
+    // richest rung that fits the cell (list → icon+name → icons → dots as it shrinks);
+    // a forced mode prefers its rung and falls down the table to the next one that
+    // fits instead of drawing nothing (ADR-301, #44); the table's size gates are Auto-only,
+    // a forced rung is gated by its painter's own fit alone. The rung table lives in
+    // the .cpp. Keep in sync with the toolbar combo order in MainWindow: the combo is
+    // a prefix of this enum, so Icons — the Auto-only intermediate the toolbar never
+    // offers ("Files: Icons" means IconsNamed) — sits last, past the combo.
+    enum FileMode { Auto, Dots, IconsNamed, List, Details, Icons };
 
     // Identity colour for a nesting depth under a ramp (depth spans 0..6). Shared so
     // the group panel's depth legend matches what the treemap paints.
