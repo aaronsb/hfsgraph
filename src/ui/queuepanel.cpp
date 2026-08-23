@@ -90,8 +90,9 @@ void QueuePanel::refresh() {
     m_list->addItem(QStringLiteral("◆ Base — original layout"));
     for (int i = 0; i < n; ++i) {
         const core::MoveOp &op = ops[i];
-        auto *item = new QListWidgetItem(
-            QStringLiteral("%1.  %2  →  %3").arg(i + 1).arg(op.sourceName, destLabel(op.destParent)));
+        auto *item = new QListWidgetItem(QStringLiteral("%1.  %2  →  %3")
+                                             .arg(i + 1)
+                                             .arg(op.sourceName, destLabel(op.destParent)));
         if (i + 1 > step) { // staged but past the current preview point — show as pending
             QFont f = item->font();
             f.setItalic(true);
@@ -112,7 +113,9 @@ void QueuePanel::refresh() {
         m_status->setText(QStringLiteral("No moves staged"));
     else
         m_status->setText(QStringLiteral("Previewing %1 of %2 staged move%3")
-                              .arg(step).arg(n).arg(n == 1 ? QString() : QStringLiteral("s")));
+                              .arg(step)
+                              .arg(n)
+                              .arg(n == 1 ? QString() : QStringLiteral("s")));
 }
 
 void QueuePanel::onRowActivated(int row) {
@@ -132,8 +135,8 @@ void QueuePanel::showVerifyReport() {
     QStringList lines;
     for (int i = 0; i < static_cast<int>(plan.ops.size()); ++i) {
         const core::OpVerification &v = plan.ops[i];
-        const QString mark = v.status == core::VerifyStatus::Ok ? QStringLiteral("✓")
-                                                                : QStringLiteral("✗");
+        const QString mark =
+            v.status == core::VerifyStatus::Ok ? QStringLiteral("✓") : QStringLiteral("✗");
         lines << QStringLiteral("%1 %2. %3").arg(mark).arg(i + 1).arg(v.detail);
     }
     const QString summary =
