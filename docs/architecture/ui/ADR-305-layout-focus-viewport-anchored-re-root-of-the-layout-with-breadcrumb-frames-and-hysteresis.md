@@ -90,11 +90,10 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
   surface under a point when a caller (the driver's `probe`/`check focus`, a callout
   re-anchor) needs to know. A lens therefore focuses only once it is zoomed larger than the
   viewport; a base and a lens may each hold a focus at once.
-- **The pop — an open decision, with a recommendation.** What happens when a focus releases
-  is the point where the spike's model split, and it is left to the operator. The two viable
-  models:
+- **The pop: the focus rect is the viewport — always (model b).** What happens when a focus
+  releases is the point where the spike's model split. Two models were viable; (b) is chosen.
 
-  **(a) Pop = clear to canonical, with the morph.** Release returns the eye to the canonical
+  **(a) Pop = clear to canonical, with the morph — not chosen.** Release returns the eye to the canonical
   map it had under it, animated; symmetric with engage (engage replaces canonical with the
   thing under the eye; release gives it back). The 60/45 gap already prevents flapping. It is
   the simplest model: it removes `focusRectAround` and the chained-pop cascade, and it keeps
@@ -103,7 +102,7 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
   lens. What (a) *keeps* is exactly that: one layout model (item-space rects, a surface that
   is its own root), with focus as a pinned overlay that comes and goes.
 
-  **(b) The focus rect is the viewport — always.** The overlay is not pinned: it is
+  **(b) The focus rect is the viewport — always — chosen.** The overlay is not pinned: it is
   re-squarified into the viewport's rect every time the focus changes, engage *and* release.
   Popping re-squarifies the *parent* into the viewport the same way engaging did; nothing is
   duplicated because there is only ever one map of any directory on screen, the one filling
@@ -116,13 +115,12 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
   has to be designed rather than falling out of one mechanism. It also keeps a morph per
   pop, so a fast wheel-out still chains animations.
 
-  **Recommendation: (b).** It matches the product thesis — the treemap as a continuous
-  zoomable map, not a map with lenses that appear by themselves — and it resolves Context §2
-  at the root rather than at the symptom. (a) is the safe choice if ADR-303's item-space
-  commitment is judged more valuable than the symmetry of ascent; if (a) is chosen, the rest
-  of this ADR stands unchanged and the only loss is that zooming *out* of a deep directory
-  goes through slivers again. Whichever is chosen, the visible-coverage rule above is the
-  precondition for either to behave.
+  **Chosen: (b).** It matches the product thesis — the treemap as a continuous zoomable map,
+  not a map with lenses that appear by themselves — and it resolves Context §2 at the root
+  rather than at the symptom. (a) stays recorded above as the fallback: if the item-space
+  tension with ADR-303/304 proves unworkable in implementation, (a) can be adopted with the
+  rest of this ADR unchanged, at the cost of zooming *out* of a deep directory going through
+  slivers again. The visible-coverage rule above is the precondition for either.
 - **Breadcrumb as real ancestor frame cells — live for every gesture.** Each ancestor of the
   focus is drawn as one thin frame cell around the overlay (a name strip plus a rim in the
   ancestor's depth colour), the innermost being the focus's parent. These are layout cells,
@@ -146,7 +144,7 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
   comparison, for keeping a subtree open while the view moves on, and for lens-depth scanning
   (ADR-304). The seam between them is `GraphScene::setLayoutFocus` (re-shaped to be
   per-surface): a future "pin focus" gesture takes the surface's current focus key and opens
-  it as an ADR-303 lens, with no new mechanism. Under model (b) the pin is also the moment a
+  it as an ADR-303 lens, with no new mechanism. The pin is also the moment a
   viewport-anchored focus becomes an item-space-pinned frame, which is the clean boundary
   between the two commitments.
 - **Lazy deepening (#36) and the interaction LOD.** No new mechanism. A truncated directory
@@ -205,10 +203,10 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
   future screenshot or coordinate assertion has to say which layout it asserts against.
 - **Morph cost and chained morphs.** 220 ms of animation per change; a fast wheel burst
   chains several (child engages as the parent's overlay grows past the viewport) and is
-  slightly jumpy. Under model (b) a fast wheel-out chains pops the same way.
+  slightly jumpy. A fast wheel-out chains pops the same way.
 - **Frames as live targets** make a 6 px rim the most consequential drop zone on screen; the
   highlight requirement mitigates but does not remove the risk of a two-levels-up move.
-- Under model (b), a focused view is not in item space; ADR-303/304's pinned-frame
+- A focused view is not in item space; ADR-303/304's pinned-frame
   assumptions (callout anchoring, `rectFor`) need a stated boundary, and the pin gesture is
   where that boundary is crossed.
 - Leaves never focus, so a directory whose bulk is one huge leaf gets no help from focus.
@@ -218,8 +216,7 @@ tree, the ledger, or the scene — and it belongs to the surface that decided it
 ### Neutral
 
 - Revises ADR-301's "the root rect is the surface": the *canonical* layout still is; the
-  overlay is a second root over it — pinned in item space under (a), anchored to the
-  viewport under (b). Extends ADR-303/304: lenses are now the deliberate sibling of an
+  overlay is a second root over it — anchored to the viewport. Extends ADR-303/304: lenses are now the deliberate sibling of an
   automatic focus, focus state lives on `FrameItem` like every other surface property, and
   `setLayoutFocus` (per-surface) is where one becomes the other.
 - Thresholds (60/45, both axes, visible intersection against the viewport rather than the
