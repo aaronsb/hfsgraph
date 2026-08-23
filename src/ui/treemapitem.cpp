@@ -105,6 +105,23 @@ GridFit fitGlyphs(const QRectF &area, const GlyphGrid &g, int count) {
     return {cols, rows, std::min(count, cols * rows)};
 }
 
+// The slots [first, last) of a 1-D glyph lattice (origin, pitch, `n` slots) that
+// overlap [lo, hi]: the on-screen window of a cell's grid. The grid itself is laid
+// over the whole cell, so what's drawn is a stable crop of it — panning inside a
+// cell reveals more of the same arrangement instead of re-packing files at the
+// viewport corner — while only visible glyphs cost anything.
+struct Span {
+    int first, last;
+};
+Span visibleSlots(qreal origin, qreal pitch, qreal size, int n, qreal lo, qreal hi) {
+    if (n <= 0 || pitch <= 0.0 || hi < lo)
+        return {0, 0};
+    const int first =
+        std::clamp(static_cast<int>(std::floor((lo - origin - size) / pitch)) + 1, 0, n);
+    const int last = std::clamp(static_cast<int>(std::floor((hi - origin) / pitch)) + 1, 0, n);
+    return {first, std::max(first, last)};
+}
+
 // `ls -l`-style permission string for a file entry: a 10-char "lrwxr-xr-x" — leading
 // type char ('l' symlink, else '-'), then owner/group/other rwx triples decoded from
 // the stored QFileDevice::Permissions bits.
@@ -242,7 +259,11 @@ TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, Si
     : m_root(root), m_w(width), m_h(height), m_metric(metric), m_ramp(ramp), m_scene(scene) {
     m_layout.setRoot(root);
     // Without this, option->exposedRect is just boundingRect(): the exposed-rect cull
-    // in drawCell never culled, and leaf contents couldn't anchor to the viewport.
+    // in drawCell never culled, and leaf contents couldn't tell what was on screen.
+    // With it, exposedRect is the region *this paint call* covers — which is why
+    // drawLeafContents crops a cell-anchored grid to it rather than packing from its
+    // corner: a partial repaint (MinimalViewportUpdate, update(rect)) then draws the
+    // same glyphs the neighbouring, unrepainted pixels already show.
     setFlag(ItemUsesExtendedStyleOption, true);
     setAcceptedMouseButtons(Qt::LeftButton);
 }
@@ -451,23 +472,36 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
     // files sit at the viewport's corner instead of off-screen at the cell's; while
     // the cell fits in view this is the cell body exactly. The rung choice below
     // still reads the full cell size (`dev`), so it doesn't flicker with panning.
-    QRectF area = dev.adjusted(3, (hasTitle ? kHeaderPx : 2.0), -2, -2);
-    const QRectF onScreen = area.intersected(visibleDev.adjusted(3, 3, -3, -3));
-    if (onScreen.isValid())
-        area = onScreen;
+    const QRectF area = dev.adjusted(3, (hasTitle ? kHeaderPx : 2.0), -2, -2);
+    const QRectF onScreen = area.intersected(visibleDev);
+    if (!onScreen.isValid())
+        return; // no part of the body is on screen: chrome is drawn, contents cost nothing
+    const int nfiles = static_cast<int>(node->files.size());
+    // Row-major lattice (icons, icon+name, dots): visit only the on-screen rows × cols.
+    auto forVisible = [&](const GlyphGrid &g, const GridFit &fit, auto &&draw) {
+        const Span rs = visibleSlots(area.y(), g.pitchY(), g.height(), fit.rows, onScreen.top(),
+                                     onScreen.bottom());
+        const Span cs =
+            visibleSlots(area.x(), g.pitch(), g.size, fit.cols, onScreen.left(), onScreen.right());
+        for (int r = rs.first; r < rs.last; ++r)
+            for (int c = cs.first; c < cs.last; ++c) {
+                const int i = r * fit.cols + c;
+                if (i < fit.count)
+                    draw(i, r, c);
+            }
+    };
 
     auto drawIcons = [&] {
         if (area.width() < kIconGlyph.size || area.height() < kIconGlyph.size)
             return false;
         p->setWorldMatrixEnabled(false);
-        const GridFit fit = fitGlyphs(area, kIconGlyph, static_cast<int>(node->files.size()));
-        for (int i = 0; i < fit.count; ++i) {
-            const int r = i / fit.cols, c = i % fit.cols;
+        const GridFit fit = fitGlyphs(area, kIconGlyph, nfiles);
+        forVisible(kIconGlyph, fit, [&](int i, int r, int c) {
             const QPoint at(static_cast<int>(area.x() + c * kIconGlyph.pitch()),
                             static_cast<int>(area.y() + r * kIconGlyph.pitch()));
             p->drawPixmap(at,
                           fileTypePixmap(node->files[i].name, static_cast<int>(kIconGlyph.size)));
-        }
+        });
         p->setWorldMatrixEnabled(true);
         return true;
     };
@@ -484,9 +518,8 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         f.setPixelSize(10);
         p->setFont(f);
         const int icon = static_cast<int>(kIconGlyph.size);
-        const GridFit fit = fitGlyphs(area, g, static_cast<int>(node->files.size()));
-        for (int i = 0; i < fit.count; ++i) {
-            const int r = i / fit.cols, c = i % fit.cols;
+        const GridFit fit = fitGlyphs(area, g, nfiles);
+        forVisible(g, fit, [&](int i, int r, int c) {
             const QString &name = node->files[i].name;
             const double x = area.x() + c * g.pitch(), y = area.y() + r * g.pitchY();
             p->drawPixmap(QPoint(static_cast<int>(x + (g.size - icon) / 2), static_cast<int>(y)),
@@ -494,7 +527,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
             p->setPen(fileTypeColor(name));
             const QStaticText st = elidedName(f, name, g.size);
             p->drawStaticText(QPointF(x + (g.size - st.size().width()) / 2.0, y + icon + 2.0), st);
-        }
+        });
         p->setWorldMatrixEnabled(true);
         return true;
     };
@@ -503,12 +536,11 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         if (area.width() < g.size || area.height() < g.size)
             return false;
         p->setWorldMatrixEnabled(false);
-        const GridFit fit = fitGlyphs(area, g, static_cast<int>(node->files.size()));
-        for (int i = 0; i < fit.count; ++i) {
-            const int r = i / fit.cols, c = i % fit.cols;
+        const GridFit fit = fitGlyphs(area, g, nfiles);
+        forVisible(g, fit, [&](int i, int r, int c) {
             p->fillRect(QRectF(area.x() + c * g.pitch(), area.y() + r * g.pitch(), g.size, g.size),
                         fileTypeColor(node->files[i].name));
-        }
+        });
         p->setWorldMatrixEnabled(true);
         return true;
     };
@@ -528,18 +560,23 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         const int cols = std::max(1, static_cast<int>(area.width() / kColW));
         const int rows = std::max(1, static_cast<int>(area.height() / rowH));
         const double colW = area.width() / cols; // distribute evenly across the width
-        const int nf = std::min(static_cast<int>(node->files.size()), cols * rows);
-        for (int i = 0; i < nf; ++i) {
-            const int col = i / rows, row = i % rows; // column-major, like ls
-            const double x = area.x() + col * colW, y = area.y() + row * rowH;
-            const QString &name = node->files[i].name;
-            p->drawPixmap(QPoint(static_cast<int>(x), static_cast<int>(y + (rowH - kIcon) / 2)),
-                          fileTypePixmap(name, static_cast<int>(kIcon)));
-            p->setPen(fileTypeColor(name));
-            const QRectF tr(x + kIcon + kIconGap, y, colW - kIcon - kIconGap - 4.0, rowH);
-            const QStaticText st = elidedName(f, name, tr.width());
-            p->drawStaticText(QPointF(tr.x(), tr.y() + (rowH - st.size().height()) / 2.0), st);
-        }
+        const int nf = std::min(nfiles, cols * rows);
+        const Span cs = visibleSlots(area.x(), colW, colW, cols, onScreen.left(), onScreen.right());
+        const Span rs = visibleSlots(area.y(), rowH, rowH, rows, onScreen.top(), onScreen.bottom());
+        for (int col = cs.first; col < cs.last; ++col)
+            for (int row = rs.first; row < rs.last; ++row) {
+                const int i = col * rows + row; // column-major, like ls
+                if (i >= nf)
+                    continue;
+                const double x = area.x() + col * colW, y = area.y() + row * rowH;
+                const QString &name = node->files[i].name;
+                p->drawPixmap(QPoint(static_cast<int>(x), static_cast<int>(y + (rowH - kIcon) / 2)),
+                              fileTypePixmap(name, static_cast<int>(kIcon)));
+                p->setPen(fileTypeColor(name));
+                const QRectF tr(x + kIcon + kIconGap, y, colW - kIcon - kIconGap - 4.0, rowH);
+                const QStaticText st = elidedName(f, name, tr.width());
+                p->drawStaticText(QPointF(tr.x(), tr.y() + (rowH - st.size().height()) / 2.0), st);
+            }
         p->setWorldMatrixEnabled(true);
         return true;
     };
@@ -569,8 +606,9 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         QColor metaCol = textColorFor(body);
         metaCol.setAlpha(160); // de-emphasised next to the file name
         const int rows = std::max(1, static_cast<int>(area.height() / rowH));
-        const int nf = std::min(static_cast<int>(node->files.size()), rows);
-        for (int i = 0; i < nf; ++i) {
+        const int nf = std::min(nfiles, rows);
+        const Span rs = visibleSlots(area.y(), rowH, rowH, nf, onScreen.top(), onScreen.bottom());
+        for (int i = rs.first; i < rs.last; ++i) {
             const core::FileEntry &fe = node->files[i];
             const double y = area.y() + i * rowH;
             p->setPen(metaCol);

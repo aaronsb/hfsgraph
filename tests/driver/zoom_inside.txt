@@ -1,0 +1,17 @@
+# Zooming the view inside a single leaf directory (a cell larger than the viewport)
+# must show that directory's files, not a bare wall: the rung grid is anchored to the
+# cell and cropped to the viewport. Fixture: the synthetic tree's root has files of
+# its own; zoom until one leaf fills the view, probe it, capture, assert content.
+resize 1200 800
+load $HFSGRAPH_FIXTURE 2
+wait
+zoom 4 600 400
+sleep 200
+zoom 4 600 400
+wait
+sleep 200
+probe 600 400
+shot driver_zoom_inside.png view
+check nonblank driver_zoom_inside.png
+echo zoom-inside ok
+quit

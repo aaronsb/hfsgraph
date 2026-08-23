@@ -430,7 +430,7 @@ bool Driver::run(const QString &line) {
         const QPointF scenePos = m_view->mapToScene(vp0);
         const core::FsNode *best = nullptr;
         qreal bestZ = -1e18;
-        for (FrameItem *f : m_scene->baseFrames()) {
+        for (FrameItem *f : m_scene->frames()) { // bases and lenses: the topmost wins
             TreemapItem *t = f->interiorTreemap();
             if (!t)
                 continue;
