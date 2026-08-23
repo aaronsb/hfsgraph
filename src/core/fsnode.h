@@ -54,9 +54,11 @@ struct FsNode {
     int fileCount = 0;                             // total regular files
     qint64 sizeBytes = 0;                          // sum of this dir's regular-file sizes
     bool truncatedDepth = false;                   // children exist on disk but scan stopped
-    // Children were scanned *after* this node, on demand (Scanner::scanChildren), not in
-    // the pass that produced the node. The treemap keeps such a node's area at its
-    // originally scanned weight so a deepen never re-flows the map around it.
+    // Children were grafted on demand (Scanner::scanChildren) *while a gesture was in
+    // flight*: the treemap keeps the node's area at its originally scanned weight
+    // until the gesture ends, so a deepen never re-flows the map under the cursor.
+    // Cleared when the gesture ends (GraphScene::setInteracting): the honest weight
+    // flows up once, in the idle repaint, and stays.
     bool lazyChildren = false;
     FsNode *parent = nullptr;
     // The durable directory id (ADR-100): a UUID stored in the `user.hfsgraph.id` xattr

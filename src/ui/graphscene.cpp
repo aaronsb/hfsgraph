@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <vector>
 
 #include <QGraphicsView>
@@ -214,6 +215,22 @@ void GraphScene::setInteracting(bool on) {
     if (m_interacting == on)
         return;
     m_interacting = on;
+    if (!on) {
+        // Release the freeze for good: every graft that landed during the gesture
+        // takes its honest weight in this idle repaint and never freezes again —
+        // otherwise each later gesture would re-freeze it and the map would flip
+        // between two layouts on every wheel notch.
+        std::function<void(core::FsNode *)> clear = [&](core::FsNode *n) {
+            n->lazyChildren = false;
+            for (const auto &c : n->children)
+                clear(c.get());
+        };
+        for (FrameItem *f : m_frames) {
+            clear(const_cast<core::FsNode *>(f->sourceRoot()));
+            if (f->node() != f->sourceRoot())
+                clear(const_cast<core::FsNode *>(f->node())); // the projected copy
+        }
+    }
     for (FrameItem *f : m_frames)
         f->setInteracting(on);
 }
@@ -660,7 +677,9 @@ void GraphScene::graftChildren(const QString &path,
             target->children = std::move(kids);
         }
         target->truncatedDepth = false;
-        target->lazyChildren = true; // weight freezes during a gesture (TreemapLayout)
+        // A graft landing mid-gesture keeps its scanned weight until the gesture ends
+        // (TreemapLayout); one landing at idle is honest at once.
+        target->lazyChildren = m_interacting;
     }
     m_graftTimer->start(); // coalesced re-layout / re-projection (deferred past any drag)
 }
