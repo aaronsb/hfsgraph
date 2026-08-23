@@ -13,7 +13,8 @@ set(CMAKE_AUTOUIC ON)
 find_package(ECM REQUIRED NO_MODULE)
 list(APPEND CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Concurrent)
+# 6.3+: QTest::mouseMove delivers button-held moves, which ui::Driver's `drag` relies on.
+find_package(Qt6 6.3 REQUIRED COMPONENTS Core Gui Widgets Concurrent Test)
 find_package(KF6 REQUIRED COMPONENTS CoreAddons)
 # Engine / OS-facility components are added as the code lands (see ADRs):
 #   KF6::Solid       — mount/device detection for volume descriptors (ADR-200)
@@ -40,9 +41,10 @@ add_executable(hfsgraph
     src/ui/graphscene.cpp
     src/ui/canvasview.cpp
     src/ui/mainwindow.cpp
+    src/ui/driver.cpp         # scripted UI driver (--script): input events + screenshots
 )
 target_include_directories(hfsgraph PRIVATE src)
-target_link_libraries(hfsgraph PRIVATE Qt6::Widgets Qt6::Concurrent KF6::CoreAddons)
+target_link_libraries(hfsgraph PRIVATE Qt6::Widgets Qt6::Concurrent Qt6::Test KF6::CoreAddons)
 
 include(GNUInstallDirs)
 install(TARGETS hfsgraph DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -104,3 +106,13 @@ add_executable(squarify_test
 target_include_directories(squarify_test PRIVATE src)
 target_link_libraries(squarify_test PRIVATE Qt6::Core)
 add_test(NAME squarify_test COMMAND squarify_test)
+
+# Driver smoke test: run the app headless through a command script — load a tree, zoom,
+# screenshot — and assert the capture isn't blank. Exercises the real event paths
+# (ui::Driver), so a regression that stops the canvas painting fails here.
+add_test(NAME driver_smoke
+         COMMAND hfsgraph --script ${CMAKE_SOURCE_DIR}/tests/driver/smoke.txt
+         WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_tests_properties(driver_smoke PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_SOURCE_DIR}/src"
+    TIMEOUT 60)

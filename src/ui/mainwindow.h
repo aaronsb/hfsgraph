@@ -36,11 +36,17 @@ class MainWindow : public QMainWindow {
     // Scan `path` to `depth` (read-only) and add it as a base surface.
     void load(const QString &path, int depth);
 
+    // Handles for the scripted driver (ui::Driver): the canvas, its scene, and the
+    // number of scans still in flight (the driver's `wait` parks on it).
+    CanvasView *view() const { return m_view; }
+    GraphScene *scene() const { return m_scene; }
+    int pendingScans() const { return m_pendingScans; }
+
   private:
-    void addBaseFolder();                              // dialog → add a base
+    void addBaseFolder();                               // dialog → add a base
     void addBaseAtPath(const QString &path, int depth); // scan + hand to the scene
-    void rescanAllBases(int depth);                   // depth changed: re-scan every base
-    void updateStatus();                              // path label + window title
+    void rescanAllBases(int depth);                     // depth changed: re-scan every base
+    void updateStatus();                                // path label + window title
 
     // Scan `path` to `depth` on a worker thread (the walk can take tens of seconds on
     // a cold/large/FUSE tree and must not freeze the UI), then deliver the owned tree
@@ -57,10 +63,10 @@ class MainWindow : public QMainWindow {
     QueuePanel *m_queuePanel;
     QLabel *m_pathLabel;
     QSpinBox *m_depthSpin;
-    QString m_currentPath; // last folder added, for the file dialog's start dir
-    int m_pendingScans = 0; // in-flight async scans (drives the busy indicator)
+    QString m_currentPath;     // last folder added, for the file dialog's start dir
+    int m_pendingScans = 0;    // in-flight async scans (drives the busy indicator)
     bool m_busyActive = false; // whether we've pushed an override cursor
-    int m_queuedDepth = -1; // a depth change requested mid-scan; applied when idle (-1 = none)
+    int m_queuedDepth = -1;    // a depth change requested mid-scan; applied when idle (-1 = none)
 };
 
 } // namespace ui
