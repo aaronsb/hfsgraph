@@ -258,7 +258,7 @@ class TreemapItem : public QGraphicsItem {
     qreal m_reveal = 1.0;                      // subdivision gate multiplier; <1 = subdivide sooner
     qreal m_detail = 1.0;            // contents-crossover gate multiplier; <1 = icons/name sooner
     int m_fileMode = Auto;           // forced file rung, or Auto (size-driven)
-    bool m_interacting = false;      // gesture in flight: skip leaf contents
+    bool m_interacting = false;      // gesture in flight: lazy weights frozen
     mutable bool m_dark = true;      // resolved from the palette each paint
     mutable bool m_anyFocus = false; // any visible group in focus mode (resolved each paint)
     // identity → 1-based ledger step for cells the staged plan relocated (#12); rebuilt

@@ -59,10 +59,11 @@ class GraphScene : public QGraphicsScene {
     void setDetail(double factor);  // contents-crossover LOD (live; no rebuild)
     void setFileMode(int mode);     // force file rung (TreemapItem::FileMode) or Auto
 
-    // Interaction LOD. The view calls noteInteraction() on every wheel/pan step: every
-    // surface drops to its fast path (no leaf contents) for the gesture, and a short
-    // idle timer restores full detail with one repaint. setInteracting() forces the
-    // state (the driver benches both paths with it).
+    // Interaction state. The view calls noteInteraction() on every wheel/pan step:
+    // every surface freezes its lazily-deepened weights for the gesture (no re-flow
+    // under the cursor), and a short idle timer releases them with one repaint. What
+    // is painted does not change with the gesture — the frame is cheap enough.
+    // setInteracting() forces the state (the driver).
     void noteInteraction();
     void setInteracting(bool on);
     bool interacting() const { return m_interacting; }

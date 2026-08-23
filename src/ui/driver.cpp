@@ -483,17 +483,19 @@ bool Driver::run(const QString &line) {
             }
             return true;
         }
-        if (what == QLatin1String("differs")) {
-            // Two captures must not be pixel-identical — the assertion that a zoom or
-            // pan between them changed what the canvas drew.
+        if (what == QLatin1String("differs") || what == QLatin1String("same")) {
+            // `differs`: two captures must not be pixel-identical — a zoom or pan
+            // between them changed what the canvas drew. `same`: they must be — the
+            // assertion that nothing in between repainted differently.
             if (!has(3))
                 return false;
             const QImage x(a.at(2)), y(a.at(3));
             if (x.isNull() || y.isNull())
                 return false;
-            if (x == y) {
-                std::fprintf(stderr, "driver: %s and %s are identical\n", qPrintable(a.at(2)),
-                             qPrintable(a.at(3)));
+            const bool same = x == y;
+            if (same != (what == QLatin1String("same"))) {
+                std::fprintf(stderr, "driver: %s and %s are %s\n", qPrintable(a.at(2)),
+                             qPrintable(a.at(3)), same ? "identical" : "different");
                 return false;
             }
             return true;
