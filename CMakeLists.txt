@@ -35,6 +35,7 @@ add_executable(hfsgraph
     src/ui/squarify.cpp
     src/ui/filetypestyle.cpp
     src/ui/grouppanel.cpp
+    src/ui/rotatedheader.cpp
     src/ui/queuepanel.cpp
     src/ui/frameitem.cpp
     src/ui/graphscene.cpp
