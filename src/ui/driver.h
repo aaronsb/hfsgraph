@@ -24,10 +24,12 @@
 //   key NAME                 press+release a key (QKeySequence name: Space, Ctrl+A…)
 //   keydown NAME / keyup NAME
 //   click X Y [MODS]         left click at viewport (X,Y); MODS = ctrl|shift|alt, '+'-joined
+//   click @NAME [MODS]       left click on the glyph of the file named NAME (see `stage`)
 //   dblclick X Y [MODS]
 //   drag X1 Y1 X2 Y2 [MODS]  press, move in steps, release (left button)
 //   set reveal|detail F      the LOD sliders' factor
-//   set filemode|ramp|metric|callout N   the toolbar combos, by index
+//   set filemode|ramp|metric|callout N   the toolbar combos, by index (filemode: the view
+//                            style — 0 Icons, 1 List, 2 Details)
 //   set deepen 0|1           lazy deepening of truncated cells on (default) or off
 //   set fast 0|1             hold the gesture state (lazy weights frozen) on or off; a
 //                            later wheel/drag re-arms the idle timer and releases it
@@ -54,7 +56,8 @@
 //   stage trash X Y          stage moving that file to the trash
 //   stage move X Y DX DY     stage moving that file into the directory cell at (DX,DY)
 //                            (X Y may be `@NAME`: the file by name in the first laid-out
-//                            leaf cell holding it — survives a re-flow)
+//                            leaf cell holding it — survives a re-flow; `@DIR/NAME` pins
+//                            the leaf whose path ends with DIR)
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
 //   check differs A B        fail if the two PNGs are pixel-identical
 //   check same A B           fail unless they are
@@ -77,6 +80,7 @@ namespace ui {
 
 class CanvasView;
 class GraphScene;
+class TreemapItem;
 class MainWindow;
 
 class Driver : public QObject {
@@ -114,6 +118,14 @@ class Driver : public QObject {
     QPoint m_probe{-1, -1};     // viewport point of the last `probe`; focus checks read
                                 // the surface under it (the viewport centre before any)
     int countNodes() const;     // directories across every base's render tree
+    // `@NAME` / `@DIR/NAME`: the file named NAME in the first laid-out leaf cell (any
+    // surface) holding one, or in the leaf whose path ends with DIR. Null item when none.
+    struct FileRef {
+        TreemapItem *item = nullptr;
+        const core::FsNode *dir = nullptr;
+        int index = -1;
+    };
+    FileRef locateFile(const QString &ref) const;
     // The layout focus of the surface under the probe point (ADR-305: per surface).
     const core::FsNode *probedFocus() const;
     int focusDepth() const; // that focus's depth below its base root, -1 if none

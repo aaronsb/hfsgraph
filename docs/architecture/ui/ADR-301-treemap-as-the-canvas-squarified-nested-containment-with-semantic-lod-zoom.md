@@ -50,16 +50,19 @@ forward (see Neutral).
   lives in `paint()`, driven by the painter zoom and the exposed viewport. A cell subdivides
   into children only once it is large enough on screen; off-screen cells are culled; labels
   and file glyphs render in device space at a **constant screen size** (zoom reveals depth,
-  it does not enlarge pixels). A leaf's files climb a five-rung ladder as the cell grows:
-  pixel-dots → bare icons → icon+name tiles → a list of names (`ls -a`) → detail rows
-  (`ls -l`, force-only). **Auto** takes the richest rung whose size gate the cell passes —
-  the list outranks the icon+name tile because it shows more legible names per cell, so the
-  tile is Auto's pick only for cells too narrow for the list yet tall enough for a tile. A
-  **forced** rung ignores those gates: it draws if its painter physically fits, and otherwise
-  falls *down* the ladder to the next rung that does, rather than drawing nothing. One table
-  (`kRungs` in `TreemapItem`) holds the ladder and its gates. A **Detail ("view distance")
-  control** scales every Auto LOD gate live (paint-only, no rebuild) so the operator tunes
-  how far out contents populate; forced rungs are not scaled.
+  it does not enlarge pixels). A leaf's files are drawn in the operator's
+  **view style** — Icons, List or Details, the same choice a file browser offers — and each
+  style climbs its own ladder of detail as the cell grows (amended 2026-08-23, replacing the
+  single five-rung ladder with a forced-rung combo): Icons is shaded box → dots → icon grid →
+  icons with names; List is shaded box → dots → columns of names (`ls -a`); Details is shaded
+  box → dots → columns → rows with the size → rows with perms/size/mtime (`ls -l`). A rung
+  that cannot hold every file shows the files that fit and the rest as a band of dots
+  beneath the grid — **fractional fit** — so detail replaces dots row by row as room
+  appears instead of a whole cell switching rung at once; the dots floor itself caps at
+  its grid's capacity and drops the rest. One table per style (`kIconsLadder` etc.
+  in `TreemapItem`) holds the rungs and their quality gates. A **Detail ("view distance")
+  control** scales every rung's quality gate live (paint-only, no rebuild) so the operator
+  tunes how far out contents populate.
 - **Colour is data-viz, not decoration.** Perceptually-uniform ramps (Viridis/Magma/Plasma/
   Cividis/Turbo) plus a categorical Spectrum, mapped by nesting depth. Each cell is a
   saturated **title bar** over a value-shifted **contents area** (darker in dark mode,

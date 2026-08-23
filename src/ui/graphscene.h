@@ -81,7 +81,7 @@ class GraphScene : public QGraphicsScene {
     int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)
     double reveal() const { return m_reveal; }      // current reveal LOD (for frames)
     double detail() const { return m_detail; }      // current detail LOD (for frames)
-    int fileMode() const { return m_fileMode; }     // current file rung (for frames)
+    int fileMode() const { return m_fileMode; }     // current view style (for frames)
 
     // Lazy deepening (#36). The scan stops at the toolbar depth, so a directory the
     // view wants to subdivide may have no children yet (FsNode::truncatedDepth). A
@@ -232,7 +232,7 @@ class GraphScene : public QGraphicsScene {
     int m_colorRamp = 0;               // TreemapItem::Viridis
     double m_reveal = 1.0;             // subdivision LOD, persists across rebuilds
     double m_detail = 1.0;             // contents-crossover LOD, persists across rebuilds
-    int m_fileMode = 0;                // TreemapItem::FileMode (0 = Auto), persists
+    int m_fileMode = 0;                // TreemapItem::FileMode (0 = Icons), persists
     bool m_uniqueFrames = true;        // one frame per node (ADR-304 cardinality)
     int m_baseDepth = 2;               // toolbar scan depth; lenses scan baseDepth + level
     QSet<QString> m_loadedWorkspaces;  // roots whose sidecar we've loaded (load once, ADR-102 #15)

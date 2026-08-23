@@ -151,6 +151,14 @@ add_test(NAME driver_select
 set_tests_properties(driver_select PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_zoom"
     TIMEOUT 60)
+# Fractional fit (ADR-301): a click on a remainder dot selects that file; Shift spans
+# grid and band.
+add_test(NAME driver_band
+         COMMAND sh -c "python3 '${CMAKE_SOURCE_DIR}/tests/driver/make_synth.py' synth_zoom --depth 2 --seed 3 >/dev/null && '$<TARGET_FILE:hfsgraph>' --script '${CMAKE_SOURCE_DIR}/tests/driver/band.txt'"
+         WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_tests_properties(driver_band PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_BINARY_DIR}/synth_zoom"
+    TIMEOUT 60)
 # Staged file ops (#38): rename, trash and move-file through the ledger; the projection
 # shows the result and the queue counts the ops.
 add_test(NAME driver_fileops

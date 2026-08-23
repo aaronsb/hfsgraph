@@ -6,6 +6,7 @@ resize 1200 800
 load $HFSGRAPH_FIXTURE 2
 wait
 set focus 0   # pinned to the canonical layout (focus is off by default; stated for clarity)
+set filemode 1   # List style: the rows below are pinned to its Columns rung
 zoom 4 600 400
 sleep 200
 zoom 4 600 400
