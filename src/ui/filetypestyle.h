@@ -22,8 +22,9 @@ QIcon fileTypeIcon(const QString &name);
 // The icon already rendered at `px` device pixels, cached per (extension, size).
 // The per-frame path for the icon rungs: QIcon::paint re-resolves the engine's pixmap
 // on every call, which dominated paint at large window sizes; drawPixmap of a cached
-// render is a blit. The reference is stable for the process lifetime.
-const QPixmap &fileTypePixmap(const QString &name, int px);
+// render is a blit. Returned by value (implicitly shared) — a reference into the
+// cache would dangle on rehash.
+QPixmap fileTypePixmap(const QString &name, int px);
 
 // Representative colour for a filename's type, cached. Curated choices for common
 // categories at compile time; anything unlisted gets a deterministic colour

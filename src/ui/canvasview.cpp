@@ -200,17 +200,23 @@ void CanvasView::drawBackground(QPainter *painter, const QRectF &rect) {
         tp.setRenderHint(QPainter::Antialiasing, true);
         tp.setPen(Qt::NoPen);
         tp.setBrush(dot);
-        tp.drawEllipse(QPointF(0.0, 0.0), 1.4, 1.4);
+        tp.drawEllipse(QPointF(tilePx / 2.0, tilePx / 2.0), 1.4, 1.4); // whole disc, centred
         tp.end();
         tileKey = key;
     }
-    QBrush brush(tile);
-    const qreal unit = tilePx / scale; // one tile in scene units (≈ spacing)
-    brush.setTransform(QTransform::fromScale(unit / tilePx, unit / tilePx));
+    // Blit in device space (world matrix off) so the tile maps 1:1 to pixels — a
+    // scene-space brush with a 1/scale transform lands on Qt's resampled-texture path.
+    // The brush origin is the scene origin in device pixels, shifted by half a tile so
+    // each dot's centre sits on a lattice point; the grid stays anchored to the scene.
+    const QTransform toDevice = painter->worldTransform();
+    const QRectF devRect = toDevice.mapRect(rect);
+    painter->save();
+    painter->setWorldMatrixEnabled(false);
     painter->setPen(Qt::NoPen);
-    painter->setBrush(brush);
-    painter->setBrushOrigin(QPointF(0.0, 0.0));
-    painter->drawRect(rect);
+    painter->setBrush(QBrush(tile));
+    painter->setBrushOrigin(toDevice.map(QPointF(0.0, 0.0)) - QPointF(tilePx / 2.0, tilePx / 2.0));
+    painter->drawRect(devRect);
+    painter->restore();
 }
 
 } // namespace ui

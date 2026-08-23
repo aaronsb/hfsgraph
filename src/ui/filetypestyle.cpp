@@ -35,7 +35,7 @@ QIcon fileTypeIcon(const QString &name) {
     return icon;
 }
 
-const QPixmap &fileTypePixmap(const QString &name, int px) {
+QPixmap fileTypePixmap(const QString &name, int px) {
     static QHash<QString, QPixmap> cache; // "ext:px" → rendered icon
     const QString key = extensionOf(name) + QLatin1Char(':') + QString::number(px);
     auto it = cache.find(key);

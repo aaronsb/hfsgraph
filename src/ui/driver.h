@@ -28,12 +28,14 @@
 //   drag X1 Y1 X2 Y2 [MODS]  press, move in steps, release (left button)
 //   set reveal|detail F      the LOD sliders' factor
 //   set filemode|ramp|metric|callout N   the toolbar combos, by index
-//   set fast 0|1             hold the interaction LOD (no leaf contents) on or off
+//   set fast 0|1             hold the interaction LOD (no leaf contents) on or off; a
+//                            later wheel/drag re-arms the idle timer and releases it
 //   shot PATH [view]         save a PNG of the main window, or of the canvas viewport only
 //   check bases N            fail unless the scene holds N base surfaces
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
 //   check differs A B        fail if the two PNGs are pixel-identical
 //   bench [N]                repaint the viewport N times (default 20), print ms/frame
+//                            (paint only — no compositor hand-off; one warm-up frame first)
 //   echo TEXT                print to stdout
 //   quit                     exit 0 (a failed command exits 2)
 #pragma once

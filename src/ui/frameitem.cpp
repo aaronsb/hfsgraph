@@ -193,6 +193,7 @@ void FrameItem::rebuildInterior() {
     m_interior->setReveal(m_scene->reveal());
     m_interior->setDetail(m_scene->detail());
     m_interior->setFileMode(m_scene->fileMode());
+    m_interior->setInteracting(m_scene->interacting()); // a frame built mid-gesture joins it
     m_interior->setGroupStore(&m_scene->groups());
     m_interior->setOwnerFrame(this); // so its double-clicks record this frame as the parent
     m_interior->setParentItem(this);

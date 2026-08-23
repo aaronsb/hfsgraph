@@ -378,6 +378,7 @@ bool Driver::run(const QString &line) {
         // current view state, which a sampling profiler over a whole run can't isolate
         // from scanning and I/O.
         const int n = has(1) ? std::max(1, static_cast<int>(num(1))) : 20;
+        vp->repaint(); // warm-up: the first frame pays for cache population
         QElapsedTimer t;
         t.start();
         for (int i = 0; i < n; ++i)

@@ -24,6 +24,7 @@
 #include <QLocale>
 #include <QPainter>
 #include <QPalette>
+#include <QCache>
 #include <QStaticText>
 #include <QStyleOptionGraphicsItem>
 #include <QTransform>
@@ -109,20 +110,21 @@ QString detailMeta(const core::FileEntry &fe) {
 // repeat heavily across a tree (README.md, .gitignore…) and the width is bucketed, so
 // the cache stays small and hits almost always. Keyed on font pixel size too, since
 // the rungs use 10px and the title 11px.
-const QStaticText &elidedName(const QFont &font, const QString &name, qreal width) {
-    static QHash<QString, QStaticText> cache;
-    const int bucket = static_cast<int>(width / 6.0); // re-elide only across 6px steps
+QStaticText elidedName(const QFont &font, const QString &name, qreal width) {
+    // Bounded: a continuous zoom walks every name through many width buckets, and
+    // each entry holds a prepared QTextLayout. LRU eviction keeps the working set.
+    static QCache<QString, QStaticText> cache(4096);
+    const int bucket = static_cast<int>(std::max<qreal>(0.0, width) / 6.0); // 6px steps
     const QString key = QString::number(font.pixelSize()) + QLatin1Char('|') +
                         QString::number(bucket) + QLatin1Char('|') + name;
-    auto it = cache.find(key);
-    if (it == cache.end()) {
-        QStaticText st(QFontMetrics(font).elidedText(name, Qt::ElideMiddle, bucket * 6));
-        st.setTextFormat(Qt::PlainText);
-        st.setPerformanceHint(QStaticText::AggressiveCaching);
-        st.prepare(QTransform(), font);
-        it = cache.insert(key, st);
-    }
-    return it.value();
+    if (const QStaticText *hit = cache.object(key))
+        return *hit; // implicitly shared: a copy is a refcount bump
+    auto *st = new QStaticText(QFontMetrics(font).elidedText(name, Qt::ElideMiddle, bucket * 6));
+    st->setTextFormat(Qt::PlainText);
+    st->setPerformanceHint(QStaticText::AggressiveCaching);
+    st->prepare(QTransform(), font);
+    cache.insert(key, st);
+    return *st;
 }
 
 // Standard perceptually-uniform data-viz ramps, each as 8 RGB control points
@@ -397,7 +399,7 @@ void TreemapItem::drawCell(QPainter *p, const core::FsNode *node, const QRectF &
         f.setPixelSize(11);
         p->setFont(f);
         p->setPen(textColorFor(title));
-        const QStaticText &st = elidedName(f, node->name, dev.width() - 6);
+        const QStaticText st = elidedName(f, node->name, dev.width() - 6);
         p->drawStaticText(QPointF(dev.x() + 4, dev.y() + (kHeaderPx - st.size().height()) / 2.0),
                           st);
         p->setWorldMatrixEnabled(true);
@@ -527,7 +529,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
                           fileTypePixmap(name, static_cast<int>(kIcon)));
             p->setPen(fileTypeColor(name));
             const QRectF tr(x + kIcon + kIconGap, y, colW - kIcon - kIconGap - 4.0, rowH);
-            const QStaticText &st = elidedName(f, name, tr.width());
+            const QStaticText st = elidedName(f, name, tr.width());
             p->drawStaticText(QPointF(tr.x(), tr.y() + (rowH - st.size().height()) / 2.0), st);
         }
         p->setWorldMatrixEnabled(true);
@@ -571,7 +573,7 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
             p->setPen(fileTypeColor(fe.name));
             const QRectF tr(nx + kIcon + kGap, y, area.right() - (nx + kIcon + kGap), rowH);
             if (tr.width() > 8.0) {
-                const QStaticText &st = elidedName(f, fe.name, tr.width());
+                const QStaticText st = elidedName(f, fe.name, tr.width());
                 p->drawStaticText(QPointF(tr.x(), tr.y() + (rowH - st.size().height()) / 2.0), st);
             }
         }
@@ -583,9 +585,12 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         f.setPixelSize(11);
         p->setFont(f);
         p->setPen(textColorFor(body));
-        const QStaticText &st = elidedName(f, node->name, dev.width() - 6);
+        const QStaticText st = elidedName(f, node->name, dev.width() - 6);
+        p->save();
+        p->setClipRect(dev); // a low Detail factor can hand an 11px label a 7px cell
         p->drawStaticText(dev.center() - QPointF(st.size().width() / 2.0, st.size().height() / 2.0),
                           st);
+        p->restore();
         p->setWorldMatrixEnabled(true);
     };
 
