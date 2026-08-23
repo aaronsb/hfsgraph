@@ -13,7 +13,7 @@ namespace ui {
 
 bool TreemapLayout::Params::operator==(const Params &o) const {
     return width == o.width && height == o.height && metric == o.metric && reveal == o.reveal &&
-           detail == o.detail && zoom == o.zoom;
+           detail == o.detail && zoom == o.zoom && freezeLazy == o.freezeLazy;
 }
 
 void TreemapLayout::setRoot(const core::FsNode *root) {
@@ -33,7 +33,7 @@ double TreemapLayout::weight(const core::FsNode *n) const {
     if (it != m_weight.end())
         return it->second;
     double w = m_params.metric == Bytes ? static_cast<double>(n->sizeBytes) : n->fileCount;
-    if (!n->lazyChildren) // a deepened node's area is frozen at its scanned weight
+    if (!(n->lazyChildren && m_params.freezeLazy)) // frozen mid-gesture only
         for (const auto &c : n->children)
             w += weight(c.get());
     w = std::max(w, 1.0);
@@ -66,9 +66,9 @@ QRectF TreemapLayout::innerRect(const QRectF &rect, bool hasTitle) const {
 bool TreemapLayout::ensure(const Params &p) {
     if (m_valid && p == m_params)
         return false;
-    const bool metricChanged = p.metric != m_params.metric;
+    const bool weightsChanged = p.metric != m_params.metric || p.freezeLazy != m_params.freezeLazy;
     m_params = p;
-    if (metricChanged)
+    if (weightsChanged)
         m_weight.clear();
     m_cells.clear();
     m_index.clear();

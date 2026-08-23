@@ -34,6 +34,7 @@
 //   shot PATH [view]         save a PNG of the main window, or of the canvas viewport only
 //   check bases N            fail unless the scene holds N base surfaces
 //   check nodes N            fail unless the bases hold at least N directories (prints the count)
+//   mark                     remember the directory count; `check grew` fails unless it rose
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
 //   check differs A B        fail if the two PNGs are pixel-identical
 //   bench [N]                repaint the viewport N times (default 20), print ms/frame
@@ -77,10 +78,13 @@ class Driver : public QObject {
     CanvasView *m_view;
     GraphScene *m_scene;
     QStringList m_lines;
-    int m_pc = 0;           // next line to run
-    int m_settle = 0;       // remaining idle turns before the next command
-    int m_sleepMs = 0;      // wall-clock delay before the next command (`sleep`)
-    bool m_waiting = false; // parked on `wait` until scans are idle
+    int m_pc = 0;               // next line to run
+    int m_settle = 0;           // remaining idle turns before the next command
+    int m_sleepMs = 0;          // wall-clock delay before the next command (`sleep`)
+    bool m_waiting = false;     // parked on `wait` until scans are idle
+    bool m_waitPainted = false; // `wait` forced its one repaint (deepen requests come from paint)
+    int m_mark = -1;            // directory count at the last `mark`
+    int countNodes() const;     // directories across every base's render tree
 };
 
 } // namespace ui

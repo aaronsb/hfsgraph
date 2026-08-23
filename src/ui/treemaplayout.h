@@ -63,6 +63,10 @@ class TreemapLayout {
         qreal detail = 1.0; // title gate multiplier
         qreal zoom = 1.0;   // device px per item unit; one scale for both axes (the
                             // view never scales anisotropically)
+        // While a gesture is in flight, a lazily-deepened node keeps its scanned weight
+        // so the map doesn't re-flow under the cursor; released on idle, the children's
+        // real weights flow up — one re-layout, while the user is looking.
+        bool freezeLazy = false;
         bool operator==(const Params &o) const; // exact — params are deterministic copies
     };
 
@@ -97,9 +101,8 @@ class TreemapLayout {
 
     // Subtree weight under the current metric (files or bytes), memoized. Floored
     // at 1 so empty directories still get a sliver.
-    // A lazily-deepened node keeps the weight it had when scanned (its own files
-    // only), so deepening never re-flows the map around it; its children divide
-    // that fixed area among themselves.
+    // With Params::freezeLazy, a lazily-deepened node keeps the weight it had when
+    // scanned (its own files only) and its children divide that fixed area.
     double weight(const core::FsNode *n) const;
 
   private:

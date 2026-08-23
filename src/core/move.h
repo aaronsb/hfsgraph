@@ -102,4 +102,9 @@ std::vector<std::unique_ptr<FsNode>> projectForest(const std::vector<const FsNod
 std::vector<MoveLegality> replayLegality(const std::vector<const FsNode *> &roots,
                                          const std::vector<MoveOp> &ops);
 
+// A deep copy of a subtree (files, counts, flags, identity key), parented to `parent`.
+// The scene uses it to hand one deepen scan to several surfaces holding the same
+// directory (a base and a lens over it).
+std::unique_ptr<FsNode> cloneSubtree(const FsNode &src, FsNode *parent);
+
 } // namespace core

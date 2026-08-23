@@ -375,7 +375,7 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
     if (cell.wantsChildren && m_scene)
         m_scene->requestDeepen(node); // the scan stopped here and the view wants more
     if (node->truncatedDepth && node->children.empty())
-        drawUnscannedMark(p, rect); // "there is more below" — children not scanned yet
+        drawUnscannedMark(p, hasTitle ? dev.adjusted(0, kHeaderPx, 0, 0) : dev); // more below
     if (!m_interacting)
         drawLeafContents(p, node, dev, hasTitle, body);
     dimScrim(); // leaf: dim the whole cell (body + contents) when de-emphasised
@@ -544,14 +544,14 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         drawDots(); // Auto floor: density dots where even the name won't fit
 }
 
-void TreemapItem::drawUnscannedMark(QPainter *p, const QRectF &rect) const {
-    // A sparse diagonal hatch in the text colour at low alpha, the opposite diagonal
-    // from the amber staged-move hatch so the two never read alike. Cosmetic (device-
-    // space pattern) so density is constant under zoom.
-    QColor lines = m_dark ? QColor(255, 255, 255, 28) : QColor(0, 0, 0, 28);
+void TreemapItem::drawUnscannedMark(QPainter *p, const QRectF &dev) const {
+    // A sparse diagonal hatch in the text colour at low alpha over the cell body, the
+    // opposite diagonal from the amber staged-move hatch so the two never read alike.
+    // Device-space so the density is constant under zoom.
+    const QColor lines = m_dark ? QColor(255, 255, 255, 28) : QColor(0, 0, 0, 28);
     p->save();
     p->setWorldMatrixEnabled(false);
-    p->fillRect(p->worldTransform().mapRect(rect), QBrush(lines, Qt::BDiagPattern));
+    p->fillRect(dev, QBrush(lines, Qt::BDiagPattern));
     p->restore();
 }
 
@@ -621,6 +621,7 @@ void TreemapItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *optio
     lp.reveal = m_reveal;
     lp.detail = m_detail;
     lp.zoom = toDevice.m11() > 0 ? toDevice.m11() : 1.0;
+    lp.freezeLazy = m_interacting; // stable under the cursor; honest once idle
     m_layout.ensure(lp);
     if (!m_layout.cells().empty())
         drawCell(painter, 0, toDevice, exposed);

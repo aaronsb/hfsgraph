@@ -79,7 +79,7 @@ class GraphScene : public QGraphicsScene {
     // layout. The node's area is frozen at its scanned weight (TreemapLayout::weight),
     // so the map doesn't re-flow under the cursor.
     void requestDeepen(const core::FsNode *node);
-    int deepensInFlight() const { return m_deepening.size(); } // for the driver's `wait`
+    int deepensInFlight() const { return static_cast<int>(m_deepening.size()); } // driver `wait`
     void setLazyDeepen(bool on); // off: truncated cells stay hatched; on repaints to request
 
     // The base scan depth (toolbar Depth). A level-N lens scans its own subtree to
@@ -198,6 +198,7 @@ class GraphScene : public QGraphicsScene {
     int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
     QSet<QString> m_loadedWorkspaces; // roots whose sidecar we've loaded (load once, ADR-102 #15)
     QSet<QString> m_deepening;        // on-disk paths with a deepen scan in flight
+    QTimer *m_graftTimer = nullptr;   // coalesces layout invalidation across landing grafts
     bool m_lazyDeepen = true;         // requestDeepen is a no-op when false (tests, benches)
     int m_calloutMode = 0;            // 0 Filled, 1 Lines, 2 Off (ADR-304)
     bool m_interacting = false;       // a zoom/pan gesture is in flight (interaction LOD)

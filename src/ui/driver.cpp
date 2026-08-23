@@ -112,11 +112,18 @@ bool Driver::expand(const QString &line, QString &out) const {
 
 void Driver::step() {
     if (m_waiting) {
+        if (!m_waitPainted) {
+            // Deepen requests are issued by paint: force one so `wait` sees them rather
+            // than returning before an offscreen repaint has landed.
+            m_view->viewport()->repaint();
+            m_waitPainted = true;
+        }
         if (m_window->pendingScans() > 0 || m_scene->deepensInFlight() > 0) {
             QTimer::singleShot(20, this, &Driver::step);
             return;
         }
         m_waiting = false;
+        m_waitPainted = false;
         m_settle = 3; // let the post-scan fit + paint land before the next command
     }
     if (m_settle > 0) {
@@ -333,9 +340,11 @@ bool Driver::run(const QString &line) {
         return true;
     }
     if (cmd == QLatin1String("check")) {
-        if (!has(2))
+        if (!has(1))
             return false;
         const QString what = a.at(1).toLower();
+        if (!has(2) && what != QLatin1String("grew"))
+            return false; // every check but `grew` takes an argument
         if (what == QLatin1String("bases")) {
             // The number of base surfaces the scene holds — catches an unreadable
             // `load` path, which the window reports in a label rather than failing.
@@ -347,21 +356,20 @@ bool Driver::run(const QString &line) {
             }
             return true;
         }
-        if (what == QLatin1String("nodes")) {
-            // Directories across every base's render tree must be at least N —
-            // the lazy-deepening assertion (the count grows as subtrees arrive).
-            const int want = static_cast<int>(num(2));
-            int got = 0;
-            std::function<void(const core::FsNode *)> count = [&](const core::FsNode *n) {
-                if (!n)
-                    return;
-                ++got;
-                for (const auto &c : n->children)
-                    count(c.get());
-            };
-            for (FrameItem *f : m_scene->baseFrames())
-                count(f->node());
+        if (what == QLatin1String("nodes") || what == QLatin1String("grew")) {
+            // `check nodes N`: directories across every base's render tree ≥ N.
+            // `check grew`: more than at the last `mark` — the lazy-deepening assertion
+            // in fixture-independent form.
+            const int got = countNodes();
             std::printf("nodes %d\n", got);
+            if (what == QLatin1String("grew")) {
+                if (m_mark < 0 || got <= m_mark) {
+                    std::fprintf(stderr, "driver: %d nodes, mark was %d\n", got, m_mark);
+                    return false;
+                }
+                return true;
+            }
+            const int want = static_cast<int>(num(2));
             if (got < want) {
                 std::fprintf(stderr, "driver: %d nodes, expected at least %d\n", got, want);
                 return false;
@@ -414,6 +422,11 @@ bool Driver::run(const QString &line) {
         std::fflush(stdout);
         return true;
     }
+    if (cmd == QLatin1String("mark")) {
+        m_mark = countNodes(); // for a later `check grew`
+        std::printf("mark %d\n", m_mark);
+        return true;
+    }
     if (cmd == QLatin1String("echo")) {
         std::printf("%s\n", qPrintable(line.mid(4).trimmed()));
         std::fflush(stdout);
@@ -425,6 +438,20 @@ bool Driver::run(const QString &line) {
     }
     std::fprintf(stderr, "driver: unknown command '%s'\n", qPrintable(cmd));
     return false;
+}
+
+int Driver::countNodes() const {
+    int got = 0;
+    std::function<void(const core::FsNode *)> count = [&](const core::FsNode *n) {
+        if (!n)
+            return;
+        ++got;
+        for (const auto &c : n->children)
+            count(c.get());
+    };
+    for (FrameItem *f : m_scene->baseFrames())
+        count(f->node());
+    return got;
 }
 
 void Driver::fail(const QString &message) {
