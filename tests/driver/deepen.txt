@@ -1,0 +1,19 @@
+# Lazy deepening (#36): load the repo at depth 1 — every top-level directory is a
+# truncated leaf. With deepening held off, the map shows them hatched; switched on,
+# the next paint requests their children, `wait` parks on those scans, and the
+# directory count must grow well past what depth 1 gave.
+resize 1200 800
+set deepen 0
+load $HFSGRAPH_FIXTURE 1
+wait
+check bases 1
+check nodes 5            # root + top-level dirs (src, docs, tests, …)
+shot driver_deepen_before.png view
+set deepen 1
+settle                   # a paint → requests queued → scans in flight
+wait                     # parks until every deepen has landed
+check nodes 20           # src/{core,ui,platform}, docs/{architecture,scripts}, tests/driver, …
+shot driver_deepen_after.png view
+check differs driver_deepen_before.png driver_deepen_after.png
+echo deepen ok
+quit

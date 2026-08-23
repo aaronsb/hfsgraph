@@ -125,6 +125,12 @@ add_test(NAME treemaplayout_test COMMAND treemaplayout_test)
 add_test(NAME driver_smoke
          COMMAND hfsgraph --script ${CMAKE_SOURCE_DIR}/tests/driver/smoke.txt
          WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+add_test(NAME driver_deepen
+         COMMAND hfsgraph --script ${CMAKE_SOURCE_DIR}/tests/driver/deepen.txt
+         WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_tests_properties(driver_deepen PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_SOURCE_DIR}"
+    TIMEOUT 60)
 set_tests_properties(driver_smoke PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HFSGRAPH_FIXTURE=${CMAKE_SOURCE_DIR}/src"
     TIMEOUT 60)

@@ -125,6 +125,8 @@ class TreemapItem : public QGraphicsItem {
     // The staged-move diff decoration (ADR-302 #12): a crosshatch + a step-number badge
     // marking a square the plan relocated, drawn on top of the cell (and its children).
     void drawDiffMark(QPainter *painter, const QRectF &dev, int step) const;
+    // The "children not scanned yet" hatch on a truncated leaf (lazy deepening, #36).
+    void drawUnscannedMark(QPainter *painter, const QRectF &rect) const;
     // The plan step that actually relocated `node` (0 = none) — gates drawDiffMark so a
     // skipped op never paints a false mark on a node still in its original place.
     int diffStepFor(const core::FsNode *node) const;

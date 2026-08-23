@@ -4,11 +4,14 @@
 #include "driver.h"
 
 #include "canvasview.h"
+#include "core/fsnode.h"
+#include "frameitem.h"
 #include "graphscene.h"
 #include "mainwindow.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <functional>
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -109,7 +112,7 @@ bool Driver::expand(const QString &line, QString &out) const {
 
 void Driver::step() {
     if (m_waiting) {
-        if (m_window->pendingScans() > 0) {
+        if (m_window->pendingScans() > 0 || m_scene->deepensInFlight() > 0) {
             QTimer::singleShot(20, this, &Driver::step);
             return;
         }
@@ -306,6 +309,8 @@ bool Driver::run(const QString &line) {
             m_scene->setSizeMetric(i);
         else if (what == QLatin1String("callout"))
             m_scene->setCalloutMode(i);
+        else if (what == QLatin1String("deepen"))
+            m_scene->setLazyDeepen(i != 0); // lazy deepening on/off (off = a fixed-depth control)
         else if (what == QLatin1String("fast"))
             m_scene->setInteracting(i != 0); // interaction LOD, held for benching
         else
@@ -338,6 +343,27 @@ bool Driver::run(const QString &line) {
             const int got = static_cast<int>(m_scene->baseFrames().size());
             if (got != want) {
                 std::fprintf(stderr, "driver: %d bases, expected %d\n", got, want);
+                return false;
+            }
+            return true;
+        }
+        if (what == QLatin1String("nodes")) {
+            // Directories across every base's render tree must be at least N —
+            // the lazy-deepening assertion (the count grows as subtrees arrive).
+            const int want = static_cast<int>(num(2));
+            int got = 0;
+            std::function<void(const core::FsNode *)> count = [&](const core::FsNode *n) {
+                if (!n)
+                    return;
+                ++got;
+                for (const auto &c : n->children)
+                    count(c.get());
+            };
+            for (FrameItem *f : m_scene->baseFrames())
+                count(f->node());
+            std::printf("nodes %d\n", got);
+            if (got < want) {
+                std::fprintf(stderr, "driver: %d nodes, expected at least %d\n", got, want);
                 return false;
             }
             return true;

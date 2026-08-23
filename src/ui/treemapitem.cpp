@@ -372,6 +372,10 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
         return;
     }
 
+    if (cell.wantsChildren && m_scene)
+        m_scene->requestDeepen(node); // the scan stopped here and the view wants more
+    if (node->truncatedDepth && node->children.empty())
+        drawUnscannedMark(p, rect); // "there is more below" — children not scanned yet
     if (!m_interacting)
         drawLeafContents(p, node, dev, hasTitle, body);
     dimScrim(); // leaf: dim the whole cell (body + contents) when de-emphasised
@@ -538,6 +542,17 @@ void TreemapItem::drawLeafContents(QPainter *p, const core::FsNode *node, const 
         drawDirName(); // the cell's own name (Auto fallback, or a fileless dir)
     else if (hasFiles)
         drawDots(); // Auto floor: density dots where even the name won't fit
+}
+
+void TreemapItem::drawUnscannedMark(QPainter *p, const QRectF &rect) const {
+    // A sparse diagonal hatch in the text colour at low alpha, the opposite diagonal
+    // from the amber staged-move hatch so the two never read alike. Cosmetic (device-
+    // space pattern) so density is constant under zoom.
+    QColor lines = m_dark ? QColor(255, 255, 255, 28) : QColor(0, 0, 0, 28);
+    p->save();
+    p->setWorldMatrixEnabled(false);
+    p->fillRect(p->worldTransform().mapRect(rect), QBrush(lines, Qt::BDiagPattern));
+    p->restore();
 }
 
 void TreemapItem::drawDiffMark(QPainter *p, const QRectF &dev, int step) const {

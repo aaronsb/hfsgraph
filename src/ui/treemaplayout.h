@@ -29,11 +29,14 @@ namespace ui {
 struct LayoutCell {
     QRectF rect; // item coordinates
     const core::FsNode *node;
-    int depth;                 // nesting depth under the layout root (root = 0)
-    int parent;                // index of the parent cell, -1 for the root
-    int firstChild = -1;       // index of the first child cell, -1 if a leaf
-    int nextSibling = -1;      // index of the next sibling cell, -1 if last
-    bool subdivided = false;   // children were laid out (the LOD gate passed)
+    int depth;               // nesting depth under the layout root (root = 0)
+    int parent;              // index of the parent cell, -1 for the root
+    int firstChild = -1;     // index of the first child cell, -1 if a leaf
+    int nextSibling = -1;    // index of the next sibling cell, -1 if last
+    bool subdivided = false; // children were laid out (the LOD gate passed)
+    // The gate passed but the node has no children *yet*: the scan stopped here
+    // (truncatedDepth). The painter asks the scene to deepen it (lazy deepening).
+    bool wantsChildren = false;
     bool hasTitle = false;     // wide/tall enough on screen for a header strip
     QRectF inner;              // the area children tile (rect minus header + pad)
     std::vector<QRectF> holes; // child rects culled for size: nothing paints them
@@ -94,6 +97,9 @@ class TreemapLayout {
 
     // Subtree weight under the current metric (files or bytes), memoized. Floored
     // at 1 so empty directories still get a sliver.
+    // A lazily-deepened node keeps the weight it had when scanned (its own files
+    // only), so deepening never re-flows the map around it; its children divide
+    // that fixed area among themselves.
     double weight(const core::FsNode *n) const;
 
   private:

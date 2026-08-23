@@ -69,6 +69,19 @@ class GraphScene : public QGraphicsScene {
     double detail() const { return m_detail; }      // current detail LOD (for frames)
     int fileMode() const { return m_fileMode; }     // current file rung (for frames)
 
+    // Lazy deepening (#36). The scan stops at the toolbar depth, so a directory the
+    // view wants to subdivide may have no children yet (FsNode::truncatedDepth). A
+    // treemap calls requestDeepen for such a node as it paints; the scene scans that
+    // directory's subdirectories one level deep on a worker thread (deduped by path,
+    // so a repaint storm costs one scan), grafts them into the *source* tree the
+    // node came from — a projection or lens copy resolves to its source by path, so a
+    // later re-projection keeps the children — then drops every surface's cached
+    // layout. The node's area is frozen at its scanned weight (TreemapLayout::weight),
+    // so the map doesn't re-flow under the cursor.
+    void requestDeepen(const core::FsNode *node);
+    int deepensInFlight() const { return m_deepening.size(); } // for the driver's `wait`
+    void setLazyDeepen(bool on); // off: truncated cells stay hatched; on repaints to request
+
     // The base scan depth (toolbar Depth). A level-N lens scans its own subtree to
     // baseDepth + N (capped), so deeper lenses reveal more detail (ADR-304).
     void setBaseDepth(int depth) { m_baseDepth = depth; }
@@ -160,6 +173,9 @@ class GraphScene : public QGraphicsScene {
     void resolveGroups();     // merge persisted groups + re-resolve rule groups across bases
     void updateSceneBounds(); // generous sceneRect so panning works in all directions
     void restackFrames();     // reassign z so each callout sits just under its frame
+    // Graft a finished deepen scan into the first tree (base source or lens) holding a
+    // still-childless node at `path`, then invalidate layouts / re-project.
+    void graftChildren(const QString &path, std::vector<std::unique_ptr<core::FsNode>> kids);
     // The deepest base-surface cell under a scene point, with the owning base frame —
     // the move-drag drop target (bases render the projection; lens targets are #13).
     std::pair<FrameItem *, const core::FsNode *> surfaceCellAt(const QPointF &scenePos) const;
@@ -181,6 +197,8 @@ class GraphScene : public QGraphicsScene {
     bool m_uniqueFrames = true;       // one frame per node (ADR-304 cardinality)
     int m_baseDepth = 2;              // toolbar scan depth; lenses scan baseDepth + level
     QSet<QString> m_loadedWorkspaces; // roots whose sidecar we've loaded (load once, ADR-102 #15)
+    QSet<QString> m_deepening;        // on-disk paths with a deepen scan in flight
+    bool m_lazyDeepen = true;         // requestDeepen is a no-op when false (tests, benches)
     int m_calloutMode = 0;            // 0 Filled, 1 Lines, 2 Off (ADR-304)
     bool m_interacting = false;       // a zoom/pan gesture is in flight (interaction LOD)
     QTimer *m_idleTimer = nullptr;    // clears m_interacting after the gesture goes quiet

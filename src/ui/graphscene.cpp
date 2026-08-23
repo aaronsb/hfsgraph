@@ -21,7 +21,9 @@
 #include <QRectF>
 #include <QTimer>
 #include <QTransform>
+#include <QFutureWatcher>
 #include <QWidget>
+#include <QtConcurrent>
 
 #include "core/move.h"
 
@@ -438,6 +440,89 @@ void GraphScene::scrubTo(int step) {
     m_ledger.setStep(step);
     rebuildProjection();
     Q_EMIT ledgerChanged();
+}
+
+namespace {
+// The node at `path` under `root` (by on-disk path), or null. Mutable: the caller
+// grafts into it — the scene owns the trees through its frames.
+core::FsNode *findByPath(core::FsNode *root, const QString &path) {
+    if (!root)
+        return nullptr;
+    if (root->path == path)
+        return root;
+    if (!path.startsWith(root->path + QLatin1Char('/')) && root->path != QStringLiteral("/"))
+        return nullptr; // not under this root: prune
+    for (const auto &c : root->children)
+        if (core::FsNode *hit = findByPath(c.get(), path))
+            return hit;
+    return nullptr;
+}
+} // namespace
+
+void GraphScene::requestDeepen(const core::FsNode *node) {
+    if (!m_lazyDeepen || !node || !node->truncatedDepth || !node->children.empty())
+        return;
+    // A projection copy carries the scanned path in originalPath; a source or lens
+    // node has path == originalPath. The scan reads disk at that path.
+    const QString path = node->originalPath.isEmpty() ? node->path : node->originalPath;
+    if (m_deepening.contains(path))
+        return;
+    m_deepening.insert(path);
+    // Snapshot what the worker needs — the node pointer must not cross threads.
+    core::FsNode probe;
+    probe.path = path;
+    auto *watcher = new QFutureWatcher<std::vector<std::unique_ptr<core::FsNode>>>(this);
+    connect(watcher, &QFutureWatcher<std::vector<std::unique_ptr<core::FsNode>>>::finished, this,
+            [this, watcher, path] {
+                std::vector<std::unique_ptr<core::FsNode>> kids = watcher->future().takeResult();
+                watcher->deleteLater();
+                m_deepening.remove(path);
+                graftChildren(path, std::move(kids));
+            });
+    watcher->setFuture(QtConcurrent::run(
+        [probe = std::move(probe)] { return core::Scanner::scanChildren(probe, 1); }));
+}
+
+void GraphScene::setLazyDeepen(bool on) {
+    m_lazyDeepen = on;
+    if (on)
+        for (FrameItem *f : m_frames)
+            f->update(); // the next paint issues the requests for visible truncated cells
+}
+
+void GraphScene::graftChildren(const QString &path,
+                               std::vector<std::unique_ptr<core::FsNode>> kids) {
+    // Prefer base source trees (a re-projection copies from them), then lens trees.
+    core::FsNode *target = nullptr;
+    for (FrameItem *f : m_frames) {
+        if (f->level() != 0)
+            continue;
+        target = findByPath(const_cast<core::FsNode *>(f->sourceRoot()), path);
+        if (target)
+            break;
+    }
+    if (!target)
+        for (FrameItem *f : m_frames) {
+            if (f->level() == 0)
+                continue;
+            target = findByPath(const_cast<core::FsNode *>(f->sourceRoot()), path);
+            if (target)
+                break;
+        }
+    if (!target || !target->children.empty() || !target->truncatedDepth)
+        return; // gone (base removed / rescanned) or already deepened: drop the scan
+    for (auto &k : kids)
+        k->parent = target; // the worker pointed them at a probe; re-parent to the real node
+    target->children = std::move(kids);
+    target->truncatedDepth = false;
+    target->lazyChildren = true; // area stays at the scanned weight (TreemapLayout::weight)
+    if (!m_ledger.active().empty()) {
+        rebuildProjection(); // the projection is a copy of the sources: re-copy (new items)
+        return;
+    }
+    for (FrameItem *f : m_frames)
+        if (TreemapItem *t = f->interiorTreemap())
+            t->invalidateLayout(); // pointer-keyed weights: every surface drops its cache
 }
 
 void GraphScene::openFrame(const core::FsNode *node, const QRectF &originSceneRect,

@@ -12,7 +12,7 @@
 // Script grammar (one command per line; `#` comments; `$VAR` expands from the
 // environment — an unset variable fails the line):
 //   load PATH DEPTH          add PATH as a base, scanned to DEPTH
-//   wait                     block until no scan is pending (then settle a frame)
+//   wait                     block until no scan or deepen is pending (then settle a frame)
 //   settle [N]               spin N event-loop turns (default 3) — let paints land
 //   sleep MS                 wall-clock pause with the event loop running (timers fire)
 //   resize W H               resize the main window
@@ -28,10 +28,12 @@
 //   drag X1 Y1 X2 Y2 [MODS]  press, move in steps, release (left button)
 //   set reveal|detail F      the LOD sliders' factor
 //   set filemode|ramp|metric|callout N   the toolbar combos, by index
+//   set deepen 0|1           lazy deepening of truncated cells on (default) or off
 //   set fast 0|1             hold the interaction LOD (no leaf contents) on or off; a
 //                            later wheel/drag re-arms the idle timer and releases it
 //   shot PATH [view]         save a PNG of the main window, or of the canvas viewport only
 //   check bases N            fail unless the scene holds N base surfaces
+//   check nodes N            fail unless the bases hold at least N directories (prints the count)
 //   check nonblank PATH      fail unless the PNG at PATH has more than one colour
 //   check differs A B        fail if the two PNGs are pixel-identical
 //   bench [N]                repaint the viewport N times (default 20), print ms/frame
