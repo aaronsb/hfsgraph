@@ -73,6 +73,8 @@ class GraphScene : public QGraphicsScene {
     void setLayoutFocusEnabled(bool on);
     bool layoutFocusEnabled() const { return m_layoutFocusEnabled; }
     void setLayoutFocus(const core::FsNode *node); // called from paint: defers the refresh
+    // The pointer is cleared by rebuildProjection and closeFrame (the trees it can
+    // point into die there) and by a reporting TreemapItem's destructor.
     const core::FsNode *layoutFocus() const { return m_layoutFocus; }
 
     int sizeMetric() const { return m_sizeMetric; } // current metric (for frames)

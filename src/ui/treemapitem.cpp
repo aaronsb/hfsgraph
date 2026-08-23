@@ -411,7 +411,10 @@ TreemapItem::TreemapItem(const core::FsNode *root, qreal width, qreal height, Si
     setAcceptDrops(true);                                      // file drop → staged move
 }
 
-TreemapItem::~TreemapItem() = default; // QVariantAnimation is complete here
+TreemapItem::~TreemapItem() {
+    if (m_scene && m_focus && m_scene->layoutFocus() == m_focus)
+        m_scene->setLayoutFocus(nullptr); // we reported it; don't leave it dangling (#40)
+}
 
 QColor TreemapItem::depthColor(Ramp ramp, int depth) {
     return rampColor(static_cast<int>(ramp), depth);
@@ -525,7 +528,10 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
     bool ovHighlight = false;
     QColor ovColor;
     bool ovDim = false;
-    if (m_groups && !m_groups->empty()) {
+    // The focus node's shadow (#40) carries none of the per-node decoration — group
+    // tint, selection outline, diff badge — the overlay copy above it is the node's
+    // one rendering; the shadow only dims with the rest of the map.
+    if (m_groups && !m_groups->empty() && !cell.focusShadow) {
         // Hot path: drawCell runs for every visible cell every frame, so iterate the
         // groups directly (no per-cell allocation — groupsContaining() would heap a
         // vector here). g->contains() is two QSet lookups.
@@ -598,7 +604,7 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
     p->setPen(border);
     p->setBrush(Qt::NoBrush);
     p->drawRect(rect);
-    if (node == m_selected) {
+    if (node == m_selected && !cell.focusShadow) {
         QPen sel(qApp ? qApp->palette().color(QPalette::Highlight) : QColor(120, 170, 255), 2.0);
         sel.setCosmetic(true);
         p->setPen(sel);
@@ -616,8 +622,10 @@ void TreemapItem::drawCell(QPainter *p, int index, const QTransform &toDevice,
     }
 
     if (cell.focusShadow) {
-        // The focus node's canonical cell under the overlay (#40): a flat cell with its
-        // name — its contents live in the overlay, and it must not ask to deepen.
+        // The focus node's canonical cell under the overlay (#40): a flat cell whose
+        // title strip names it; one too small for a strip gets the leaf floor (a
+        // centred name, or dots). Its contents live in the overlay, and it must not
+        // ask to deepen.
         if (!hasTitle)
             drawLeafContents(p, node, dev, hasTitle, body, toDevice.mapRect(exposed));
         dimScrim();
@@ -993,9 +1001,11 @@ void TreemapItem::decideFocus(TreemapLayout::Params &lp, const QRectF &vpDev, co
     const std::vector<LayoutCell> &cells = m_layout.cells();
     if (cells.empty() || !vpDev.isValid() || !vpItem.isValid())
         return;
-    auto devSize = [&](const LayoutCell &c) { return toDevice.mapRect(c.rect).size(); };
+    // Coverage is the cell's *visible* part: what is on screen, not how big the cell
+    // is — so a focus panned off-screen releases, an off-screen cell can't engage,
+    // and "at most one child covers 60%" holds however large the parent has grown.
     auto covers = [&](const LayoutCell &c, double f) {
-        const QSizeF s = devSize(c);
+        const QSizeF s = toDevice.mapRect(c.rect).intersected(vpDev).size();
         return s.width() >= vpDev.width() * f && s.height() >= vpDev.height() * f;
     };
     // Release: the focus fell under the threshold → its parent takes over, placed so

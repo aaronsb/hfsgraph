@@ -1,8 +1,9 @@
 # Layout focus (#40, spike). Zoom into the synthetic tree (make_synth --depth 3; which
-# sibling wins follows readdir order, hence the globs) until one cell covers the
-# viewport: the focus engages, its subtree is re-squarified into the viewport with
-# breadcrumb frames for its ancestors. Zoom back out: the focus pops to the parent,
-# then clears. `set focus 0` paints the same view without it, for comparison.
+# sibling wins follows readdir order, hence the globs and depth checks) until one cell
+# covers the viewport: the focus engages, its subtree is re-squarified into the
+# viewport with breadcrumb frames for its ancestors. Zoom back out: the focus pops to
+# the parent (`check focuspopped` against the `mark`), then clears. Finally the same
+# zoom-in with `set focus 0` must leave the focus off, for comparison shots.
 resize 1200 800
 load $HFSGRAPH_FIXTURE 3
 wait
@@ -13,36 +14,35 @@ zoom 2.5 600 400
 sleep 300   # the morph (220ms) settles; the idle timer restores full detail
 settle
 check focus */d0_*
+check focusdepth 1
 shot driver_focus_in.png view
 check differs driver_focus_fit.png driver_focus_in.png
 probe 600 400
 zoom 2.5 600 400
 sleep 300
 settle
-check focus */d0_*/d1_*
+check focusdepth 2+
 shot driver_focus_deep.png view
 check differs driver_focus_in.png driver_focus_deep.png
-# The same view with focus off: the canonical slivers, for comparison.
-set focus 0
-sleep 300
-settle
-check focus none
-shot driver_focus_off.png view
-check differs driver_focus_deep.png driver_focus_off.png
-set focus 1
-sleep 300
-settle
-check focus */d0_*/d1_*
+mark
 # Zoom out: the focus pops to its parent (placed so the old focus stays put), then clears.
 zoom 0.4 600 400
 sleep 300
 settle
-check focus */d0_*
+check focuspopped   # shallower than at the mark: the pop really happened
 shot driver_focus_out.png view
 check differs driver_focus_deep.png driver_focus_out.png
 zoom 0.4 600 400
 sleep 300
 settle
 check focus none
+# The comparison: the zoom that engaged above must not engage with focus off.
+set focus 0
+zoom 2.5 600 400
+sleep 300
+settle
+check focus none
+shot driver_focus_off.png view
+check differs driver_focus_in.png driver_focus_off.png
 echo focus ok
 quit

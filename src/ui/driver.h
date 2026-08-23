@@ -42,6 +42,9 @@
 //   check focus PATH         fail unless the layout focus (#40) is the directory whose
 //                            path ends with PATH (a glob if PATH holds `*`), or `none`
 //                            for no focus (prints it)
+//   check focusdepth N       fail unless the focus is N directories below its base root
+//                            (`N+` = at least N); `check focuspopped` fails unless it is
+//                            shallower than at the last `mark`
 //   check file NAME          fail unless a file with base name NAME is selected
 //   check ops N              fail unless exactly N ops are staged in the ledger
 //   stage rename X Y NEW     stage a rename of the file glyph at (X,Y) (bypasses the menu);
@@ -99,7 +102,9 @@ class Driver : public QObject {
     bool m_waiting = false;     // parked on `wait` until scans are idle
     bool m_waitPainted = false; // `wait` forced its one repaint (deepen requests come from paint)
     int m_mark = -1;            // directory count at the last `mark`
+    int m_markFocusDepth = -1;  // layout focus depth at the last `mark`
     int countNodes() const;     // directories across every base's render tree
+    int focusDepth() const;     // layout focus depth below its base root, -1 if none
 };
 
 } // namespace ui
