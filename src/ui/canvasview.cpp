@@ -7,6 +7,8 @@
 
 #include <cmath>
 
+#include <QFocusEvent>
+#include <QGraphicsItem>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -77,18 +79,60 @@ void CanvasView::beginPan(QMouseEvent *event) {
     event->accept();
 }
 
+void CanvasView::endPan() {
+    m_panning = false;
+    m_panButton = Qt::NoButton;
+    if (m_spaceHeld)
+        setCursor(Qt::OpenHandCursor);
+    else
+        unsetCursor();
+}
+
+bool CanvasView::isBackgroundAt(const QPoint &viewPos) const {
+    // Items that accept no mouse buttons (callout hulls, the move-drag overlay)
+    // are passive decoration: a press there would fall through to the scene
+    // anyway, so treat them as background and let the pan start.
+    const QGraphicsItem *item = itemAt(viewPos);
+    return item == nullptr || item->acceptedMouseButtons() == Qt::NoButton;
+}
+
 void CanvasView::mousePressEvent(QMouseEvent *event) {
+    if (m_panning) {
+        // A second button mid-pan must not re-target m_panButton; swallow it.
+        event->accept();
+        return;
+    }
     if (event->button() == Qt::MiddleButton) {
         beginPan(event);
         return;
     }
     // Left button pans too when Space is held, or when the press lands on empty
     // background (no item to select or drag there).
-    if (event->button() == Qt::LeftButton && (m_spaceHeld || itemAt(event->pos()) == nullptr)) {
+    if (event->button() == Qt::LeftButton && (m_spaceHeld || isBackgroundAt(event->pos()))) {
         beginPan(event);
         return;
     }
     QGraphicsView::mousePressEvent(event);
+}
+
+void CanvasView::mouseDoubleClickEvent(QMouseEvent *event) {
+    // Two quick pan presses must not read as a cell double-click.
+    if (m_spaceHeld || m_panning) {
+        event->accept();
+        return;
+    }
+    QGraphicsView::mouseDoubleClickEvent(event);
+}
+
+void CanvasView::focusOutEvent(QFocusEvent *event) {
+    // Losing focus means we will miss the Space release (and possibly the mouse
+    // release), so drop the whole pan state rather than leave a stuck mode.
+    m_spaceHeld = false;
+    if (m_panning)
+        endPan();
+    else
+        unsetCursor();
+    QGraphicsView::focusOutEvent(event);
 }
 
 void CanvasView::mouseMoveEvent(QMouseEvent *event) {
@@ -107,12 +151,7 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event) {
 
 void CanvasView::mouseReleaseEvent(QMouseEvent *event) {
     if (m_panning && event->button() == m_panButton) {
-        m_panning = false;
-        m_panButton = Qt::NoButton;
-        if (m_spaceHeld)
-            setCursor(Qt::OpenHandCursor);
-        else
-            unsetCursor();
+        endPan();
         event->accept();
         return;
     }

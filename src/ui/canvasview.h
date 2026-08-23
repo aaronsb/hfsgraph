@@ -26,10 +26,14 @@ class CanvasView : public QGraphicsView {
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
     void drawBackground(QPainter *painter, const QRectF &rect) override;
 
   private:
     void beginPan(QMouseEvent *event);
+    void endPan();
+    bool isBackgroundAt(const QPoint &viewPos) const;
 
     bool m_panning = false;
     bool m_spaceHeld = false;
