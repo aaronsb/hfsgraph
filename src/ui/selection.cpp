@@ -130,6 +130,14 @@ void Selection::addAll(const core::FsNode &dir, const std::vector<int> &indices)
         Q_EMIT changed();
 }
 
+std::vector<Selection::Entry> Selection::entries() const {
+    std::vector<Entry> out;
+    for (auto it = m_byDir.constBegin(); it != m_byDir.constEnd(); ++it)
+        for (const QString &name : it.value())
+            out.push_back({it.key(), name});
+    return out;
+}
+
 QList<QUrl> Selection::urls() const {
     QList<QUrl> out;
     for (auto it = m_byDir.constBegin(); it != m_byDir.constEnd(); ++it) {

@@ -77,6 +77,8 @@ QString moveLegalityLabel(MoveLegality l) {
         return QStringLiteral("would form a cycle");
     case MoveLegality::Collision:
         return QStringLiteral("name already exists at destination");
+    case MoveLegality::BadName:
+        return QStringLiteral("not a usable file name");
     }
     return QStringLiteral("illegal");
 }
@@ -84,8 +86,59 @@ QString moveLegalityLabel(MoveLegality l) {
 // `replayed` is the structural verdict from replayLegality at this op's point in the plan
 // (evolving-tree, so chained ops are judged in apply order). Identity/drift/volume are
 // checked against the *base* node `src`/`dst` (their real on-disk scanned location).
+// A file op's subject on disk: the entry's scanned location. Existence is the
+// identity check (no inode fingerprint is recorded per file); the directory's own
+// fingerprint still guards against the directory having been swapped.
+OpVerification verifyFileOp(const MoveOp &op, const FsNode *dir, const FsNode *dst,
+                            MoveLegality replayed, const FingerprintFn &statOf) {
+    OpVerification v;
+    v.op = op;
+    v.legality = replayed;
+    const QString what = opKindLabel(op.kind) + QLatin1Char(' ') + op.fileName;
+    if (replayed != MoveLegality::Ok) {
+        v.status = VerifyStatus::IllegalMove;
+        v.detail = QStringLiteral("%1: %2").arg(what, moveLegalityLabel(replayed));
+        return v;
+    }
+    const QString filePath = diskPath(dir) + QLatin1Char('/') + op.fileName;
+    const Fingerprint now = statOf(filePath);
+    if (!now.valid) {
+        v.status = VerifyStatus::SourceMissing;
+        v.detail = QStringLiteral("%1: no longer exists at %2").arg(what, filePath);
+        return v;
+    }
+    const Fingerprint dirNow = statOf(diskPath(dir));
+    if (dir->fp.valid && dirNow.valid && (dirNow.dev != dir->fp.dev || dirNow.ino != dir->fp.ino)) {
+        v.status = VerifyStatus::SourceDrifted;
+        v.detail = QStringLiteral("%1: its directory is a different object now (re-scan needed)")
+                       .arg(what);
+        return v;
+    }
+    if (op.kind == OpKind::MoveFile) {
+        const Fingerprint dstFp = statOf(diskPath(dst));
+        if (!dstFp.valid) {
+            v.status = VerifyStatus::DestMissing;
+            v.detail = QStringLiteral("%1 → %2: destination no longer exists").arg(what, dst->name);
+            return v;
+        }
+        if (now.dev != dstFp.dev) {
+            v.status = VerifyStatus::CrossVolume;
+            v.detail = QStringLiteral("%1 → %2: crosses a volume boundary (copy+delete, not mv)")
+                           .arg(what, dst->name);
+            return v;
+        }
+    }
+    v.status = VerifyStatus::Ok;
+    v.detail = op.kind == OpKind::MoveFile     ? QStringLiteral("%1 → %2: OK").arg(what, dst->name)
+               : op.kind == OpKind::RenameFile ? QStringLiteral("%1 → %2: OK").arg(what, op.newName)
+                                               : QStringLiteral("%1: OK").arg(what);
+    return v;
+}
+
 OpVerification verifyOne(const MoveOp &op, const FsNode *src, const FsNode *dst,
                          MoveLegality replayed, const FingerprintFn &statOf) {
+    if (op.isFileOp())
+        return verifyFileOp(op, src, dst, replayed, statOf);
     OpVerification v;
     v.op = op;
 
@@ -152,7 +205,8 @@ CommitPlan verifyPlan(const std::vector<const FsNode *> &roots, const std::vecto
         const MoveOp &op = ops[i];
         const FsNode *src = byKey.value(op.source, nullptr);
         const FsNode *dst = byKey.value(op.destParent, nullptr);
-        if (!src || !dst) {
+        const bool needsDst = !op.isFileOp() || op.kind == OpKind::MoveFile;
+        if (!src || (needsDst && !dst)) {
             OpVerification v;
             v.op = op;
             v.status = VerifyStatus::Unresolved;

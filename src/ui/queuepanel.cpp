@@ -90,9 +90,26 @@ void QueuePanel::refresh() {
     m_list->addItem(QStringLiteral("◆ Base — original layout"));
     for (int i = 0; i < n; ++i) {
         const core::MoveOp &op = ops[i];
-        auto *item = new QListWidgetItem(QStringLiteral("%1.  %2  →  %3")
-                                             .arg(i + 1)
-                                             .arg(op.sourceName, destLabel(op.destParent)));
+        QString text;
+        switch (op.kind) {
+        case core::OpKind::MoveDir:
+            text = QStringLiteral("%1.  %2  →  %3")
+                       .arg(i + 1)
+                       .arg(op.sourceName, destLabel(op.destParent));
+            break;
+        case core::OpKind::MoveFile:
+            text = QStringLiteral("%1.  move %2  →  %3")
+                       .arg(i + 1)
+                       .arg(op.fileName, destLabel(op.destParent));
+            break;
+        case core::OpKind::RenameFile:
+            text = QStringLiteral("%1.  rename %2  →  %3").arg(i + 1).arg(op.fileName, op.newName);
+            break;
+        case core::OpKind::TrashFile:
+            text = QStringLiteral("%1.  trash %2").arg(i + 1).arg(op.fileName);
+            break;
+        }
+        auto *item = new QListWidgetItem(text);
         if (i + 1 > step) { // staged but past the current preview point — show as pending
             QFont f = item->font();
             f.setItalic(true);

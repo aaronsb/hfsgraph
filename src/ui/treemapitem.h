@@ -121,10 +121,16 @@ class TreemapItem : public QGraphicsItem {
     std::pair<const core::FsNode *, int> fileAt(const QPointF &itemPos) const;
 
   protected:
-    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;       // select / arm drag
-    void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;        // drive the move drag
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;     // drop / commit
-    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override; // open a frame
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;        // select / arm drag
+    void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;         // drive the move drag
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;      // drop / commit
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;  // open a frame
+    void contextMenuEvent(QGraphicsSceneContextMenuEvent *event) override; // file / dir actions
+    // Drop target (#38): the selection dragged out of any surface and dropped on a
+    // directory cell stages a MoveFile per entry. Foreign URLs are ignored.
+    void dragEnterEvent(QGraphicsSceneDragDropEvent *event) override;
+    void dragMoveEvent(QGraphicsSceneDragDropEvent *event) override;
+    void dropEvent(QGraphicsSceneDragDropEvent *event) override;
 
   private:
     // Paint one layout cell (by index) and, if it subdivided, its children.

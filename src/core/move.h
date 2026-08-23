@@ -23,15 +23,33 @@ namespace core {
 
 struct FsNode;
 
-// One staged structural change: re-parent `source` under `destParent`. Both are
-// MemberKeys (path today, ADR-100 durable id later) captured when the op is queued,
-// so replay resolves them by identity against the pristine copy — an op survives
-// later ops relocating the same nodes (ADR-200 idempotent replay).
-struct MoveOp {
-    MemberKey source;     // the node to move
-    MemberKey destParent; // the directory to move it under
-    QString sourceName;   // cached display label for the queue dock (ADR-302)
+// What a staged op does (#38, the file-ops prototype). MoveDir is ADR-302's original
+// re-parent; the file kinds act on one entry of a directory's `files` — the subject is
+// (source = the file's directory, fileName). The same ledger, replay, verify and queue
+// carry all four; the apply engine (ADR-200 #16b) will map them to mv / rename / trash.
+enum class OpKind {
+    MoveDir,    // re-parent directory `source` under `destParent`
+    MoveFile,   // move file `fileName` from directory `source` into `destParent`
+    RenameFile, // rename file `fileName` in `source` to `newName`
+    TrashFile,  // remove file `fileName` from `source` (trash on apply)
 };
+
+// One staged change. `source` / `destParent` are MemberKeys (path today, ADR-100
+// durable id later) captured when the op is queued, so replay resolves them by
+// identity against the pristine copy — an op survives later ops relocating the same
+// nodes (ADR-200 idempotent replay). File ops add the entry name (and the new name
+// for a rename); `destParent` is empty for a rename or trash.
+struct MoveOp {
+    MemberKey source;     // the directory to move, or the directory holding the file
+    MemberKey destParent; // the directory to move it under (MoveDir / MoveFile)
+    QString sourceName;   // cached display label for the queue dock (ADR-302)
+    OpKind kind = OpKind::MoveDir;
+    QString fileName; // file ops: the entry in `source`
+    QString newName;  // RenameFile: the name after the rename
+    bool isFileOp() const { return kind != OpKind::MoveDir; }
+};
+
+QString opKindLabel(OpKind k); // "move" / "rename" / "trash", for the queue dock
 
 // Why a re-parent is (il)legal. Drives both the safe-replay floor in projectForest
 // and the live drop feedback of the drag gesture (#10): the same rules, one place.
@@ -43,12 +61,20 @@ enum class MoveLegality {
     SourceIsRoot, // a base/root surface can't be re-parented
     Cycle,        // destination is the source or sits under it
     Collision,    // destination already has a child of the source's name
+    BadName,      // a rename to an empty name, or one containing '/'
 };
 
 // Structural legality of re-parenting `src` under `dst`, evaluated on whatever tree the
 // nodes live in (the live projection for the gesture, the deep copy for replay). Pure:
 // no ownership change, no map lookup — callers resolve identities to nodes first.
 MoveLegality checkMove(const FsNode *src, const FsNode *dst);
+
+// Legality of a file op against the tree its nodes live in: `dir` holds the file named
+// op.fileName (SameNode = no such entry, the null verdict); a move needs `dst` distinct
+// from `dir` with no entry or subdirectory of that name (Collision); a rename needs a
+// usable newName (BadName) that doesn't collide in `dir`; a trash is always Ok once the
+// entry resolves. `dst` is ignored for rename/trash.
+MoveLegality checkFileOp(const MoveOp &op, const FsNode *dir, const FsNode *dst);
 
 // An ordered, replayable changeset (ADR-200/302). Editing model: append on drop,
 // undo/redo pops/pushes the tail, click-a-row sets the preview step. No mid-list

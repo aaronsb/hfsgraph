@@ -31,6 +31,7 @@ class TreemapItem;
 class FrameItem;
 class MoveDragOverlay;
 class Selection;
+class FileActions;
 
 class GraphScene : public QGraphicsScene {
     Q_OBJECT
@@ -131,6 +132,16 @@ class GraphScene : public QGraphicsScene {
     Selection &selection() { return *m_selection; }
     const Selection &selection() const { return *m_selection; }
 
+    // Staged file ops (#38): a MoveOp of a file kind appended to the ledger after a
+    // legality check against the current projection — rename, trash, move into a
+    // directory. Return false (nothing staged) when illegal or unresolved. The
+    // re-projection is deferred like a drop's, since the caller may be inside a
+    // treemap's event handler.
+    bool stageRename(const core::MemberKey &dir, const QString &name, const QString &newName);
+    bool stageTrash(const core::MemberKey &dir, const QString &name);
+    bool stageMoveFile(const core::MemberKey &dir, const QString &name, const core::FsNode *dest);
+    FileActions &fileActions() { return *m_fileActions; } // context-menu builder (#38)
+
     // Move staging (ADR-302). The ledger is the staged plan; the canvas renders the
     // *projection* — each base's scanned tree with the ledger's active ops [0, step)
     // replayed (ADR-200 idempotent replay). Mutate the ledger, then rebuildProjection()
@@ -190,9 +201,11 @@ class GraphScene : public QGraphicsScene {
     // the move-drag drop target (bases render the projection; lens targets are #13).
     std::pair<FrameItem *, const core::FsNode *> surfaceCellAt(const QPointF &scenePos) const;
 
-    core::GroupStore m_groups;        // semantic groups (ADR-102), owned
-    Selection *m_selection = nullptr; // file selection (#37), owned (child)
-    core::Ledger m_ledger;            // staged move plan (ADR-302), owned
+    core::GroupStore m_groups;            // semantic groups (ADR-102), owned
+    Selection *m_selection = nullptr;     // file selection (#37), owned (child)
+    FileActions *m_fileActions = nullptr; // actions on the selection (#38), owned (child)
+    bool stageFileOp(core::MoveOp op);    // legality against the projection, append, re-project
+    core::Ledger m_ledger;                // staged move plan (ADR-302), owned
     // Projected base forest (scanned trees + active ops replayed), owned here and
     // index-aligned with baseFrames(); empty while the ledger has no active ops (the
     // bases then render their scanned sources directly).

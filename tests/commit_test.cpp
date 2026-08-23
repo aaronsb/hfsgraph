@@ -117,7 +117,8 @@ void run() {
     {
         auto plan = core::verifyPlan(roots, {mv("/r/a", "/r/a/leaf", "a")}, statOf);
         check(statusOf(plan, 0) == VerifyStatus::IllegalMove, "verify: cycle is IllegalMove");
-        check(plan.ops[0].legality == core::MoveLegality::Cycle, "verify: legality detail is Cycle");
+        check(plan.ops[0].legality == core::MoveLegality::Cycle,
+              "verify: legality detail is Cycle");
     }
     // SourceMissing: the source no longer exists on disk.
     {
@@ -125,7 +126,8 @@ void run() {
         gone.remove(QStringLiteral("/r/a/leaf"));
         auto statGone = [&](const QString &p) { return gone.value(p, core::Fingerprint{}); };
         auto plan = core::verifyPlan(roots, {mv("/r/a/leaf", "/r/b", "leaf")}, statGone);
-        check(statusOf(plan, 0) == VerifyStatus::SourceMissing, "verify: absent source is SourceMissing");
+        check(statusOf(plan, 0) == VerifyStatus::SourceMissing,
+              "verify: absent source is SourceMissing");
     }
     // SourceDrifted: a different inode now occupies the source path.
     {
@@ -133,12 +135,14 @@ void run() {
         drift.insert(QStringLiteral("/r/a/leaf"), fp(1, 999)); // recycled / replaced
         auto statDrift = [&](const QString &p) { return drift.value(p, core::Fingerprint{}); };
         auto plan = core::verifyPlan(roots, {mv("/r/a/leaf", "/r/b", "leaf")}, statDrift);
-        check(statusOf(plan, 0) == VerifyStatus::SourceDrifted, "verify: changed inode is SourceDrifted");
+        check(statusOf(plan, 0) == VerifyStatus::SourceDrifted,
+              "verify: changed inode is SourceDrifted");
     }
     // CrossVolume: leaf (dev 1) → c (dev 2).
     {
         auto plan = core::verifyPlan(roots, {mv("/r/a/leaf", "/r/c", "leaf")}, statOf);
-        check(statusOf(plan, 0) == VerifyStatus::CrossVolume, "verify: cross-device move is CrossVolume");
+        check(statusOf(plan, 0) == VerifyStatus::CrossVolume,
+              "verify: cross-device move is CrossVolume");
     }
     // A mixed plan of independent ops: counts split correctly.
     {
@@ -168,7 +172,8 @@ void runChained() {
 
     // Alone, moving x/item into y collides with y/item.
     auto solo = core::verifyPlan(roots, {mv("/w/x/item", "/w/y", "item")}, statOf);
-    check(statusOf(solo, 0) == VerifyStatus::IllegalMove, "chained: op is a collision against base");
+    check(statusOf(solo, 0) == VerifyStatus::IllegalMove,
+          "chained: op is a collision against base");
     check(solo.ops[0].legality == core::MoveLegality::Collision, "chained: collision detail");
 
     // Vacate y/item to z first, then x/item → y is legal in apply order.
@@ -192,13 +197,94 @@ void runDestMissing() {
     auto statOf = [&](const QString &p) { return disk.value(p, core::Fingerprint{}); };
 
     auto plan = core::verifyPlan({w.get()}, {mv("/w2/x/item", "/w2/z", "item")}, statOf);
-    check(statusOf(plan, 0) == VerifyStatus::DestMissing, "dest: vanished destination is DestMissing");
+    check(statusOf(plan, 0) == VerifyStatus::DestMissing,
+          "dest: vanished destination is DestMissing");
 }
 
 } // namespace
 
+// File ops (#38): the subject is an entry, identified on disk by its path under the
+// scanned directory; rename/trash need the entry to exist, a move also needs its
+// destination and flags a volume crossing.
+void runFileOps() {
+    auto w = makeRoot(QStringLiteral("/f"), 1, 1);
+    FsNode *d = addChild(w.get(), QStringLiteral("d"), 1, 10);
+    FsNode *e = addChild(w.get(), QStringLiteral("e"), 2, 20); // another volume
+    FsNode *g = addChild(w.get(), QStringLiteral("g"), 1, 30);
+    core::FileEntry fe;
+    fe.name = QStringLiteral("note.txt");
+    d->files.push_back(fe);
+    d->fileCount = 1;
+    const std::vector<const FsNode *> roots{w.get()};
+
+    QHash<QString, core::Fingerprint> disk;
+    auto fp = [](quint64 dev, quint64 ino) {
+        core::Fingerprint f;
+        f.valid = true;
+        f.dev = dev;
+        f.ino = ino;
+        return f;
+    };
+    disk.insert(QStringLiteral("/f/d"), fp(1, 10));
+    disk.insert(QStringLiteral("/f/e"), fp(2, 20));
+    disk.insert(QStringLiteral("/f/g"), fp(1, 30));
+    disk.insert(QStringLiteral("/f/d/note.txt"), fp(1, 99));
+    auto statOf = [&](const QString &p) { return disk.value(p, core::Fingerprint{}); };
+
+    auto fileOp = [](core::OpKind kind, const QString &dir, const QString &name,
+                     const QString &to = QString()) {
+        MoveOp op;
+        op.kind = kind;
+        op.source = dir;
+        op.fileName = name;
+        op.sourceName = name;
+        if (kind == core::OpKind::MoveFile)
+            op.destParent = to;
+        else if (kind == core::OpKind::RenameFile)
+            op.newName = to;
+        return op;
+    };
+    {
+        auto plan = core::verifyPlan(
+            roots, {fileOp(core::OpKind::RenameFile, "/f/d", "note.txt", "memo.txt")}, statOf);
+        check(plan.ops.size() == 1 && plan.ops[0].status == VerifyStatus::Ok, "rename verifies Ok");
+    }
+    {
+        auto plan =
+            core::verifyPlan(roots, {fileOp(core::OpKind::TrashFile, "/f/d", "note.txt")}, statOf);
+        check(plan.ops[0].status == VerifyStatus::Ok, "trash verifies Ok");
+    }
+    {
+        auto plan = core::verifyPlan(
+            roots, {fileOp(core::OpKind::RenameFile, "/f/d", "gone.txt", "x")}, statOf);
+        check(plan.ops[0].status == VerifyStatus::IllegalMove,
+              "rename of a missing entry is illegal");
+    }
+    {
+        disk.remove(QStringLiteral("/f/d/note.txt")); // deleted on disk since the scan
+        auto plan =
+            core::verifyPlan(roots, {fileOp(core::OpKind::TrashFile, "/f/d", "note.txt")}, statOf);
+        check(plan.ops[0].status == VerifyStatus::SourceMissing,
+              "trash of a deleted file is SourceMissing");
+        disk.insert(QStringLiteral("/f/d/note.txt"), fp(1, 99));
+    }
+    {
+        auto plan = core::verifyPlan(
+            roots, {fileOp(core::OpKind::MoveFile, "/f/d", "note.txt", "/f/e")}, statOf);
+        check(plan.ops[0].status == VerifyStatus::CrossVolume,
+              "move to another device is CrossVolume");
+    }
+    {
+        auto plan = core::verifyPlan(
+            roots, {fileOp(core::OpKind::MoveFile, "/f/d", "note.txt", "/f/g")}, statOf);
+        check(plan.ops[0].status == VerifyStatus::Ok, "move within the volume is Ok");
+    }
+    (void)e;
+}
+
 int main() {
     run();
+    runFileOps();
     runChained();
     runDestMissing();
     if (g_failures) {

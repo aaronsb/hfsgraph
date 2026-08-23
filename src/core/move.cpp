@@ -80,6 +80,59 @@ MoveLegality checkMove(const FsNode *src, const FsNode *dst) {
     return MoveLegality::Ok;
 }
 
+QString opKindLabel(OpKind k) {
+    switch (k) {
+    case OpKind::MoveDir:
+    case OpKind::MoveFile:
+        return QStringLiteral("move");
+    case OpKind::RenameFile:
+        return QStringLiteral("rename");
+    case OpKind::TrashFile:
+        return QStringLiteral("trash");
+    }
+    return QString();
+}
+
+namespace {
+int fileIndex(const FsNode *dir, const QString &name) {
+    for (std::size_t i = 0; i < dir->files.size(); ++i)
+        if (dir->files[i].name == name)
+            return static_cast<int>(i);
+    return -1;
+}
+bool nameTaken(const FsNode *dir, const QString &name) {
+    if (fileIndex(dir, name) >= 0)
+        return true;
+    for (const auto &c : dir->children)
+        if (c->name == name)
+            return true;
+    return false;
+}
+} // namespace
+
+MoveLegality checkFileOp(const MoveOp &op, const FsNode *dir, const FsNode *dst) {
+    if (!dir || fileIndex(dir, op.fileName) < 0)
+        return MoveLegality::SameNode; // no such entry: the null verdict
+    switch (op.kind) {
+    case OpKind::MoveFile:
+        if (!dst || dst == dir)
+            return MoveLegality::SameNode;
+        return nameTaken(dst, op.fileName) ? MoveLegality::Collision : MoveLegality::Ok;
+    case OpKind::RenameFile:
+        if (op.newName.isEmpty() || op.newName.contains(QLatin1Char('/')) ||
+            op.newName == QStringLiteral(".") || op.newName == QStringLiteral(".."))
+            return MoveLegality::BadName;
+        if (op.newName == op.fileName)
+            return MoveLegality::SameNode;
+        return nameTaken(dir, op.newName) ? MoveLegality::Collision : MoveLegality::Ok;
+    case OpKind::TrashFile:
+        return MoveLegality::Ok;
+    case OpKind::MoveDir:
+        break;
+    }
+    return MoveLegality::SameNode;
+}
+
 // ---- Projection ---------------------------------------------------------------
 
 namespace {
@@ -139,6 +192,59 @@ bool applyMoveTo(FsNode *src, FsNode *dst) {
     return true;
 }
 
+// Apply a legal file op to the projection copy: move the entry between `files`
+// vectors (keeping each directory's direct counts honest), rename it, or drop it.
+void applyFileOp(const MoveOp &op, FsNode *dir, FsNode *dst) {
+    const int i = fileIndex(dir, op.fileName);
+    if (i < 0)
+        return;
+    auto it = dir->files.begin() + i;
+    switch (op.kind) {
+    case OpKind::MoveFile: {
+        FileEntry fe = std::move(*it);
+        dir->files.erase(it);
+        dir->fileCount -= 1;
+        dir->sizeBytes -= fe.sizeBytes;
+        dst->fileCount += 1;
+        dst->sizeBytes += fe.sizeBytes;
+        dst->files.push_back(std::move(fe));
+        break;
+    }
+    case OpKind::RenameFile:
+        it->name = op.newName;
+        break;
+    case OpKind::TrashFile:
+        dir->fileCount -= 1;
+        dir->sizeBytes -= it->sizeBytes;
+        dir->files.erase(it);
+        break;
+    case OpKind::MoveDir:
+        break;
+    }
+}
+
+// Resolve an op's nodes in the replay index, judge it, and apply it if legal. The one
+// replay step projectForest and replayLegality share, so the projection and the
+// verdicts can't diverge.
+MoveLegality replayOne(const MoveOp &op, const QHash<MemberKey, FsNode *> &byKey) {
+    FsNode *src = byKey.value(op.source, nullptr);
+    FsNode *dst = byKey.value(op.destParent, nullptr);
+    if (op.isFileOp()) {
+        if (!src || (op.kind == OpKind::MoveFile && !dst))
+            return MoveLegality::SameNode; // unresolved → the null-node verdict
+        const MoveLegality legal = checkFileOp(op, src, dst);
+        if (legal == MoveLegality::Ok)
+            applyFileOp(op, src, dst);
+        return legal;
+    }
+    if (!src || !dst)
+        return MoveLegality::SameNode;
+    const MoveLegality legal = checkMove(src, dst);
+    if (legal == MoveLegality::Ok)
+        applyMoveTo(src, dst);
+    return legal;
+}
+
 } // namespace
 
 std::vector<std::unique_ptr<FsNode>> projectForest(const std::vector<const FsNode *> &roots,
@@ -152,17 +258,8 @@ std::vector<std::unique_ptr<FsNode>> projectForest(const std::vector<const FsNod
     for (const FsNode *r : roots)
         out.push_back(r ? deepCopy(r, nullptr, byKey) : nullptr);
 
-    for (const MoveOp &op : ops) {
-        const auto sit = byKey.constFind(op.source);
-        const auto dit = byKey.constFind(op.destParent);
-        if (sit == byKey.constEnd() || dit == byKey.constEnd())
-            continue; // op doesn't resolve against this forest
-        FsNode *src = sit.value();
-        FsNode *dst = dit.value();
-        if (checkMove(src, dst) != MoveLegality::Ok)
-            continue; // unresolved-to-illegal ops are skipped — replay never corrupts
-        applyMoveTo(src, dst);
-    }
+    for (const MoveOp &op : ops)
+        replayOne(op, byKey); // unresolved or illegal ops are skipped — replay never corrupts
     return out;
 }
 
@@ -176,20 +273,8 @@ std::vector<MoveLegality> replayLegality(const std::vector<const FsNode *> &root
 
     std::vector<MoveLegality> out;
     out.reserve(ops.size());
-    for (const MoveOp &op : ops) {
-        const auto sit = byKey.constFind(op.source);
-        const auto dit = byKey.constFind(op.destParent);
-        if (sit == byKey.constEnd() || dit == byKey.constEnd()) {
-            out.push_back(MoveLegality::SameNode); // unresolved → the null-node verdict
-            continue;
-        }
-        FsNode *src = sit.value();
-        FsNode *dst = dit.value();
-        const MoveLegality legal = checkMove(src, dst);
-        out.push_back(legal);
-        if (legal == MoveLegality::Ok)
-            applyMoveTo(src, dst); // apply so later ops see the evolving tree
-    }
+    for (const MoveOp &op : ops)
+        out.push_back(replayOne(op, byKey)); // applied when legal, so later ops see it
     return out;
 }
 

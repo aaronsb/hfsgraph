@@ -7,6 +7,7 @@
 #include "core/groupstore_io.h"
 #include "core/scanner.h"
 #include "frameitem.h"
+#include "fileactions.h"
 #include "selection.h"
 #include "treemapitem.h"
 
@@ -141,6 +142,7 @@ double collectDirStats(const core::FsNode &n, bool byBytes, bool isRoot,
 
 GraphScene::GraphScene(QObject *parent) : QGraphicsScene(parent) {
     m_selection = new Selection(this);
+    m_fileActions = new FileActions(this, this);
     connect(m_selection, &Selection::changed, this, [this] {
         for (FrameItem *f : m_frames)
             f->update(); // highlights are painted by every surface
@@ -433,6 +435,59 @@ void GraphScene::endMoveDrag(bool drop) {
         Q_EMIT ledgerChanged();   // the queue dock re-lists the staged ops
         Q_EMIT surfacesChanged(); // refresh the dock/status against the new projection
     });
+}
+
+bool GraphScene::stageFileOp(core::MoveOp op) {
+    // Judge against what the user sees: the current projection (the scanned sources
+    // when nothing is staged). Replay re-judges in order anyway; this keeps an
+    // illegal op out of the queue instead of showing it skipped.
+    QHash<core::MemberKey, const core::FsNode *> index;
+    for (FrameItem *b : baseFrames())
+        indexByKey(b->node(), index);
+    const core::FsNode *dir = index.value(op.source, nullptr);
+    const core::FsNode *dst =
+        op.kind == core::OpKind::MoveFile ? index.value(op.destParent, nullptr) : nullptr;
+    if (!dir || core::checkFileOp(op, dir, dst) != core::MoveLegality::Ok)
+        return false;
+    op.sourceName = op.fileName;
+    m_ledger.append(op);
+    m_selection->clear(); // the entry's name/location is about to change in the view
+    QTimer::singleShot(0, this, [this] {
+        rebuildProjection();
+        Q_EMIT ledgerChanged();
+        Q_EMIT surfacesChanged();
+    });
+    return true;
+}
+
+bool GraphScene::stageRename(const core::MemberKey &dir, const QString &name,
+                             const QString &newName) {
+    core::MoveOp op;
+    op.kind = core::OpKind::RenameFile;
+    op.source = dir;
+    op.fileName = name;
+    op.newName = newName;
+    return stageFileOp(op);
+}
+
+bool GraphScene::stageTrash(const core::MemberKey &dir, const QString &name) {
+    core::MoveOp op;
+    op.kind = core::OpKind::TrashFile;
+    op.source = dir;
+    op.fileName = name;
+    return stageFileOp(op);
+}
+
+bool GraphScene::stageMoveFile(const core::MemberKey &dir, const QString &name,
+                               const core::FsNode *dest) {
+    if (!dest)
+        return false;
+    core::MoveOp op;
+    op.kind = core::OpKind::MoveFile;
+    op.source = dir;
+    op.fileName = name;
+    op.destParent = core::keyFor(*dest);
+    return stageFileOp(op);
 }
 
 void GraphScene::undoMove() {

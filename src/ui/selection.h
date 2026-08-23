@@ -46,6 +46,12 @@ class Selection : public QObject {
 
     // file:// URLs of the selection, for drag-out (text/uri-list).
     QList<QUrl> urls() const;
+    // The selection as (directory key, name) pairs — what a staged op needs.
+    struct Entry {
+        core::MemberKey dir;
+        QString name;
+    };
+    std::vector<Entry> entries() const;
 
   Q_SIGNALS:
     void changed();
